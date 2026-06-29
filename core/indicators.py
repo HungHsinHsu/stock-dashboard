@@ -21,7 +21,7 @@ def _last(series):
 def compute_indicators(df: pd.DataFrame, supports: dict) -> dict:
     close = df["Close"]
     last_close = _last(close)
-    prev_close = float(close.iloc[-2]) if len(close) >= 2 else None
+    prev_close = _last(close.iloc[:-1]) if len(close) >= 2 else None
     ma20 = _last(df["MA20"]) if "MA20" in df else _last(close.rolling(20).mean())
     vol = _last(df["Volume"])
     vol_ma20 = _last(df["Volume"].rolling(20).mean())
