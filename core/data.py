@@ -54,7 +54,7 @@ def fetch_daily(code, months=6, today=None):
         except Exception:
             continue
     if not frames:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume", "MA20"])
     df = (
         pd.DataFrame(frames)
         .drop_duplicates("Date")
