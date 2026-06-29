@@ -1,12 +1,14 @@
-from core.data import fetch_daily, STOCKS
+from core.data import fetch_daily, fetch_index, STOCKS
 from core.indicators import compute_indicators
 from core.predict import make_prediction, format_prediction, PREDICTION_SCHEMA  # noqa: F401
+from core.market import market_summary
 from core.llm import generate_json
 from core.store import load_history, save_history, upsert_record, HISTORY_PATH
 import core.telegram as tg
 
 
-def run(today=None, llm=generate_json, fetch=fetch_daily, notify=None):
+def run(today=None, llm=generate_json, fetch=fetch_daily,
+        fetch_idx=fetch_index, notify=None):
     name, cfg = next(iter(STOCKS.items()))
     df = fetch(cfg["code"], today=today)
 
@@ -16,7 +18,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, notify=None):
 
     date = str(df.index[-1].date()) if today is None else str(today.date())
     indicators = compute_indicators(df, cfg["supports"])
-    prediction = make_prediction(indicators, name, llm=llm)
+    market = market_summary(fetch_idx(today=today))
+    prediction = make_prediction(indicators, name, market=market, llm=llm)
 
     record = {
         "date": date,
@@ -40,7 +43,8 @@ if __name__ == "__main__":
             print("資料缺漏")
         else:
             ind = compute_indicators(df, cfg["supports"])
-            pred = make_prediction(ind, name)
+            market = market_summary(fetch_index())
+            pred = make_prediction(ind, name, market=market)
             print(format_prediction(name, str(df.index[-1].date()), pred))
     else:
         run()
