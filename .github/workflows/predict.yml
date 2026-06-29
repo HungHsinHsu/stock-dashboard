@@ -43,10 +43,15 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ ! -f history/predictions.json ]; then
+            echo "No history file produced (job may have skipped); nothing to commit."
+            exit 0
+          fi
           git add history/predictions.json
           if git diff --staged --quiet; then
             echo "No changes"
           else
             git commit -m "Chore: 更新預測/復盤紀錄 [skip ci]"
-            git push
+            git pull --rebase origin main
+            git push origin HEAD:main
           fi
