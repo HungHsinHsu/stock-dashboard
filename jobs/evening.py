@@ -1,12 +1,13 @@
-from core.data import fetch_daily, STOCKS
+from core.data import fetch_daily, fetch_index, STOCKS
 from core.indicators import compute_indicators
+from core.market import market_summary
 from core.review import judge, make_review, format_review, hit_rate
 from core.llm import generate_json
 from core.store import load_history, save_history, upsert_record, get_record, HISTORY_PATH
 import core.telegram as tg
 
 
-def run(today=None, llm=generate_json, fetch=fetch_daily):
+def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index):
     name, cfg = next(iter(STOCKS.items()))
     df = fetch(cfg["code"], today=today)
     if df.empty:
@@ -29,7 +30,9 @@ def run(today=None, llm=generate_json, fetch=fetch_daily):
         today_ma20=indicators["ma20"],
         support1=s1,
     )
-    review = make_review(rec["prediction"], judged, indicators, name, llm=llm)
+    market = market_summary(fetch_idx(today=today))
+    review = make_review(rec["prediction"], judged, indicators, name,
+                         market=market, llm=llm)
     rec["review"] = review
     records = upsert_record(records, rec)
     save_history(records, HISTORY_PATH)
@@ -56,7 +59,9 @@ if __name__ == "__main__":
                 s1 = cfg["supports"]["支撐1 (短期)"]
                 judged = judge(rec["prediction"], ind["close"],
                                ind["prev_close"], ind["ma20"], s1)
-                review = make_review(rec["prediction"], judged, ind, name)
+                market = market_summary(fetch_index())
+                review = make_review(rec["prediction"], judged, ind, name,
+                                     market=market)
                 print(format_review(name, date, review,
                                     hit_rate(load_history(HISTORY_PATH))))
     else:

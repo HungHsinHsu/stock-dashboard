@@ -12,6 +12,7 @@ _SYSTEM = (
     "你是台股技術分析助手。早盤的預測在收盤後被驗證為失敗。"
     "請根據當天的技術指標，分析『為什麼預測會錯』，"
     "例如量價背離、假突破、大盤拖累等，給出具體檢討。"
+    "檢討時請一併參考當日大盤(加權指數)走勢,例如大盤拖累或大盤帶動。"
 )
 
 
@@ -44,8 +45,10 @@ def hit_rate(records):
     return round(sum(1 for v in vals if v) / len(vals), 2)
 
 
-def make_review(prediction, judged, indicators, stock_name, llm=generate_json):
+def make_review(prediction, judged, indicators, stock_name,
+                market=None, llm=generate_json):
     review = dict(judged)
+    review["market"] = market
     if judged["success"]:
         review["critique"] = None
         return review
@@ -53,7 +56,8 @@ def make_review(prediction, judged, indicators, stock_name, llm=generate_json):
         f"股票：{stock_name}\n"
         f"原預測：{json.dumps(prediction, ensure_ascii=False)}\n"
         f"實際結果：{json.dumps(judged, ensure_ascii=False)}\n"
-        f"當日指標：{json.dumps(indicators, ensure_ascii=False)}"
+        f"當日指標：{json.dumps(indicators, ensure_ascii=False)}\n"
+        f"當日大盤：{json.dumps(market, ensure_ascii=False)}"
     )
     review["critique"] = llm(_SYSTEM, user, CRITIQUE_SCHEMA)["critique"]
     return review
@@ -73,6 +77,11 @@ def format_review(stock_name, date, review, rate):
         f"站穩MA20 {mark(r['hold_ma20'])}　守住支撐1 {mark(r['hold_support1'])}",
         f"本日預測：{'命中 ✅' if review['success'] else '未中 ❌'}",
     ]
+    mk = review.get("market") or {}
+    if mk.get("direction"):
+        pct = mk.get("pct")
+        pct_txt = f" {pct:+.2f}%" if isinstance(pct, (int, float)) else ""
+        lines.append(f"大盤：{mk['direction']}{pct_txt}")
     if rate is not None:
         lines.append(f"歷史方向命中率：{rate * 100:.0f}%")
     if review.get("critique"):

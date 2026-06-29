@@ -48,6 +48,45 @@ def test_make_review_failure_calls_llm():
     assert out["critique"] == "量背離"
 
 
+def test_make_review_failure_calls_llm_with_market():
+    judged = {"success": False, "results": {}}
+    out = make_review({"reason": "r"}, judged, {"rsi14": 42}, "華邦電 (2344)",
+                      market={"direction": "跌"},
+                      llm=lambda s, u, sc: {"critique": "大盤拖累"})
+    assert out["critique"] == "大盤拖累"
+    assert out["market"]["direction"] == "跌"
+
+
+def test_make_review_success_no_critique_keeps_market():
+    judged = {"success": True, "results": {}}
+    out = make_review({}, judged, {}, "華邦電 (2344)",
+                      market={"direction": "漲"},
+                      llm=lambda s, u, sc: {"critique": "x"})
+    assert out["critique"] is None
+    assert out["market"]["direction"] == "漲"
+
+
+def test_format_review_shows_market():
+    review = {
+        "actual_close": 201.0, "prev_close": 203.0, "direction_actual": "跌",
+        "results": {"direction": True, "hold_ma20": True, "hold_support1": False},
+        "success": False, "critique": "大盤拖累",
+        "market": {"direction": "跌", "pct": -0.7, "above_ma20": False},
+    }
+    s = format_review("華邦電 (2344)", "2026-06-30", review, 0.6)
+    assert "大盤" in s and "復盤" in s
+
+
+def _idx_df(n=30):
+    import pandas as pd
+    closes = [float(45000 + i) for i in range(n)]
+    idx = pd.date_range("2026-05-01", periods=n, freq="D")
+    df = pd.DataFrame({"Open": closes, "High": closes, "Low": closes,
+                       "Close": closes}, index=idx)
+    df["MA20"] = df["Close"].rolling(20).mean()
+    return df
+
+
 def test_evening_run_updates_record(tmp_path, monkeypatch):
     hp = str(tmp_path / "h.json")
     save_history([{
@@ -71,7 +110,9 @@ def test_evening_run_updates_record(tmp_path, monkeypatch):
 
     rec = evening.run(today=pd.Timestamp("2026-06-30"),
                       llm=lambda s, u, sc: {"critique": "x"},
-                      fetch=lambda code, today=None: df)
+                      fetch=lambda code, today=None: df,
+                      fetch_idx=lambda today=None: _idx_df())
     assert rec is not None
     assert rec["review"]["actual_close"] == 201.0
+    assert rec["review"]["market"]["direction"] == "漲"
     assert "復盤" in sent["t"]
