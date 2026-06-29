@@ -6,12 +6,25 @@ import requests
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-from core.data import STOCKS as CORE_STOCKS, fetch_daily
+from core.data import STOCKS as CORE_STOCKS, fetch_daily, fetch_index
+from core.market import market_summary
 from core.store import load_history
 from core.review import hit_rate
 
 st.set_page_config(page_title="台股觀察儀表板", layout="centered", page_icon="📊")
 st.title("📊 台股觀察儀表板")
+
+
+@st.cache_data(ttl=3600)
+def load_index():
+    return market_summary(fetch_index())
+
+
+mkt = load_index()
+if mkt and mkt.get("close") is not None:
+    pct = mkt.get("pct")
+    delta = f"{pct:+.2f}%" if isinstance(pct, (int, float)) else None
+    st.metric("加權指數(大盤)", f"{mkt['close']:.2f}", delta)
 
 # 固定支撐位為手畫的水平支撐；MA20 改為即時計算的動態均線（不再寫死）。
 STOCKS = CORE_STOCKS
