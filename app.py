@@ -6,16 +6,15 @@ import requests
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
+from core.data import STOCKS as CORE_STOCKS, fetch_daily
+from core.store import load_history
+from core.review import hit_rate
+
 st.set_page_config(page_title="台股觀察儀表板", layout="centered", page_icon="📊")
 st.title("📊 台股觀察儀表板")
 
 # 固定支撐位為手畫的水平支撐；MA20 改為即時計算的動態均線（不再寫死）。
-STOCKS = {
-    "華邦電 (2344)": {
-        "code": "2344",
-        "supports": {"支撐1 (短期)": 222, "支撐3 (長期)": 142},
-    },
-}
+STOCKS = CORE_STOCKS
 
 # 選股放主畫面頂端：手機側邊欄預設收合，主畫面比較好點。
 choice = st.selectbox("選擇股票", list(STOCKS.keys()))
@@ -26,40 +25,7 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (stock-dashboard)"}
 
 @st.cache_data(ttl=3600)
 def load(code):
-    frames = []
-    today = datetime.today()
-    for i in range(6):  # 抓最近6個月
-        d = today - relativedelta(months=i)
-        ym = d.strftime("%Y%m01")
-        url = f"https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date={ym}&stockNo={code}"
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=10)
-            j = r.json()
-            if j.get("stat") != "OK" or "data" not in j:
-                continue
-            for row in j["data"]:
-                # row: 日期, 成交股數, 成交金額, 開盤, 最高, 最低, 收盤, 漲跌, 成交筆數
-                try:
-                    parts = row[0].split("/")
-                    y = int(parts[0]) + 1911
-                    date = pd.Timestamp(f"{y}-{parts[1]}-{parts[2]}")
-                    frames.append({
-                        "Date": date,
-                        "Open": float(row[3].replace(",", "")),
-                        "High": float(row[4].replace(",", "")),
-                        "Low": float(row[5].replace(",", "")),
-                        "Close": float(row[6].replace(",", "")),
-                        "Volume": float(row[1].replace(",", "")),
-                    })
-                except (ValueError, IndexError):
-                    continue
-        except Exception:
-            continue
-    if not frames:
-        return pd.DataFrame()
-    df = pd.DataFrame(frames).drop_duplicates("Date").sort_values("Date").set_index("Date")
-    df["MA20"] = df["Close"].rolling(20).mean()
-    return df
+    return fetch_daily(code)
 
 
 df = load(cfg["code"])
@@ -143,3 +109,29 @@ else:
         st.error("跌破支撐3，重新評估。")
 
     st.caption("資料來源：台灣證交所 TWSE（盤後）。進場判斷仍須看收盤確認，本工具僅供觀察。")
+
+st.divider()
+tab_hist, = st.tabs(["📒 預測歷史"])
+with tab_hist:
+    records = [r for r in load_history() if r.get("stock") == cfg["code"]]
+    if not records:
+        st.info("尚無預測紀錄。GitHub Actions 跑過開盤/收盤後會出現。")
+    else:
+        rate = hit_rate(records)
+        if rate is not None:
+            st.metric("方向命中率", f"{rate * 100:.0f}%")
+        rows = []
+        for r in sorted(records, key=lambda x: x["date"], reverse=True):
+            p = r.get("prediction") or {}
+            rv = r.get("review") or {}
+            res = rv.get("results") or {}
+            rows.append({
+                "日期": r["date"],
+                "訊號": p.get("signal", "—"),
+                "預測方向": p.get("direction", "—"),
+                "實際方向": rv.get("direction_actual", "—"),
+                "方向命中": "✅" if res.get("direction") else (
+                    "❌" if rv else "—"),
+                "收盤": rv.get("actual_close", "—"),
+            })
+        st.dataframe(rows, use_container_width=True, hide_index=True)
