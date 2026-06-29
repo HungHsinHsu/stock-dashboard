@@ -48,5 +48,5 @@ def test_generate_json_parses():
 
 def test_generate_json_refusal_raises():
     client = _Client(_Resp("", stop_reason="refusal"))
-    with pytest.raises(LLMError):
+    with pytest.raises(LLMError, match="refused"):
         generate_json("sys", "user", SCHEMA, client=client)
