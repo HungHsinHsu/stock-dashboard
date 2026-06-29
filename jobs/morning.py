@@ -32,4 +32,15 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, notify=None):
 
 
 if __name__ == "__main__":
-    run()
+    import sys
+    if "--dry-run" in sys.argv:
+        name, cfg = next(iter(STOCKS.items()))
+        df = fetch_daily(cfg["code"])
+        if df.empty:
+            print("資料缺漏")
+        else:
+            ind = compute_indicators(df, cfg["supports"])
+            pred = make_prediction(ind, name)
+            print(format_prediction(name, str(df.index[-1].date()), pred))
+    else:
+        run()

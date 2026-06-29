@@ -39,4 +39,25 @@ def run(today=None, llm=generate_json, fetch=fetch_daily):
 
 
 if __name__ == "__main__":
-    run()
+    import sys
+    if "--dry-run" in sys.argv:
+        name, cfg = next(iter(STOCKS.items()))
+        df = fetch_daily(cfg["code"])
+        if df.empty:
+            print("資料缺漏")
+        else:
+            from core.store import load_history, get_record, HISTORY_PATH
+            date = str(df.index[-1].date())
+            rec = get_record(load_history(HISTORY_PATH), date)
+            if not rec:
+                print(f"找不到 {date} 的預測，無法 dry-run 復盤")
+            else:
+                ind = compute_indicators(df, cfg["supports"])
+                s1 = cfg["supports"]["支撐1 (短期)"]
+                judged = judge(rec["prediction"], ind["close"],
+                               ind["prev_close"], ind["ma20"], s1)
+                review = make_review(rec["prediction"], judged, ind, name)
+                print(format_review(name, date, review,
+                                    hit_rate(load_history(HISTORY_PATH))))
+    else:
+        run()
