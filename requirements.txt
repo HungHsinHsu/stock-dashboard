@@ -1,3 +1,4 @@
+# 2026-06-29 強制 Streamlit Cloud 重裝相依
 streamlit>=1.30
 pandas>=2.0
 plotly>=5.18
