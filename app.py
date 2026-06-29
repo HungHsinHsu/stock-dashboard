@@ -120,7 +120,7 @@ else:
         xaxis_rangeslider_visible=False,
         legend=dict(orientation="h", yanchor="bottom", y=1.0,
                     xanchor="left", x=0, font=dict(size=11)),
-        dragmode=False,
+        dragmode="zoom",
     )
     fig.update_yaxes(title_text="", row=1, col=1)
     fig.update_yaxes(title_text="量", row=2, col=1, title_font_size=10)
@@ -128,7 +128,8 @@ else:
 
     st.plotly_chart(
         fig, use_container_width=True,
-        config={"displayModeBar": False, "scrollZoom": False},
+        config={"displayModeBar": True, "displaylogo": False,
+                "scrollZoom": True},
     )
 
     s = cfg["supports"]
