@@ -128,7 +128,26 @@ def render_history(records, show_signal):
             "漲跌%": pct_txt,
         })
         rows.append(row)
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    df_tbl = pd.DataFrame(rows)
+
+    def _redgreen(col):
+        # 台股慣例：漲紅(#e63946)、跌綠(#2a9d8f)
+        out = []
+        for v in col:
+            t = str(v)
+            if t.startswith("+") or t == "漲":
+                out.append("color:#e63946")
+            elif t.startswith("-") or t == "跌":
+                out.append("color:#2a9d8f")
+            else:
+                out.append("")
+        return out
+
+    color_cols = [c for c in ("預測方向", "實際方向", "漲跌", "漲跌%")
+                  if c in df_tbl.columns]
+    styled = df_tbl.style.apply(_redgreen, subset=color_cols)
+    st.dataframe(styled, use_container_width=True, hide_index=True)
 
     # 檢討（預測失敗的教訓）
     crits = [r for r in ordered if (r.get("review") or {}).get("critique")]
