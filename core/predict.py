@@ -1,6 +1,7 @@
 import json
 from core.llm import generate_json
 from core.config import DASHBOARD_URL
+from core.rules import constrain_signal
 
 PREDICTION_SCHEMA = {
     "type": "object",
@@ -32,7 +33,10 @@ _SYSTEM = (
     "步驟：先分別整理『偏多訊號』與『偏空訊號』(bull_signals / bear_signals，"
     "每條都要引用具體指標數字)，再淨評估得出 direction 與 confidence。"
     "多空訊號相當或彼此矛盾時，confidence 給『低』、direction 取較可能的一方。\n"
-    "另給：進場訊號(進場/觀望/避開)、是否站穩 MA20、是否守住支撐1、白話總結理由。"
+    "另給：進場訊號(進場/觀望/避開)、是否站穩 MA20、是否守住支撐1、白話總結理由。\n"
+    "【進場紀律(signal 會被這些規則硬性夾住，請勿亂喊進場)】"
+    "・收盤跌破支撐3→避開；・破支撐1或跌破 MA20→最多觀望；"
+    "・站穩支撐1且站上 MA20 才可進場；・方向看跌或信心低→不進場。"
     "可驗證宣告以『今日收盤 vs 昨日收盤』為準。大盤(加權指數)趨勢一併納入考量。\n"
     "另提供【美股隔夜】四大指數(費半SOX/Nasdaq/標普500/道瓊)漲跌(%)。"
     "請依【本檔股票所屬產業】調整參考權重：半導體/IC 以費半(SOX)為主、"
@@ -51,6 +55,12 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
         f"美股隔夜四大指數漲跌(%)：\n{json.dumps(us_overnight, ensure_ascii=False)}"
     )
     pred = llm(_SYSTEM, user, PREDICTION_SCHEMA)
+    # 進場與否：規則為主、LLM 受限。把 LLM 的 signal 夾進紀律允許範圍。
+    final_signal, rule_note = constrain_signal(pred, indicators)
+    pred["signal_llm"] = pred.get("signal")     # 保留 LLM 原始判斷供對照
+    pred["signal"] = final_signal
+    if rule_note:
+        pred["signal_rule_note"] = rule_note
     pred["indicators"] = indicators
     pred["market"] = market
     return pred
@@ -73,6 +83,9 @@ def format_prediction(stock_name, date, prediction):
         f"🚦 訊號：{prediction['signal']}",
         f"🧭 方向：預期{prediction['direction']}{conf_txt}",
     ]
+    note = prediction.get("signal_rule_note")
+    if note:
+        lines.append(f"　（紀律調整：{note}）")
     bull = prediction.get("bull_signals") or []
     bear = prediction.get("bear_signals") or []
     if bull or bear:
