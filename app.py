@@ -121,6 +121,20 @@ def price_fig(df, supports=None, with_volume=True):
     return fig
 
 
+def _md_bullets(text):
+    """把檢討文字統一成 markdown 條列（避免全形「・」＋單換行被 markdown 擠成一坨）。"""
+    import re
+    if not isinstance(text, str) or not text.strip():
+        return text or ""
+    t = re.sub(r"[・•‧]", "\n", text)                 # 全形項目符號 → 換行
+    parts = [re.sub(r"^[\-\*\s　]+", "", p).strip()    # 去掉行首既有符號
+             for p in t.split("\n")]
+    parts = [p for p in parts if p]
+    if len(parts) <= 1:
+        return text                                   # 無法分點就原樣顯示
+    return "\n".join(f"- {p}" for p in parts)
+
+
 def render_history(records, show_signal):
     """預測歷史表（含復盤命中）。大盤與個股共用，差別只在是否顯示『訊號』欄。"""
     ordered = sorted(records, key=lambda x: x["date"], reverse=True)
@@ -184,7 +198,7 @@ def render_history(records, show_signal):
             title = (f"{r['date']}　預測{p.get('direction', '—')} → "
                      f"實際{rv.get('direction_actual', '—')} {hit}")
             with st.expander(title):
-                st.markdown(rv["critique"])
+                st.markdown(_md_bullets(rv["critique"]))
 
 
 tab_market, tab_stock = st.tabs(["🌐 大盤", "📈 個股"])
