@@ -170,7 +170,8 @@ with tab_market:
     if mkt and mkt.get("close") is not None:
         pct = mkt.get("pct")
         delta = f"{pct:+.2f}%" if isinstance(pct, (int, float)) else None
-        st.metric("加權指數(大盤)", f"{mkt['close']:.2f}", delta)
+        st.metric("加權指數(大盤)", f"{mkt['close']:.2f}", delta,
+                  delta_color="inverse")   # 台股漲紅跌綠
 
     records = load_records()
     mrecs = [r for r in records if r.get("stock") == "大盤"]
@@ -233,7 +234,8 @@ with tab_stock:
         ma20_last = df["MA20"].iloc[-1]
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("最新收盤", f"{last:.2f}", f"{chg:+.2f} ({pct:+.2f}%)")
+        c1.metric("最新收盤", f"{last:.2f}", f"{chg:+.2f} ({pct:+.2f}%)",
+                  delta_color="inverse")   # 台股漲紅跌綠
         c2.metric("最高(近期)", f"{df['High'].max():.2f}")
         c3.metric("最低(近期)", f"{df['Low'].min():.2f}")
 
