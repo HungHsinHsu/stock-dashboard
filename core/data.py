@@ -176,17 +176,22 @@ def fetch_foreign_flow(code, today=None, max_back=8):
         "date": 'YYYY-MM-DD'|None}。stopped=最近一日是否未賣超(>=0)。抓不到回 stopped=None。
     """
     today = today or datetime.today()
-    nets, last_date = [], None
+    nets, last_date, dbg = [], None, None
     d, checked = today, 0
     while len(nets) < 3 and checked < max_back:
         ymd = d.strftime("%Y%m%d")
         try:
-            j = requests.get(
+            resp = requests.get(
                 f"{T86_URL}?response=json&date={ymd}&selectType=ALL",
                 headers=HEADERS, timeout=15,
-            ).json()
-        except Exception:
+            )
+            j = resp.json()
+        except Exception as e:
+            dbg = f"{ymd} 例外 {type(e).__name__}: {e}"
             j = {}
+        else:
+            if j.get("stat") != "OK":
+                dbg = f"{ymd} stat={j.get('stat')!r} http={getattr(resp, 'status_code', '?')}"
         if j.get("stat") == "OK":
             net = _foreign_net_from_t86(j, code)
             if net is not None:
@@ -197,6 +202,7 @@ def fetch_foreign_flow(code, today=None, max_back=8):
         d -= timedelta(days=1)
         time.sleep(TWSE_DELAY)
     if not nets:
+        print(f"外資資料抓不到({code})：{dbg}")
         return {"net": None, "sold_streak": 0, "stopped": None, "date": None}
     streak = 0
     for n in nets:

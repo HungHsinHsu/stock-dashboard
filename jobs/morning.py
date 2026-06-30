@@ -69,7 +69,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
             "review": None,
         }
         records = upsert_record(records, record)
-        tg.send(format_prediction(name, date, prediction))
+        # 個股預測不自動推播，僅存檔；改由 Telegram /p 指令查詢、儀表板顯示。
         produced.append(record)
 
     if produced:

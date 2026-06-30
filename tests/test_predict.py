@@ -165,5 +165,5 @@ def test_morning_run_multiple_stocks(tmp_path, monkeypatch):
     )
     assert len(recs) == 2
     assert {r["stock"] for r in recs} == {"1111", "2222"}
-    assert sum("📈" in s for s in sends) == 2          # 兩檔各推一則
-    assert sum("加權指數" in s for s in sends) == 1     # 外加一則大盤預測
+    assert sum("📈" in s for s in sends) == 0          # 個股不自動推播
+    assert sum("加權指數" in s for s in sends) == 1     # 只自動推大盤預測

@@ -9,23 +9,62 @@ from core.watchlist import add_stock, remove_stock, effective_stocks
 from core.positions import (
     enter_batch, exit_position, held_positions, MAX_BATCHES,
 )
+from core.store import load_history
+from core.predict import format_prediction
 import core.telegram as tg
 
 STATE_PATH = "bot_state.json"
 
-HELP = (
-    "📋 股票清單指令（代號或中文名稱皆可）\n"
-    "/add 2330　或　/add 台積電　加入\n"
-    "　（可帶支撐：/add 2330 1000 850）\n"
-    "/remove 台積電　或　/remove 2330　移除\n"
-    "/list　目前清單\n"
-    "\n"
-    "📦 部位指令（回檔承接法分三批）\n"
-    "/in 2330　進一批（回報你已進場）\n"
-    "/out 2330　全數出場、清空部位\n"
-    "/pos　目前持有批數\n"
-    "/help　說明"
-)
+HELP = "\n".join([
+    "📋 指令清單（代號或中文名稱皆可）",
+    "",
+    "—— 查預測 ——",
+    "/p　今日全部個股預測摘要",
+    "/p 2330　單檔詳細預測",
+    "",
+    "—— 股票清單 ——",
+    "/add 2330　加入",
+    "/add 2330 1000 850　加入並設支撐",
+    "/remove 2330　移除",
+    "/list　目前清單",
+    "",
+    "—— 部位（回檔承接法分三批）——",
+    "/in 2330　進一批",
+    "/out 2330　出場清空",
+    "/pos　目前持有批數",
+    "",
+    "/help　說明",
+])
+
+
+def _git_pull():
+    """讀預測前先把 main 上最新的 history 拉下來（morning 會 commit 預測）。"""
+    ref = os.environ.get("GITHUB_REF_NAME", "main")
+    try:
+        subprocess.run(["git", "pull", "--rebase", "origin", ref], check=False)
+    except Exception as e:
+        print("git pull 失敗：", e)
+
+
+def _name_for(code):
+    for n, cfg in effective_stocks().items():
+        if cfg.get("code") == str(code):
+            return n
+    return f"({code})"
+
+
+def _latest_for(records, code):
+    recs = [r for r in records if r.get("stock") == str(code) and r.get("prediction")]
+    return max(recs, key=lambda r: r.get("date", ""), default=None)
+
+
+def _summary_line(name, rec):
+    p = rec.get("prediction") or {}
+    conf = p.get("confidence")
+    conf_txt = f"({conf})" if conf else ""
+    bt = p.get("batches")
+    bt_txt = f"｜{bt}/3批" if isinstance(bt, int) else ""
+    return f"・{name}：{p.get('signal', '—')}｜預期{p.get('direction', '—')}{conf_txt}{bt_txt}"
 
 
 def _resolve_one(query):
@@ -144,6 +183,30 @@ def handle(text):
             return "📦 目前沒有任何部位。"
         return "📦 目前部位：\n" + "\n".join(
             f"・{c}：{b}/{MAX_BATCHES} 批" for c, b in held.items())
+    if cmd in ("p", "predict", "pred"):
+        _git_pull()
+        records = load_history()
+        if not records:
+            return "目前沒有預測紀錄（開盤後才會產生）。"
+        if args:                                  # 單檔詳細
+            code, disp = _resolve_one(args[0])
+            if code is None:
+                return disp
+            rec = _latest_for(records, code)
+            if rec is None:
+                return f"{disp} 目前沒有預測紀錄。"
+            return format_prediction(_name_for(code), rec["date"], rec["prediction"])
+        # 無參數 → 清單內各股摘要
+        lines = ["📋 今日各股預測摘要（詳細：/p 代號）"]
+        any_rec = False
+        for name, cfg in effective_stocks().items():
+            rec = _latest_for(records, cfg["code"])
+            if rec:
+                any_rec = True
+                lines.append(_summary_line(name, rec))
+        if not any_rec:
+            return "目前清單內的股票都還沒有預測紀錄。"
+        return "\n".join(lines)
     return "不認得的指令。傳 /help 看用法。"
 
 

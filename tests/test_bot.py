@@ -29,3 +29,44 @@ def test_in_caps_at_three(monkeypatch, tmp_path):
 
 def test_help_lists_position_commands():
     assert "/in" in bot.HELP and "/out" in bot.HELP and "/pos" in bot.HELP
+    assert "/p" in bot.HELP
+
+
+def test_help_one_command_per_line():
+    # 每行最多一個指令（一個 "/"），不會把多個指令擠在同一行
+    for line in bot.HELP.splitlines():
+        assert line.count("/") <= 1
+
+
+_REC = {"date": "2026-06-30", "stock": "2344",
+        "prediction": {"signal": "觀望", "direction": "跌", "confidence": "中",
+                       "bull_signals": [], "bear_signals": ["跌破支撐"],
+                       "hold_ma20": False, "hold_support1": False, "reason": "量縮",
+                       "indicators": {"close": 206.0, "ma20": 210.0},
+                       "market": None, "batches": 1}}
+
+
+def _wire_predict(monkeypatch):
+    monkeypatch.setattr(bot, "_git_pull", lambda: None)
+    monkeypatch.setattr(bot, "load_history", lambda: [_REC])
+    monkeypatch.setattr(bot, "effective_stocks",
+                        lambda: {"華邦電 (2344)": {"code": "2344"}})
+
+
+def test_p_single_stock_detail(monkeypatch):
+    _wire_predict(monkeypatch)
+    monkeypatch.setattr(bot, "resolve_stocks", lambda q: [("2344", "華邦電")])
+    out = bot.handle("/p 2344")
+    assert "華邦電" in out and "觀望" in out and "1/3" in out  # 詳細卡＋部位
+
+
+def test_p_no_arg_summary(monkeypatch):
+    _wire_predict(monkeypatch)
+    out = bot.handle("/p")
+    assert "摘要" in out and "華邦電" in out and "觀望" in out
+
+
+def test_p_no_records(monkeypatch):
+    monkeypatch.setattr(bot, "_git_pull", lambda: None)
+    monkeypatch.setattr(bot, "load_history", lambda: [])
+    assert "沒有預測紀錄" in bot.handle("/p")
