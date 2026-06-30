@@ -127,7 +127,7 @@ def _join_note(note, extra):
     return (note + "；" + extra) if note else extra
 
 
-def format_prediction(stock_name, date, prediction):
+def format_prediction(stock_name, date, prediction, forecast=False):
     ind = prediction.get("indicators", {})
     ma20 = ind.get("ma20")
     ma20_txt = f"（{ma20:.1f}）" if isinstance(ma20, (int, float)) else ""
@@ -137,9 +137,12 @@ def format_prediction(stock_name, date, prediction):
 
     conf = prediction.get("confidence")
     conf_txt = f"（信心{conf}）" if conf else ""
+    head = "下一交易日開盤前預測" if forecast else "開盤前預測"
+    date_line = (f"🗓 依 {date} 收盤試算　→　預測下一個交易日"
+                 if forecast else f"🗓 {date}")
     lines = [
-        f"📈 {stock_name}｜開盤前預測",
-        f"🗓 {date}",
+        f"📈 {stock_name}｜{head}",
+        date_line,
         "",
         f"🚦 訊號：{prediction['signal']}",
         f"🧭 方向：預期{prediction['direction']}{conf_txt}",
@@ -226,14 +229,17 @@ def make_market_prediction(index_indicators, us_overnight, market_data,
     return out
 
 
-def format_market_prediction(date, pred):
+def format_market_prediction(date, pred, forecast=False):
     us = pred.get("us_overnight") or {}
     mk = pred.get("market_data") or {}
     conf = pred.get("confidence")
     conf_txt = f"（信心{conf}）" if conf else ""
+    head = "下一交易日開盤前預測" if forecast else "開盤前預測"
+    date_line = (f"🗓 依 {date} 收盤試算　→　預測下一個交易日"
+                 if forecast else f"🗓 {date}")
     lines = [
-        "🌐 加權指數｜開盤前預測",
-        f"🗓 {date}",
+        f"🌐 加權指數｜{head}",
+        date_line,
         "",
         f"🔮 預測開盤方向：{pred.get('direction', '—')}{conf_txt}",
     ]

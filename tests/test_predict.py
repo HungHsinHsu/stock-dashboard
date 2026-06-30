@@ -82,6 +82,29 @@ def test_make_and_format_market_prediction():
     assert "預測開盤方向" in s and "大盤昨收" in s
 
 
+def test_format_prediction_forecast_labels_basis_date():
+    pred = {
+        "signal": "觀望", "direction": "漲", "confidence": "中",
+        "bull_signals": [], "bear_signals": [], "hold_ma20": True,
+        "hold_support1": False, "reason": "x",
+        "indicators": {"close": 203.0, "ma20": 186.5}, "market": None,
+    }
+    s = format_prediction("台積電 (2330)", "2026-06-30", pred, forecast=True)
+    assert "下一交易日" in s and "依 2026-06-30 收盤試算" in s
+    # 一般(早盤)模式仍只顯示日期、不加基準說明
+    s2 = format_prediction("台積電 (2330)", "2026-06-30", pred)
+    assert "收盤試算" not in s2
+
+
+def test_format_market_prediction_forecast_labels_basis_date():
+    out = make_market_prediction(
+        {"ma20": 45000}, {"費半SOX": 1.8}, {"direction": "跌", "pct": -0.5},
+        taifex_night=None, llm=_fake_llm,
+    )
+    s = format_market_prediction("2026-06-30", out, forecast=True)
+    assert "下一交易日" in s and "依 2026-06-30 收盤試算" in s
+
+
 def test_format_prediction_no_market_ok():
     pred = {
         "signal": "觀望", "direction": "跌", "hold_ma20": False,

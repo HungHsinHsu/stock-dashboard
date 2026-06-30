@@ -123,8 +123,9 @@ def _forecast_market():
     ind = compute_indicators(idx_df, {})
     mpred = make_market_prediction(ind, us, market, tf,
                                    lessons=lessons_prompt(load_history(), "大盤"))
-    card = format_market_prediction(str(idx_df.index[-1].date()), mpred)
-    return "🔮 即時試算（依最新收盤、預判下一交易日）\n\n" + card
+    card = format_market_prediction(str(idx_df.index[-1].date()), mpred,
+                                    forecast=True)
+    return "🔮 即時試算\n\n" + card
 
 
 def _forecast_stock(code, name, supports):
@@ -139,8 +140,8 @@ def _forecast_stock(code, name, supports):
     pred = make_prediction(ind, name, market=market, us_overnight=us, code=code,
                            foreign=foreign, batches=get_batches(code),
                            lessons=lessons_prompt(load_history(), code))
-    card = format_prediction(name, str(df.index[-1].date()), pred)
-    return "🔮 即時試算（依最新收盤、預判下一交易日）\n\n" + card
+    card = format_prediction(name, str(df.index[-1].date()), pred, forecast=True)
+    return "🔮 即時試算\n\n" + card
 
 
 def _resolve_in_watchlist(query):
