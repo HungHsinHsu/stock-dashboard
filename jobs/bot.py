@@ -20,6 +20,7 @@ from core.predict import (
     format_prediction, format_market_prediction,
 )
 from core.lessons import lessons_prompt
+from core import db
 import core.telegram as tg
 
 STATE_PATH = "bot_state.json"
@@ -76,6 +77,8 @@ def register_commands(token):
 
 def _git_pull():
     """讀預測前先把 main 上最新的 history 拉下來（morning 會 commit 預測）。"""
+    if db.db_enabled():
+        return                                    # 資料在 DB，不需拉 git
     ref = os.environ.get("GITHUB_REF_NAME", "main")
     try:
         subprocess.run(["git", "pull", "--rebase", "origin", ref], check=False)
@@ -152,6 +155,8 @@ def _ambiguous(query, matches):
 
 
 def _load_offset(path=STATE_PATH):
+    if db.db_enabled():
+        return db.get_state("bot_offset", 0) or 0
     if not os.path.exists(path):
         return 0
     try:
@@ -162,6 +167,9 @@ def _load_offset(path=STATE_PATH):
 
 
 def _save_offset(offset, path=STATE_PATH):
+    if db.db_enabled():
+        db.set_state("bot_offset", offset)
+        return
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"offset": offset}, f)
 
@@ -327,6 +335,8 @@ def _process(updates, chat_id):
 
 def _commit_push():
     """把 watchlist/state 變更 commit & push 回分支（在 Actions runner 內）。"""
+    if db.db_enabled():
+        return                                    # 資料已寫進 DB，不必 commit
     ref = os.environ.get("GITHUB_REF_NAME", "main")
     files = [f for f in ("watchlist.json", "positions.json", STATE_PATH)
              if os.path.exists(f)]
@@ -355,6 +365,7 @@ def run(loop=False):
     if not token or not chat_id:
         print("缺 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID")
         return
+    db.migrate_from_json()     # DB 首次啟用時匯入舊 JSON（無 DB 則 no-op）
     register_commands(token)   # 更新 Telegram 指令選單
     offset = _load_offset()
 

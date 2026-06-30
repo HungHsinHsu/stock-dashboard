@@ -2,12 +2,15 @@ import json
 import os
 
 from core.data import STOCKS as BASE_STOCKS
+from core import db
 
 WATCHLIST_PATH = "watchlist.json"
 
 
 def load_watchlist(path=WATCHLIST_PATH):
     """回 dict：{code: {"name": ..., "supports": {...}?}}；不存在回 {}。"""
+    if db.db_enabled():
+        return db.load_watchlist()
     if not os.path.exists(path):
         return {}
     with open(path, encoding="utf-8") as f:
@@ -15,6 +18,9 @@ def load_watchlist(path=WATCHLIST_PATH):
 
 
 def save_watchlist(d, path=WATCHLIST_PATH):
+    if db.db_enabled():
+        db.save_watchlist(d)
+        return
     with open(path, "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False, indent=2)
 

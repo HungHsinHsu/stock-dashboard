@@ -1,10 +1,14 @@
 import json
 import os
 
+from core import db
+
 HISTORY_PATH = "history/predictions.json"
 
 
 def load_history(path=HISTORY_PATH):
+    if db.db_enabled():
+        return db.load_predictions()
     if not os.path.exists(path):
         return []
     with open(path, encoding="utf-8") as f:
@@ -12,6 +16,9 @@ def load_history(path=HISTORY_PATH):
 
 
 def save_history(records, path=HISTORY_PATH):
+    if db.db_enabled():
+        db.save_predictions(records)
+        return
     d = os.path.dirname(str(path))
     if d:
         os.makedirs(d, exist_ok=True)

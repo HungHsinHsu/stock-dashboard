@@ -5,3 +5,4 @@ plotly>=5.18
 requests>=2.31
 python-dateutil>=2.8
 claude-agent-sdk>=0.2
+psycopg2-binary>=2.9

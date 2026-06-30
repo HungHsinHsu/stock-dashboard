@@ -8,11 +8,15 @@ import json
 import os
 from datetime import datetime
 
+from core import db
+
 POSITIONS_PATH = "positions.json"
 MAX_BATCHES = 3
 
 
 def load_positions(path=POSITIONS_PATH):
+    if db.db_enabled():
+        return db.load_positions()
     if not os.path.exists(path):
         return {}
     try:
@@ -24,6 +28,9 @@ def load_positions(path=POSITIONS_PATH):
 
 
 def save_positions(positions, path=POSITIONS_PATH):
+    if db.db_enabled():
+        db.save_positions(positions)
+        return
     with open(path, "w", encoding="utf-8") as f:
         json.dump(positions, f, ensure_ascii=False, indent=2)
 

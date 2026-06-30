@@ -21,6 +21,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         fetch_idx=fetch_index, notify=None, stocks=None,
         fetch_us=fetch_us_overnight, fetch_tf=fetch_taifex,
         fetch_fg=fetch_foreign_flow):
+    from core import db
+    db.migrate_from_json()     # DB 首次啟用時匯入舊 JSON（無 DB 則 no-op）
     stocks = effective_stocks() if stocks is None else stocks
     # 預測以「執行當日」為標籤(今日開盤前預測)，供當日收盤復盤對得上。
     run_date = str(today.date()) if today is not None else str(datetime.today().date())

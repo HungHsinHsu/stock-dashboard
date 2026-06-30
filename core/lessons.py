@@ -11,12 +11,15 @@ import json
 import os
 
 from core.review import hit_rate
+from core import db
 
 LESSONS_PATH = "lessons.json"
 MAX_LESSONS = 30
 
 
 def load_lessons(path=None):
+    if db.db_enabled():
+        return db.load_lessons()
     path = path or LESSONS_PATH
     if not os.path.exists(path):
         return []
@@ -29,6 +32,9 @@ def load_lessons(path=None):
 
 
 def save_lessons(lessons, path=None):
+    if db.db_enabled():
+        db.save_lessons(lessons[-MAX_LESSONS:])
+        return
     path = path or LESSONS_PATH
     with open(path, "w", encoding="utf-8") as f:
         json.dump(lessons[-MAX_LESSONS:], f, ensure_ascii=False, indent=2)

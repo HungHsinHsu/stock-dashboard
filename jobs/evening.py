@@ -14,6 +14,8 @@ from datetime import datetime
 
 
 def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index, stocks=None):
+    from core import db
+    db.migrate_from_json()     # DB 首次啟用時匯入舊 JSON（無 DB 則 no-op）
     stocks = effective_stocks() if stocks is None else stocks
     # 復盤對「執行當日」這天的開盤預測；需確認當日收盤資料已發布才結算。
     date = str(today.date()) if today is not None else str(datetime.today().date())

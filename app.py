@@ -1,7 +1,15 @@
+import os
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+# 把 Streamlit secret 的 DATABASE_URL 橋接成環境變數，讓 core.db 跟 Actions 一致
+try:
+    if st.secrets.get("DATABASE_URL"):
+        os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
+except Exception:
+    pass
 
 from core.data import fetch_daily, fetch_index
 from core.watchlist import effective_stocks
@@ -21,6 +29,19 @@ def load_index_df():
 @st.cache_data(ttl=3600)
 def load_stock_df(code):
     return fetch_daily(code, months=18)
+
+
+@st.cache_resource
+def _migrate_once():
+    try:
+        from core import db
+        db.migrate_from_json()      # DB 啟用且為空時匯入舊 JSON；無 DB 則 no-op
+    except Exception as e:
+        print("migrate skipped:", e)
+    return True
+
+
+_migrate_once()
 
 
 @st.cache_data(ttl=1800)
