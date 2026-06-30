@@ -36,6 +36,36 @@ def judge(prediction, today_close, prev_close, today_ma20, support1=None):
     }
 
 
+def judge_market(prediction, today_close, prev_close):
+    """大盤只驗方向（漲/跌），無 MA20/支撐概念。"""
+    direction_actual = "漲" if today_close >= prev_close else "跌"
+    hit = prediction.get("direction") == direction_actual
+    return {
+        "actual_close": today_close,
+        "prev_close": prev_close,
+        "direction_actual": direction_actual,
+        "results": {"direction": hit},
+        "success": hit,
+    }
+
+
+def format_market_review(date, review, rate):
+    chg = review["actual_close"] - review["prev_close"]
+    trend = "📈" if chg >= 0 else "📉"
+    lines = [
+        "🌐 加權指數｜收盤復盤",
+        f"🗓 {date}",
+        "",
+        f"{trend} 收盤：{review['actual_close']:.2f}（{chg:+.2f}）",
+        f"🎯 預測方向：{'命中 ✅' if review['success'] else '未中 ❌'}"
+        f"（實際{review['direction_actual']}）",
+    ]
+    if rate is not None:
+        lines += ["", f"📊 大盤方向命中率：{rate * 100:.0f}%"]
+    lines += ["", f"🔗 看圖表：{DASHBOARD_URL}"]
+    return "\n".join(lines)
+
+
 def hit_rate(records):
     vals = [
         r["review"]["results"]["direction"]
