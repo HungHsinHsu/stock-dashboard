@@ -43,6 +43,56 @@ def fetch_stock_name(code, today=None):
     return None
 
 
+def fetch_stock_list():
+    """全部上市股票對照 {code: name}；雙來源備援，失敗回 {}。"""
+    out = {}
+    # 1) OpenAPI 每日快照（節假日通常仍回最後交易日）
+    try:
+        data = requests.get(
+            "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+            headers=HEADERS, timeout=15,
+        ).json()
+        for row in data:
+            c, n = row.get("Code"), row.get("Name")
+            if c and n:
+                out[str(c).strip()] = str(n).strip()
+    except Exception:
+        pass
+    if out:
+        return out
+    # 2) 後備：www data-rows（row[0]=代號, row[1]=名稱）
+    try:
+        j = requests.get(
+            "https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json",
+            headers=HEADERS, timeout=15,
+        ).json()
+        for row in j.get("data", []):
+            try:
+                c, n = str(row[0]).strip(), str(row[1]).strip()
+            except (IndexError, TypeError):
+                continue
+            if c and n:
+                out[c] = n
+    except Exception:
+        pass
+    return out
+
+
+def resolve_stocks(query, listing=None):
+    """以代號或中文名稱解析股票，回 [(code, name), ...]（0=找不到 / 1=唯一 / 多=需釐清）。"""
+    q = (query or "").strip()
+    if not q:
+        return []
+    listing = fetch_stock_list() if listing is None else listing
+    if q.isdigit():
+        name = listing.get(q) or fetch_stock_name(q)
+        return [(q, name)] if name else []
+    exact = [(c, n) for c, n in listing.items() if n == q]
+    if exact:
+        return exact
+    return [(c, n) for c, n in listing.items() if q in n]
+
+
 def parse_twse_json(j):
     """把 TWSE STOCK_DAY 回應轉成 list[dict]；非 OK 或無 data 回 []。"""
     if j.get("stat") != "OK" or "data" not in j:

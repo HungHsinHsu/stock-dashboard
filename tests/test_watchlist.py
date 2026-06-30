@@ -1,6 +1,7 @@
 from core.watchlist import (
     add_stock, remove_stock, load_watchlist, effective_stocks,
 )
+from core.data import resolve_stocks
 import jobs.bot as bot
 
 
@@ -38,10 +39,22 @@ def test_bot_help_and_list():
     assert "華邦電 (2344)" in bot.handle("/list")
 
 
-def test_bot_add_bad_arg():
+def test_bot_add_no_arg():
     assert "用法" in bot.handle("/add")
-    assert "用法" in bot.handle("/add abc")
+    assert "用法" in bot.handle("/remove")
 
 
 def test_bot_unknown():
     assert bot.handle("/foobar").startswith("不認得")
+
+
+def test_resolve_by_code_and_name():
+    listing = {"2330": "台積電", "2454": "聯發科", "2344": "華邦電"}
+    assert resolve_stocks("2330", listing=listing) == [("2330", "台積電")]
+    assert resolve_stocks("台積電", listing=listing) == [("2330", "台積電")]
+    assert resolve_stocks("不存在XYZ", listing=listing) == []
+
+
+def test_resolve_name_ambiguous():
+    listing = {"2330": "台積電", "2308": "台達電"}
+    assert len(resolve_stocks("台", listing=listing)) == 2

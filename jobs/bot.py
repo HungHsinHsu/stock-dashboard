@@ -2,19 +2,25 @@ import json
 import os
 import requests
 
-from core.data import STOCKS as BASE_STOCKS, fetch_stock_name
+from core.data import STOCKS as BASE_STOCKS, resolve_stocks
 from core.watchlist import add_stock, remove_stock, effective_stocks
 import core.telegram as tg
 
 STATE_PATH = "bot_state.json"
 
 HELP = (
-    "📋 股票清單指令\n"
-    "/add 2330　加入(可帶支撐：/add 2330 1000 850)\n"
-    "/remove 2330　移除\n"
+    "📋 股票清單指令（代號或中文名稱皆可）\n"
+    "/add 2330　或　/add 台積電　加入\n"
+    "　（可帶支撐：/add 2330 1000 850）\n"
+    "/remove 台積電　或　/remove 2330　移除\n"
     "/list　目前清單\n"
     "/help　說明"
 )
+
+
+def _ambiguous(query, matches):
+    sample = "、".join(f"{n}({c})" for c, n in matches[:8])
+    return f"「{query}」對應多檔，請更精確或改用代號：\n{sample}"
 
 
 def _load_offset(path=STATE_PATH):
@@ -52,24 +58,38 @@ def handle(text):
         names = list(effective_stocks().keys())
         return "📋 目前追蹤清單：\n" + "\n".join(f"・{n}" for n in names)
     if cmd == "add":
-        if not args or not args[0].isdigit():
-            return "用法：/add 股票代號，例如 /add 2330"
-        code = args[0]
+        if not args:
+            return "用法：/add 代號或名稱，例如 /add 2330 或 /add 台積電"
+        query, rest = args[0], args[1:]
+        matches = resolve_stocks(query)
+        if not matches:
+            return f"找不到「{query}」。請確認代號或中文名稱（限上市股票）。"
+        if len(matches) > 1:
+            return _ambiguous(query, matches)
+        code, name = matches[0]
         supports = None
-        if len(args) >= 3:
+        if len(rest) >= 2:
             try:
-                supports = {"支撐1 (短期)": float(args[1]),
-                            "支撐3 (長期)": float(args[2])}
+                supports = {"支撐1 (短期)": float(rest[0]),
+                            "支撐3 (長期)": float(rest[1])}
             except ValueError:
                 supports = None
-        name = fetch_stock_name(code)
         disp = f"{name} ({code})" if name else f"({code})"
         add_stock(code, name=disp, supports=supports)
         return f"✅ 已加入 {disp}" + ("（含支撐）" if supports else "")
     if cmd in ("remove", "del", "delete", "rm"):
-        if not args or not args[0].isdigit():
-            return "用法：/remove 股票代號，例如 /remove 2330"
-        code = args[0]
+        if not args:
+            return "用法：/remove 代號或名稱，例如 /remove 2330 或 /remove 台積電"
+        query = args[0]
+        if query.isdigit():
+            code = query
+        else:
+            matches = resolve_stocks(query)
+            if not matches:
+                return f"找不到「{query}」。"
+            if len(matches) > 1:
+                return _ambiguous(query, matches)
+            code = matches[0][0]
         if remove_stock(code):
             return f"🗑 已移除 {code}"
         if code in {c["code"] for c in BASE_STOCKS.values()}:
