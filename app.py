@@ -16,9 +16,12 @@ from core.watchlist import effective_stocks
 from core.market import market_summary
 from core.store import load_history
 from core.review import hit_rate
+from core import db
 
 st.set_page_config(page_title="台股觀察儀表板", layout="centered", page_icon="📊")
 st.title("📊 台股觀察儀表板")
+st.caption(
+    f"🗄 資料來源：{'Postgres 資料庫 ✅' if db.db_enabled() else 'JSON 檔（未連到 DB）'}")
 
 # 多抓一點歷史，週/月線才有足夠根數
 @st.cache_data(ttl=3600)
@@ -173,7 +176,7 @@ def render_history(records, show_signal):
     # 檢討（預測失敗的教訓）
     crits = [r for r in ordered if (r.get("review") or {}).get("critique")]
     if crits:
-        st.markdown("**📝 檢討紀錄（預測失敗的教訓）**")
+        st.markdown("**📝 檢討紀錄（每日復盤，不論猜對猜錯都檢討）**")
         for r in crits[:8]:
             rv = r["review"]
             p = r.get("prediction") or {}

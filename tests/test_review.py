@@ -34,11 +34,12 @@ def test_hit_rate():
     assert hit_rate([{"review": None}]) is None
 
 
-def test_make_review_success_no_critique():
+def test_make_review_success_still_critiques():
+    # 猜對也要檢討（幅度/震盪/是否運氣）
     judged = {"success": True, "results": {}}
     out = make_review({}, judged, {}, "華邦電 (2344)",
-                      llm=lambda s, u, sc: {"critique": "x"})
-    assert out["critique"] is None
+                      llm=lambda s, u, sc: {"critique": "方向對但漲幅不如預期"})
+    assert out["critique"] == "方向對但漲幅不如預期"
 
 
 def test_make_review_failure_calls_llm():
@@ -57,20 +58,20 @@ def test_make_review_failure_calls_llm_with_market():
     assert out["market"]["direction"] == "跌"
 
 
-def test_make_review_success_no_critique_keeps_market():
+def test_make_review_success_keeps_market():
     judged = {"success": True, "results": {}}
     out = make_review({}, judged, {}, "華邦電 (2344)",
                       market={"direction": "漲"},
-                      llm=lambda s, u, sc: {"critique": "x"})
-    assert out["critique"] is None
+                      llm=lambda s, u, sc: {"critique": "運氣成分高"})
+    assert out["critique"] == "運氣成分高"
     assert out["market"]["direction"] == "漲"
 
 
-def test_make_market_review_hit_no_critique():
+def test_make_market_review_hit_still_critiques():
     from core.review import make_market_review
     out = make_market_review({"direction": "漲"}, {"success": True},
-                             llm=lambda s, u, sc: {"critique": "x"})
-    assert out["critique"] is None
+                             llm=lambda s, u, sc: {"critique": "漲幅超乎預期"})
+    assert out["critique"] == "漲幅超乎預期"
 
 
 def test_make_market_review_miss_critique():

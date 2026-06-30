@@ -99,14 +99,30 @@ def test_evening_waits_when_today_data_missing(tmp_path, monkeypatch):
     assert any("18:00" in s for s in sends)
 
 
-def test_evening_skips_already_reviewed(tmp_path, monkeypatch):
+def test_evening_skips_when_critique_exists(tmp_path, monkeypatch):
     hp = str(tmp_path / "h.json")
-    _seed(hp, [_market_rec(review={"success": True, "results": {"direction": True}})])
+    # 已有檢討的紀錄才會被略過（避免重複/覆蓋既有檢討）
+    _seed(hp, [_market_rec(review={"success": True, "results": {"direction": True},
+                                   "critique": "已檢討過"})])
     sends, lessons = _patch(monkeypatch, hp)
     out = evening.run(
         today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
         fetch=lambda code, today=None: _df("2026-06-30"),
         fetch_idx=lambda today=None: _df("2026-06-30"),
         stocks={})
-    assert out == []                                  # 已復盤→不重複
+    assert out == []                                  # 已有檢討→不重複
     assert not any("收盤復盤" in s for s in sends)
+
+
+def test_evening_backfills_missing_critique(tmp_path, monkeypatch):
+    hp = str(tmp_path / "h.json")
+    # 有 review 但缺 critique（舊版猜中沒檢討）→ 應補上檢討
+    _seed(hp, [_market_rec(review={"success": True, "results": {"direction": True},
+                                   "critique": None})])
+    sends, lessons = _patch(monkeypatch, hp)
+    out = evening.run(
+        today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
+        fetch=lambda code, today=None: _df("2026-06-30"),
+        fetch_idx=lambda today=None: _df("2026-06-30"),
+        stocks={})
+    assert out and out[0]["review"].get("critique")   # 檢討被補上

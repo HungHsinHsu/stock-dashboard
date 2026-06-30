@@ -13,6 +13,22 @@ import core.telegram as tg
 from datetime import datetime
 
 
+def _today_bar(df):
+    """取當日 K 棒(開高低收量)供檢討幅度/震盪用；無資料回 None。"""
+    if df is None or df.empty:
+        return None
+    last = df.iloc[-1]
+    bar = {}
+    for col, key in (("Open", "open"), ("High", "high"), ("Low", "low"),
+                     ("Close", "close"), ("Volume", "volume")):
+        if col in df.columns:
+            try:
+                bar[key] = round(float(last[col]), 2)
+            except (TypeError, ValueError):
+                pass
+    return bar
+
+
 def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index, stocks=None):
     from core import db
     db.migrate_from_json()     # DB 首次啟用時匯入舊 JSON（無 DB 則 no-op）
@@ -27,21 +43,23 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
     print(f"[evening] db={db.db_enabled()} date={date} 指數最後交易日={idx_last} "
           f"載入紀錄={len(records)} 筆")
 
-    # 大盤復盤（只驗方向）；唯一自動推播的一則。當日指數收盤已發布才結算。
+    # 大盤復盤（驗方向＋無論對錯都檢討）；唯一自動推播的一則。
     if not idx_df.empty and str(idx_df.index[-1].date()) == date:
         mrec = get_record(records, date, "大盤")
         closes = idx_df["Close"]
+        _m_reviewed = bool(mrec and (mrec.get("review") or {}).get("critique"))
         print(f"[evening] 大盤: 有預測={bool(mrec and mrec.get('prediction'))} "
-              f"已復盤={bool(mrec and mrec.get('review'))}")
-        if (mrec and mrec.get("prediction") and not mrec.get("review")
+              f"已檢討={_m_reviewed}")
+        if (mrec and mrec.get("prediction") and not _m_reviewed
                 and len(closes) >= 2):
             judged = judge_market(mrec["prediction"], closes.iloc[-1], closes.iloc[-2])
-            jm = make_market_review(mrec["prediction"], judged, llm=llm)
+            jm = make_market_review(mrec["prediction"], judged,
+                                    today_bar=_today_bar(idx_df), llm=llm)
             mrec["review"] = jm
             records = upsert_record(records, mrec)
             produced.append(mrec)
-            if jm.get("critique"):
-                add_lesson("大盤", date, jm["critique"])
+            if not jm.get("success"):     # 教訓只收『預測錯』的（避免重蹈）
+                add_lesson("大盤", date, jm.get("critique"))
             mkt_recs = [r for r in records if r.get("stock") == "大盤"]
             tg.send(format_market_review(date, jm, hit_rate(mkt_recs)))
     elif not idx_df.empty:
@@ -59,8 +77,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
         if rec is None or not rec.get("prediction"):
             print(f"[evening] {name}: 找不到 {date} 預測，略過")
             continue                      # 沒有對應預測就略過，不推播
-        if rec.get("review"):             # 已復盤過，避免 18:00 重複
-            print(f"[evening] {name}: 已復盤，略過")
+        if (rec.get("review") or {}).get("critique"):   # 已有檢討才略過
+            print(f"[evening] {name}: 已有檢討，略過")
             continue
 
         indicators = compute_indicators(df, cfg.get("supports", {}))
@@ -73,11 +91,11 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
             support1=s1,
         )
         review = make_review(rec["prediction"], judged, indicators, name,
-                             market=market, llm=llm)
+                             market=market, today_bar=_today_bar(df), llm=llm)
         rec["review"] = review
         records = upsert_record(records, rec)
-        if review.get("critique"):
-            add_lesson(cfg["code"], date, review["critique"])
+        if not review.get("success"):     # 教訓只收『預測錯』的
+            add_lesson(cfg["code"], date, review.get("critique"))
         print(f"[evening] {name}: 復盤完成 命中={review['results'].get('direction')}")
         # 個股復盤不自動推播（存檔即可，/p 查得到、儀表板看得到）
         produced.append(rec)

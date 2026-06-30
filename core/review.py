@@ -10,12 +10,13 @@ CRITIQUE_SCHEMA = {
 }
 
 _SYSTEM = (
-    "你是台股技術分析助手。早盤的預測在收盤後被驗證為失敗。"
-    "請根據當天的技術指標，分析『為什麼預測會錯』，"
-    "例如量價背離、假突破、大盤拖累等，給出具體檢討。"
-    "檢討時請一併參考當日大盤(加權指數)走勢,例如大盤拖累或大盤帶動。\n"
-    "輸出請精簡分點：3~5 條重點，每條一句話、可直接拿來修正下次判斷，"
-    "避免長篇大論。可用換行分條（例如以「・」開頭）。"
+    "你是台股技術分析助手。以下是某股『早盤方向預測』與『當日實際結果』。"
+    "不論方向猜對或猜錯，都要檢討、不可因猜對就略過：\n"
+    "・方向錯 → 分析為何看錯(量價背離、假突破、大盤拖累、相對強弱誤判等)。\n"
+    "・方向對 → 別自滿，檢討：是實力還是運氣？幅度是否如預期(漲/跌得比預期多或少)？"
+    "盤中是否劇烈震盪、開高走低或開低走高？有沒有沒料到的狀況？下次能更準的地方？\n"
+    "請參考當日 K 棒(開高低收量)與大盤走勢。"
+    "輸出精簡分點：3~5 條重點、每條一句話、可直接拿來修正下次判斷；可用換行分條。"
 )
 
 
@@ -52,23 +53,23 @@ def judge_market(prediction, today_close, prev_close):
 
 
 _MARKET_REVIEW_SYSTEM = (
-    "你是台股大盤(加權指數)分析師。早盤對加權指數的『開盤方向』預測在收盤後被證實為錯。"
-    "請依美股隔夜、台指期夜盤等領先指標與大盤技術面，分析為何看錯"
-    "（例如開高走低、權值股拖累、夜盤領先指標失靈、過度樂觀/悲觀、量能不足等），"
-    "給出具體、可在未來避免重蹈的檢討。\n"
-    "輸出請精簡分點：3~5 條重點，每條一句話，避免長篇大論；可用換行分條。"
+    "你是台股大盤(加權指數)分析師。以下是早盤對加權指數『開盤方向』的預測與當日實際結果。"
+    "不論猜對猜錯都要檢討：\n"
+    "・方向錯 → 依美股隔夜、台指期夜盤等領先指標與技術面，分析為何看錯"
+    "(開高走低、權值股拖累、夜盤領先指標失靈、過度樂觀/悲觀、量能不足等)。\n"
+    "・方向對 → 別自滿，檢討：是實力還是運氣？漲跌幅是否如預期？盤中是否劇烈震盪？"
+    "有沒有沒料到的狀況？下次能更準的地方？\n"
+    "輸出精簡分點：3~5 條重點，每條一句話；可用換行分條。"
 )
 
 
-def make_market_review(prediction, judged, llm=generate_json):
-    """大盤復盤：方向錯才呼叫 LLM 產生檢討；對則 critique=None。"""
+def make_market_review(prediction, judged, today_bar=None, llm=generate_json):
+    """大盤復盤：無論方向對錯都產生檢討（猜對也要檢討幅度/震盪/是否運氣）。"""
     review = dict(judged)
-    if judged["success"]:
-        review["critique"] = None
-        return review
     user = (
         f"原大盤預測：{json.dumps(prediction, ensure_ascii=False)}\n"
-        f"實際結果：{json.dumps(judged, ensure_ascii=False)}"
+        f"實際結果：{json.dumps(judged, ensure_ascii=False)}\n"
+        f"當日加權指數K棒(開高低收)：{json.dumps(today_bar, ensure_ascii=False)}"
     )
     review["critique"] = llm(_MARKET_REVIEW_SYSTEM, user, CRITIQUE_SCHEMA)["critique"]
     return review
@@ -105,16 +106,15 @@ def hit_rate(records):
 
 
 def make_review(prediction, judged, indicators, stock_name,
-                market=None, llm=generate_json):
+                market=None, today_bar=None, llm=generate_json):
+    """個股復盤：無論方向對錯都產生檢討（猜對也要檢討幅度/震盪/是否運氣）。"""
     review = dict(judged)
     review["market"] = market
-    if judged["success"]:
-        review["critique"] = None
-        return review
     user = (
         f"股票：{stock_name}\n"
         f"原預測：{json.dumps(prediction, ensure_ascii=False)}\n"
         f"實際結果：{json.dumps(judged, ensure_ascii=False)}\n"
+        f"當日K棒(開高低收量)：{json.dumps(today_bar, ensure_ascii=False)}\n"
         f"當日指標：{json.dumps(indicators, ensure_ascii=False)}\n"
         f"當日大盤：{json.dumps(market, ensure_ascii=False)}"
     )
