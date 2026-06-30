@@ -1,4 +1,6 @@
+import asyncio
 import json
+import re
 
 MODEL = "claude-opus-4-8"
 
@@ -7,34 +9,57 @@ class LLMError(Exception):
     pass
 
 
-def _default_client():
-    import anthropic
-    return anthropic.Anthropic()
-
-
-def generate_json(system, user, schema, client=None):
-    """呼叫 Claude 並強制結構化 JSON 輸出，回 parsed dict。"""
-    client = client or _default_client()
-    resp = client.messages.create(
-        model=MODEL,
-        max_tokens=2000,
-        thinking={"type": "adaptive"},
-        system=system,
-        output_config={
-            "effort": "high",
-            "format": {"type": "json_schema", "schema": schema},
-        },
-        messages=[{"role": "user", "content": user}],
-    )
-    if getattr(resp, "stop_reason", None) == "refusal":
-        raise LLMError("Claude refused the request")
-    text = next(
-        (b.text for b in resp.content if getattr(b, "type", None) == "text"),
-        None,
-    )
-    if not text:
+def _extract_json(text):
+    """從模型輸出抽出 JSON dict（容忍 ```json 圍欄與前後雜訊）。"""
+    if not text or not text.strip():
         raise LLMError("No text content in response")
+    t = text.strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", t, re.DOTALL)
+    if fence:
+        t = fence.group(1).strip()
+    if not t.startswith("{"):
+        start, end = t.find("{"), t.rfind("}")
+        if start != -1 and end > start:
+            t = t[start:end + 1]
     try:
-        return json.loads(text)
+        return json.loads(t)
     except json.JSONDecodeError as e:
         raise LLMError(f"Invalid JSON: {e}") from e
+
+
+async def _agent_complete(system, user, schema, model):
+    """用 Claude Agent SDK（吃 Max 訂閱認證）跑一次查詢，回最終文字。"""
+    from claude_agent_sdk import query, ClaudeAgentOptions
+
+    full_system = (
+        f"{system}\n\n"
+        "只輸出一個合法的 JSON 物件，必須符合以下 JSON schema；"
+        "不要任何說明文字、前言或 markdown 圍欄。\n"
+        f"{json.dumps(schema, ensure_ascii=False)}"
+    )
+    options = ClaudeAgentOptions(
+        model=model,
+        system_prompt=full_system,
+        allowed_tools=[],   # 純文字生成，不需任何工具
+        max_turns=1,
+    )
+    text = None
+    async for message in query(prompt=user, options=options):
+        result = getattr(message, "result", None)
+        if result is not None:
+            text = result
+    return text
+
+
+def _default_complete(system, user, schema):
+    return asyncio.run(_agent_complete(system, user, schema, MODEL))
+
+
+def generate_json(system, user, schema, complete=None):
+    """產生結構化 JSON（透過 Claude Agent SDK / 訂閱認證），回 parsed dict。
+
+    complete: 可注入的文字產生函式 (system, user, schema) -> str，方便測試。
+    """
+    runner = complete or _default_complete
+    text = runner(system, user, schema)
+    return _extract_json(text)

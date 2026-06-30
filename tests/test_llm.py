@@ -2,34 +2,6 @@ import json
 import pytest
 from core.llm import generate_json, LLMError, MODEL
 
-
-class _Block:
-    def __init__(self, text):
-        self.type = "text"
-        self.text = text
-
-
-class _Resp:
-    def __init__(self, text, stop_reason="end_turn"):
-        self.content = [_Block(text)]
-        self.stop_reason = stop_reason
-
-
-class _Messages:
-    def __init__(self, resp):
-        self._resp = resp
-        self.kwargs = None
-
-    def create(self, **kwargs):
-        self.kwargs = kwargs
-        return self._resp
-
-
-class _Client:
-    def __init__(self, resp):
-        self.messages = _Messages(resp)
-
-
 SCHEMA = {
     "type": "object",
     "properties": {"signal": {"type": "string"}},
@@ -38,15 +10,35 @@ SCHEMA = {
 }
 
 
+def test_model_is_opus():
+    assert MODEL == "claude-opus-4-8"
+
+
 def test_generate_json_parses():
-    client = _Client(_Resp(json.dumps({"signal": "觀望"})))
-    out = generate_json("sys", "user", SCHEMA, client=client)
+    out = generate_json(
+        "sys", "user", SCHEMA,
+        complete=lambda s, u, sc: json.dumps({"signal": "觀望"}),
+    )
     assert out == {"signal": "觀望"}
-    assert client.messages.kwargs["model"] == MODEL
-    assert "temperature" not in client.messages.kwargs
 
 
-def test_generate_json_refusal_raises():
-    client = _Client(_Resp("", stop_reason="refusal"))
-    with pytest.raises(LLMError, match="refused"):
-        generate_json("sys", "user", SCHEMA, client=client)
+def test_generate_json_strips_markdown_fence():
+    text = "```json\n{\"signal\": \"進場\"}\n```"
+    out = generate_json("sys", "user", SCHEMA, complete=lambda s, u, sc: text)
+    assert out == {"signal": "進場"}
+
+
+def test_generate_json_extracts_embedded_object():
+    text = "結果如下：{\"signal\": \"避開\"} 以上。"
+    out = generate_json("sys", "user", SCHEMA, complete=lambda s, u, sc: text)
+    assert out == {"signal": "避開"}
+
+
+def test_generate_json_empty_raises():
+    with pytest.raises(LLMError, match="No text content"):
+        generate_json("sys", "user", SCHEMA, complete=lambda s, u, sc: "")
+
+
+def test_generate_json_invalid_raises():
+    with pytest.raises(LLMError, match="Invalid JSON"):
+        generate_json("sys", "user", SCHEMA, complete=lambda s, u, sc: "not json")
