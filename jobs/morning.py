@@ -1,5 +1,5 @@
 from core.data import (
-    fetch_daily, fetch_index, fetch_us_overnight, fetch_taifex_night,
+    fetch_daily, fetch_index, fetch_us_overnight, fetch_taifex,
 )
 from core.indicators import compute_indicators
 from core.predict import (
@@ -15,13 +15,13 @@ import core.telegram as tg
 
 def run(today=None, llm=generate_json, fetch=fetch_daily,
         fetch_idx=fetch_index, notify=None, stocks=None,
-        fetch_us=fetch_us_overnight, fetch_tf=fetch_taifex_night):
+        fetch_us=fetch_us_overnight, fetch_tf=fetch_taifex):
     stocks = effective_stocks() if stocks is None else stocks
     index_df = fetch_idx(today=today)
     market = market_summary(index_df)
     us = fetch_us()
     taifex = fetch_tf()
-    print("美股隔夜:", us, "| 台指期:", taifex)
+    print("美股隔夜:", us, "| 台指期(夜盤):", taifex)
     records = load_history(HISTORY_PATH)
     produced, skipped = [], []
 

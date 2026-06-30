@@ -47,44 +47,96 @@ def fetch_stock_name(code, today=None):
     return None
 
 
-US_INDICES = {"費半SOX": "^sox", "Nasdaq": "^ndq", "標普500": "^spx", "道瓊": "^dji"}
+US_INDICES = {"費半SOX": "^SOX", "Nasdaq": "^IXIC", "標普500": "^GSPC", "道瓊": "^DJI"}
 
 
-def _stooq_change(symbol):
-    """用 stooq 日線抓某指數最近兩日收盤，回 (close, pct) 或 None。"""
-    today = datetime.today()
-    d2 = today.strftime("%Y%m%d")
-    d1 = (today - relativedelta(days=12)).strftime("%Y%m%d")
-    url = f"https://stooq.com/q/d/l/?s={symbol}&d1={d1}&d2={d2}&i=d"
+def _yahoo_change(symbol):
+    """用 Yahoo Finance 日線抓某標的最近兩日收盤，回漲跌 % 或 None。"""
+    url = (
+        "https://query1.finance.yahoo.com/v8/finance/chart/"
+        f"{symbol.replace('^', '%5E')}?range=7d&interval=1d"
+    )
     try:
-        lines = requests.get(url, headers=HEADERS, timeout=15).text.strip().splitlines()
+        res = requests.get(url, headers=HEADERS, timeout=15).json()
+        closes = [
+            c for c in res["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+            if c is not None
+        ]
     except Exception:
         return None
-    closes = []
-    for row in lines[1:]:                      # 跳過表頭 Date,Open,High,Low,Close,Volume
-        cols = row.split(",")
-        try:
-            closes.append(float(cols[4]))
-        except (IndexError, ValueError):
-            continue
     if len(closes) < 2:
         return None
     prev, last = closes[-2], closes[-1]
-    return (last, round((last - prev) / prev * 100, 2)) if prev else None
+    return round((last - prev) / prev * 100, 2) if prev else None
 
 
 def fetch_us_overnight():
-    """美股主要指數隔夜漲跌 {name: pct}（抓不到的略過）。"""
+    """美股主要指數隔夜漲跌 {name: pct}（Yahoo Finance；抓不到的略過）。"""
     out = {}
     for name, sym in US_INDICES.items():
-        c = _stooq_change(sym)
-        if c:
-            out[name] = c[1]
+        c = _yahoo_change(sym)
+        if c is not None:
+            out[name] = c
     return out
 
 
-def fetch_taifex_night():
-    """台指期夜盤（gap）— 免費穩定資料源確認中，暫回 None（不阻擋大盤預測）。"""
+TAIFEX_URLS = (
+    "https://openapi.taifex.com.tw/v1/DailyMarketReportFutAH",  # 盤後(夜盤)，已反映美股隔夜
+    "https://openapi.taifex.com.tw/v1/DailyMarketReportFut",    # 一般交易時段(備援)
+)
+
+
+def _num(v):
+    try:
+        return float(str(v).replace(",", "").replace("%", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _pick(row, names):
+    """從一列(dict)取第一個有值的欄位；找不到回 None。"""
+    for n in names:
+        if n in row and str(row[n]).strip() not in ("", "-", "--"):
+            return row[n]
+    return None
+
+
+def _taifex_change(data):
+    """從 TAIFEX 期貨每日行情(list[dict])解析台指期(TX)近月漲跌%；失敗回 None。"""
+    tx = [
+        r for r in data
+        if str(_pick(r, ("Contract", "契約", "商品代號", "FUTURES_ID")) or "")
+        .strip().upper() == "TX"
+    ]
+    if not tx:
+        return None
+    # 同商品有多個到期月，取成交量最大者(近月最活躍)
+    tx.sort(key=lambda r: _num(_pick(r, ("Volume", "成交量"))) or 0, reverse=True)
+    row = tx[0]
+    pct = _num(_pick(row, ("%Change", "Change%", "漲跌%", "漲跌百分比", "漲跌百分比(%)")))
+    if pct is None:
+        last = _num(_pick(row, ("Last", "收盤價", "最後成交價", "SettlementPrice", "結算價")))
+        chg = _num(_pick(row, ("Change", "漲跌價", "漲跌")))
+        if last is not None and chg is not None and (last - chg):
+            pct = chg / (last - chg) * 100
+    if pct is None:
+        print("台指期解析失敗，樣本欄位：", list(row.keys()))
+        return None
+    return round(pct, 2)
+
+
+def fetch_taifex():
+    """台指期(TX)最近交易日漲跌%：優先夜盤(盤後，已含美股隔夜)，其次一般盤；抓不到回 None。"""
+    for url in TAIFEX_URLS:
+        try:
+            data = requests.get(url, headers=HEADERS, timeout=15).json()
+        except Exception:
+            continue
+        if not isinstance(data, list) or not data:
+            continue
+        pct = _taifex_change(data)
+        if pct is not None:
+            return pct
     return None
 
 

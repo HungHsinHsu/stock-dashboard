@@ -27,21 +27,73 @@ def test_stocks_shape():
     assert STOCKS["華邦電 (2344)"]["code"] == "2344"
 
 
-def test_stooq_change_parses(monkeypatch):
+def test_yahoo_change_parses(monkeypatch):
     import core.data as data
-    csv = ("Date,Open,High,Low,Close,Volume\n"
-           "2026-06-26,100,101,99,100,0\n"
-           "2026-06-27,100,106,100,105,0\n")
+    fake = {"chart": {"result": [
+        {"indicators": {"quote": [{"close": [100.0, 105.0]}]}}]}}
 
     class _R:
-        text = csv
+        @staticmethod
+        def json():
+            return fake
 
     monkeypatch.setattr(data.requests, "get", lambda *a, **k: _R())
-    assert data._stooq_change("^spx") == (105.0, 5.0)  # 105 vs 100 = +5%
+    assert data._yahoo_change("^GSPC") == 5.0  # 105 vs 100 = +5%
 
 
 def test_fetch_us_overnight(monkeypatch):
     import core.data as data
-    monkeypatch.setattr(data, "_stooq_change", lambda sym: (100.0, 1.5))
+    monkeypatch.setattr(data, "_yahoo_change", lambda sym: 1.5)
     out = data.fetch_us_overnight()
     assert out["費半SOX"] == 1.5 and len(out) == 4
+
+
+def test_taifex_change_picks_tx_front_month():
+    from core.data import _taifex_change
+    rows = [
+        {"Contract": "MTX", "%Change": "0.10", "Volume": "999999"},   # 小台，須忽略
+        {"Contract": "TX", "%Change": "-0.30", "Volume": "1000"},      # 遠月，量小
+        {"Contract": "TX", "%Change": "0.85", "Volume": "120000"},     # 近月，量最大
+    ]
+    assert _taifex_change(rows) == 0.85
+
+
+def test_taifex_change_computes_from_change_price():
+    from core.data import _taifex_change
+    # 沒有 %Change 欄位時，用 漲跌價/收盤回推：(100/(20050-100))*100 ≈ 0.5
+    rows = [{"Contract": "TX", "Last": "20050", "Change": "100", "Volume": "5"}]
+    assert _taifex_change(rows) == 0.5
+
+
+def test_taifex_change_chinese_keys():
+    from core.data import _taifex_change
+    rows = [{"契約": "TX", "漲跌%": "-0.42", "成交量": "8000"}]
+    assert _taifex_change(rows) == -0.42
+
+
+def test_taifex_change_no_tx():
+    from core.data import _taifex_change
+    assert _taifex_change([{"Contract": "MTX", "%Change": "1.0"}]) is None
+
+
+def test_fetch_taifex_prefers_night_session(monkeypatch):
+    import core.data as data
+
+    class _R:
+        def __init__(self, payload):
+            self._p = payload
+
+        def json(self):
+            return self._p
+
+    calls = []
+
+    def fake_get(url, **k):
+        calls.append(url)
+        if url.endswith("FutAH"):  # 夜盤先回有效資料
+            return _R([{"Contract": "TX", "%Change": "1.23", "Volume": "100"}])
+        return _R([{"Contract": "TX", "%Change": "9.99", "Volume": "100"}])
+
+    monkeypatch.setattr(data.requests, "get", fake_get)
+    assert data.fetch_taifex() == 1.23           # 用夜盤，不退到一般盤
+    assert calls and calls[0].endswith("FutAH")  # 夜盤優先

@@ -115,10 +115,11 @@ MARKET_PRED_SCHEMA = {
 
 _MARKET_SYSTEM = (
     "你是台股大盤(加權指數)分析師。預測『今日開盤後加權指數相對昨收的方向(漲/跌)』。\n"
-    "最重要的領先指標是【美股隔夜】(尤其費城半導體 SOX 對台股電子權值影響大)與【台指期夜盤】"
-    "(夜盤漲跌≈今日開盤缺口的市場共識)；其次才是大盤自身技術面(均線/MACD/KD/RSI)。\n"
+    "最重要的領先指標是【台指期夜盤】(盤後盤 15:00~05:00 已反映美股隔夜，最貼近今日開盤)"
+    "與【美股隔夜】(尤其費城半導體 SOX 對台股電子權值影響大)；"
+    "其次才是大盤自身技術面(均線/MACD/KD/RSI)。\n"
     "以領先指標為主、技術面為輔，列出 drivers(引用具體數字)，再給 direction 與 confidence。"
-    "美股隔夜與台指期方向一致時 confidence 可較高；資料缺漏或彼此矛盾則用『低』。"
+    "台指期夜盤與美股隔夜方向一致時 confidence 可較高；資料缺漏或彼此矛盾則用『低』。"
 )
 
 
@@ -126,7 +127,7 @@ def make_market_prediction(index_indicators, us_overnight, market_data,
                            taifex_night=None, llm=generate_json):
     user = (
         f"美股隔夜漲跌(%)：{json.dumps(us_overnight, ensure_ascii=False)}\n"
-        f"台指期夜盤：{json.dumps(taifex_night, ensure_ascii=False)}\n"
+        f"台指期夜盤漲跌(%)：{json.dumps(taifex_night, ensure_ascii=False)}\n"
         f"大盤昨收摘要：{json.dumps(market_data, ensure_ascii=False)}\n"
         f"大盤技術指標(到昨收)：{json.dumps(index_indicators, ensure_ascii=False)}"
     )
@@ -154,7 +155,8 @@ def format_market_prediction(date, pred):
         for name, pct in us.items():
             lines.append(f"{'🟢' if pct >= 0 else '🔴'} {name}：{pct:+.2f}%")
     tf = pred.get("taifex_night")
-    lines.append(f"📊 台指期夜盤：{tf if tf is not None else '（資料源接入中）'}")
+    tf_txt = f"{tf:+.2f}%" if isinstance(tf, (int, float)) else "（無）"
+    lines.append(f"📊 台指期夜盤：{tf_txt}")
     if mk.get("direction"):
         pct = mk.get("pct")
         pt = f" {pct:+.2f}%" if isinstance(pct, (int, float)) else ""
