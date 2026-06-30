@@ -9,7 +9,9 @@ from core.predict import (
 )
 from core.market import market_summary
 from core.llm import generate_json
-from core.store import load_history, save_history, upsert_record, HISTORY_PATH
+from core.store import (
+    load_history, save_history, upsert_record, get_record, HISTORY_PATH,
+)
 from core.watchlist import effective_stocks
 from core.positions import get_batches
 from core.lessons import lessons_prompt
@@ -35,7 +37,9 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
     produced, skipped, market_done = [], [], False
 
     # 大盤(加權指數)開盤預測：以美股隔夜 + 台指期為領先指標、大盤技術面為輔
-    if not index_df.empty:
+    # 鐵律：當日大盤預測一旦存在就鎖死，重跑不覆蓋（不可篡改歷史預測）。
+    _m_exist = get_record(records, run_date, "大盤")
+    if not index_df.empty and not (_m_exist and _m_exist.get("prediction")):
         try:
             idx_ind = compute_indicators(index_df, {})
             mpred = make_market_prediction(idx_ind, us, market, taifex, llm=llm,
@@ -47,6 +51,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
             tg.send(format_market_prediction(run_date, mpred))
         except Exception as e:
             print("大盤預測失敗：", e)
+    elif _m_exist and _m_exist.get("prediction"):
+        print(f"大盤 {run_date} 已有預測，鎖定不覆蓋")
 
     for name, cfg in stocks.items():
         df = fetch(cfg["code"], today=today)
@@ -54,6 +60,11 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
             skipped.append(name)
             continue
         date = run_date
+        # 鐵律：同日同股預測一旦存在就鎖死，重跑只補缺、不覆蓋（不可篡改歷史）。
+        _exist = get_record(records, date, cfg["code"])
+        if _exist and _exist.get("prediction"):
+            print(f"  {name}: 已有 {date} 預測，鎖定不覆蓋")
+            continue
         indicators = compute_indicators(df, cfg.get("supports", {}))
         try:
             foreign = fetch_fg(cfg["code"], today=today)

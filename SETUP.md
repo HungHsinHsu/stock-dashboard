@@ -51,6 +51,18 @@ Repo → Actions → stock-predict → Run workflow → 選 morning，
 由 .github/workflows/bot.yml 每 ~10 分鐘輪詢一次，指令會在數分鐘內生效；
 清單存在 watchlist.json，排程預測與儀表板都會自動讀取。
 
+## ⛔ 鐵律：歷史預測不可竄改（write-once）
+
+**某日某標的的「預測」一旦寫入，就永久鎖死，任何重跑都不得覆蓋或修改。**
+改過去的預測 = 篡改歷史 = 作弊，會讓命中率失去意義。
+
+- 重跑 morning：只會「補上當天還沒預測的標的」，**已存在的預測完全不動**。
+- 收盤後：只能**新增**復盤結果（拿真實收盤對答案），**不得回頭改原始預測**。
+- 即使之後調整預測策略/prompt，也只對「未來的新預測」生效，**過去的紀錄保持原樣**。
+
+此規則由程式強制：`jobs/morning.py` 在預測前會 `get_record` 檢查當日是否已有預測，
+有就跳過不覆蓋（見測試 `test_morning_does_not_overwrite_existing_prediction`）。
+
 ## 想改省訂閱用量？
 `core/llm.py` 的 `MODEL` 目前是 `claude-opus-4-8`。改成 `claude-sonnet-4-6`
 可較省訂閱額度、速度也較快，台股技術分析多半夠用。

@@ -129,6 +129,33 @@ def test_morning_run_writes_with_market(tmp_path, monkeypatch):
     assert "大盤" in sent["text"]
 
 
+def test_morning_does_not_overwrite_existing_prediction(tmp_path, monkeypatch):
+    import json
+    hp = str(tmp_path / "h.json")
+    seed = [{"date": "2026-06-30", "stock": "1111",
+             "prediction": {"signal": "觀望", "direction": "漲", "confidence": "高",
+                            "reason": "ORIGINAL"}, "review": None}]
+    with open(hp, "w", encoding="utf-8") as f:
+        json.dump(seed, f, ensure_ascii=False)
+    monkeypatch.setattr(morning, "HISTORY_PATH", hp)
+    monkeypatch.setattr(morning, "tg", type("T", (), {
+        "send": staticmethod(lambda t: True)}))
+
+    recs = morning.run(
+        today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
+        fetch=lambda code, today=None: _df_with_ma20(),
+        fetch_idx=lambda today=None: _idx_df(),
+        stocks={"A (1111)": {"code": "1111"}},
+        **_NO_LEAD,
+    )
+    # 已存在的當日預測被鎖死：不重新預測、不出現在本次 produced
+    assert all(r["stock"] != "1111" for r in recs)
+    with open(hp, encoding="utf-8") as f:
+        saved = json.load(f)
+    rec = [r for r in saved if r["stock"] == "1111"][0]
+    assert rec["prediction"]["reason"] == "ORIGINAL"   # 原始預測未被竄改
+
+
 def test_morning_run_empty_data_notifies(tmp_path, monkeypatch):
     monkeypatch.setattr(morning, "HISTORY_PATH", str(tmp_path / "h.json"))
     sends = []
