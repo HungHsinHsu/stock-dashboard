@@ -49,7 +49,7 @@ def test_chinese_and_full_aliases():
 
 def test_register_commands_payload():
     cmds = {c for c, _ in bot.BOT_COMMANDS}
-    assert {"predict", "forecast", "add", "remove", "list",
+    assert {"predict", "review", "add", "remove", "list",
             "enter", "exit", "position", "help"} <= cmds
 
 
@@ -68,23 +68,23 @@ def _wire_predict(monkeypatch):
                         lambda: {"華邦電 (2344)": {"code": "2344"}})
 
 
-def test_p_single_stock_detail(monkeypatch):
+def test_review_single_stock_detail(monkeypatch):
     _wire_predict(monkeypatch)
     monkeypatch.setattr(bot, "resolve_stocks", lambda q: [("2344", "華邦電")])
-    out = bot.handle("/p 2344")
+    out = bot.handle("/復盤 2344")
     assert "華邦電" in out and "觀望" in out and "1/3" in out  # 詳細卡＋部位
 
 
-def test_p_no_arg_summary(monkeypatch):
+def test_review_no_arg_summary(monkeypatch):
     _wire_predict(monkeypatch)
-    out = bot.handle("/p")
+    out = bot.handle("/復盤")
     assert "摘要" in out and "華邦電" in out and "觀望" in out
 
 
-def test_p_no_records(monkeypatch):
+def test_review_no_records(monkeypatch):
     monkeypatch.setattr(bot, "_git_pull", lambda: None)
     monkeypatch.setattr(bot, "load_history", lambda: [])
-    assert "沒有預測紀錄" in bot.handle("/p")
+    assert "沒有預測紀錄" in bot.handle("/復盤")
 
 
 def _wire_forecast(monkeypatch):
@@ -102,7 +102,7 @@ def test_f_market_live(monkeypatch):
     acks = _wire_forecast(monkeypatch)
     out = bot.handle("/f")
     assert out == "MARKET_CARD"
-    assert any("計算" in a for a in acks)          # 有先回覆「計算中」
+    assert any("試算" in a for a in acks)          # 有先回覆「試算中」
 
 
 def test_f_stock_live(monkeypatch):
@@ -128,12 +128,30 @@ def test_resolve_chinese_name_from_watchlist_when_listing_empty(monkeypatch):
 
 
 def test_predict_chinese_name_when_listing_empty(monkeypatch):
-    _wire_predict(monkeypatch)
+    # 中文名→正確代號→即時試算下一交易日（外部名單失效也行）
+    monkeypatch.setattr(bot, "_git_pull", lambda: None)
+    monkeypatch.setattr(bot, "tg", type("T", (), {
+        "send": staticmethod(lambda t: True)}))
     monkeypatch.setattr(bot, "effective_stocks",
                         lambda: {"華邦電 (2344)": {"code": "2344"}})
-    monkeypatch.setattr(bot, "resolve_stocks", lambda q: [])   # 外部名單失效
-    out = bot.handle("/預測 華邦電")
-    assert "華邦電" in out and "找不到" not in out
+    monkeypatch.setattr(bot, "resolve_stocks", lambda q: [])
+    monkeypatch.setattr(bot, "_forecast_stock",
+                        lambda code, name, supports: f"CARD:{code}")
+    assert bot.handle("/預測 華邦電") == "CARD:2344"
+
+
+def test_predict_is_live_forecast_not_today_result(monkeypatch):
+    # 預測指令走即時試算，不會回今天的命中復盤
+    monkeypatch.setattr(bot, "_git_pull", lambda: None)
+    monkeypatch.setattr(bot, "tg", type("T", (), {
+        "send": staticmethod(lambda t: True)}))
+    monkeypatch.setattr(bot, "effective_stocks",
+                        lambda: {"華邦電 (2344)": {"code": "2344"}})
+    monkeypatch.setattr(bot, "resolve_stocks", lambda q: [("2344", "華邦電")])
+    monkeypatch.setattr(bot, "_forecast_stock",
+                        lambda code, name, supports: "🔮 即時試算 預判下一交易日")
+    out = bot.handle("/預測 2344")
+    assert "即時試算" in out and "命中" not in out
 
 
 def test_forecast_in_help():

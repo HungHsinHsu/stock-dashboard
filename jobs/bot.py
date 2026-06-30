@@ -29,11 +29,13 @@ STATE_PATH = "bot_state.json"
 HELP = "\n".join([
     "📋 指令清單（代號或中文名稱皆可）",
     "",
-    "—— 查預測 ——",
-    "/predict　今天全部個股預測摘要",
-    "/predict 2330　單檔詳細預測",
-    "/forecast　即時試算大盤（不等自動推送）",
-    "/forecast 2330　即時試算個股",
+    "—— 預測（預判下一交易日，即時試算）——",
+    "/預測　預測明天大盤",
+    "/預測 2330　預測明天個股",
+    "",
+    "—— 復盤（查今天已記錄的預測與命中/檢討）——",
+    "/復盤　今天各股預測摘要",
+    "/復盤 2330　單檔詳細＋命中與檢討",
     "",
     "—— 股票清單 ——",
     "/add 2330　加入",
@@ -47,13 +49,14 @@ HELP = "\n".join([
     "/position　目前持有批數",
     "",
     "/help　說明",
-    "（中文也通：/預測 /即時預測 /加入 /移除 /清單 /進場 /出場 /部位 /說明）",
+    "（英文也通：/predict /forecast /review /add /remove /list"
+    " /enter /exit /position /help）",
 ])
 
 # Telegram 指令選單（打「/」會跳出，附中文說明）。command 須小寫英文。
 BOT_COMMANDS = [
-    ("predict", "查今天的預測（加代號看單檔）"),
-    ("forecast", "即時試算預測，不等自動推送"),
+    ("predict", "預測下一交易日（即時試算，加代號看單檔）"),
+    ("review", "復盤：查今天的預測與命中/檢討"),
     ("add", "加入追蹤股票"),
     ("remove", "移除追蹤股票"),
     ("list", "目前追蹤清單"),
@@ -284,7 +287,28 @@ def handle(text):
             return "📦 目前沒有任何部位。"
         return "📦 目前部位：\n" + "\n".join(
             f"・{c}：{b}/{MAX_BATCHES} 批" for c, b in held.items())
-    if cmd in ("predict", "預測", "查預測", "查", "p", "pred"):
+    # 預測＝預判「下一交易日」（即時試算；不含今天的命中結果）
+    if cmd in ("predict", "預測", "forecast", "即時預測", "即時",
+               "現在預測", "p", "pred", "f"):
+        _git_pull()                       # 取最新 history 供教訓回饋
+        if args:
+            code, disp = _resolve_one(args[0])
+            if code is None:
+                return disp
+            cfg = next((c for c in effective_stocks().values()
+                        if c.get("code") == code), {})
+            tg.send("⏳ 即時試算中（約 30–60 秒）…")
+            try:
+                return _forecast_stock(code, _name_for(code), cfg.get("supports"))
+            except Exception as e:
+                return f"⚠️ 即時試算失敗：{e}"
+        tg.send("⏳ 即時試算大盤中（約 30–60 秒）…")
+        try:
+            return _forecast_market()
+        except Exception as e:
+            return f"⚠️ 即時試算失敗：{e}"
+    # 復盤＝查「今天已記錄」的預測與命中/檢討（過去式，跟預測明天分開）
+    if cmd in ("review", "復盤", "結果", "查", "查預測", "查詢", "紀錄", "記錄"):
         _git_pull()
         records = load_history()
         if not records:
@@ -306,7 +330,7 @@ def handle(text):
                     out += f"\n💬 檢討：{rv['critique']}"
             return out
         # 無參數 → 清單內各股摘要
-        lines = ["📋 今日各股預測摘要（詳細：/p 代號）"]
+        lines = ["📋 今日各股預測摘要（詳細：/復盤 代號）"]
         any_rec = False
         for name, cfg in effective_stocks().items():
             rec = _latest_for(records, cfg["code"])
@@ -316,24 +340,6 @@ def handle(text):
         if not any_rec:
             return "目前清單內的股票都還沒有預測紀錄。"
         return "\n".join(lines)
-    if cmd in ("forecast", "即時預測", "即時", "現在預測", "f"):
-        _git_pull()                       # 取最新 history 供教訓回饋
-        if args:
-            code, disp = _resolve_one(args[0])
-            if code is None:
-                return disp
-            cfg = next((c for c in effective_stocks().values()
-                        if c.get("code") == code), {})
-            tg.send("⏳ 即時計算中（約 30–60 秒）…")
-            try:
-                return _forecast_stock(code, _name_for(code), cfg.get("supports"))
-            except Exception as e:
-                return f"⚠️ 即時計算失敗：{e}"
-        tg.send("⏳ 即時計算大盤中（約 30–60 秒）…")
-        try:
-            return _forecast_market()
-        except Exception as e:
-            return f"⚠️ 即時計算失敗：{e}"
     return "不認得的指令。傳 /help 看用法。"
 
 
