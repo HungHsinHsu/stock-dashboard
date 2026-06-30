@@ -77,6 +77,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
             "review": None,
         }
         records = upsert_record(records, record)
+        print(f"  {name}: 方向={prediction['direction']} "
+              f"信心={prediction['confidence']} 訊號={prediction['signal']}")
         # 個股預測不自動推播，僅存檔；改由 Telegram /p 指令查詢、儀表板顯示。
         produced.append(record)
 
