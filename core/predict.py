@@ -34,9 +34,12 @@ _SYSTEM = (
     "每條都要引用具體指標數字)，再淨評估得出 direction 與 confidence。"
     "多空訊號相當或彼此矛盾時，confidence 給『低』、direction 取較可能的一方。\n"
     "另給：進場訊號(進場/觀望/避開)、是否站穩 MA20、是否守住支撐1、白話總結理由。\n"
-    "【進場紀律(signal 會被這些規則硬性夾住，請勿亂喊進場)】"
-    "・收盤跌破支撐3→避開；・破支撐1或跌破 MA20→最多觀望；"
-    "・站穩支撐1且站上 MA20 才可進場；・方向看跌或信心低→不進場。"
+    "【進場紀律＝回檔承接法(signal 會被規則硬性夾住，切勿手癢追高亂喊進場)】"
+    "本法只在『回檔到支撐並收盤止穩、量縮』時分批承接，不追噴出的股票。"
+    "・收盤跌破支撐3(長期均線)→避開(停損)；"
+    "・回檔到支撐1/MA20/支撐3其一、收盤止穩且量縮→才可進場(該批)；"
+    "・帶量站回上方均線且收盤站穩→可進場；"
+    "・位置偏高或在真空帶(未到任一支撐)→觀望，錯過無傷。"
     "可驗證宣告以『今日收盤 vs 昨日收盤』為準。大盤(加權指數)趨勢一併納入考量。\n"
     "另提供【美股隔夜】四大指數(費半SOX/Nasdaq/標普500/道瓊)漲跌(%)。"
     "請依【本檔股票所屬產業】調整參考權重：半導體/IC 以費半(SOX)為主、"
@@ -47,7 +50,7 @@ _SYSTEM = (
 
 
 def make_prediction(indicators, stock_name, market=None, us_overnight=None,
-                    llm=generate_json):
+                    llm=generate_json, code=None):
     user = (
         f"股票：{stock_name}\n"
         f"技術指標(到昨日收盤為止)：\n{json.dumps(indicators, ensure_ascii=False)}\n"
@@ -56,7 +59,7 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
     )
     pred = llm(_SYSTEM, user, PREDICTION_SCHEMA)
     # 進場與否：規則為主、LLM 受限。把 LLM 的 signal 夾進紀律允許範圍。
-    final_signal, rule_note = constrain_signal(pred, indicators)
+    final_signal, rule_note = constrain_signal(pred, indicators, code)
     pred["signal_llm"] = pred.get("signal")     # 保留 LLM 原始判斷供對照
     pred["signal"] = final_signal
     if rule_note:

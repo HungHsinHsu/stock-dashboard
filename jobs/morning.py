@@ -44,7 +44,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         indicators = compute_indicators(df, cfg.get("supports", {}))
         try:
             prediction = make_prediction(indicators, name, market=market,
-                                         us_overnight=us, llm=llm)
+                                         us_overnight=us, llm=llm,
+                                         code=cfg["code"])
         except Exception as e:  # 單檔預測失敗不影響其他檔
             print(f"{name} 預測失敗：", e)
             skipped.append(name)
