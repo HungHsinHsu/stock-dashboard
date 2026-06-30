@@ -3,6 +3,7 @@ import re
 from core.llm import generate_json
 from core.config import DASHBOARD_URL
 from core.rules import constrain_signal
+from core.textclean import humanize
 
 
 def _chart_link(stock_name):
@@ -154,8 +155,8 @@ def format_prediction(stock_name, date, prediction):
     if bull or bear:
         lines.append("")
         lines.append("──── 技術訊號 ────")
-        lines += [f"🟢 {s}" for s in bull]
-        lines += [f"🔴 {s}" for s in bear]
+        lines += [f"🟢 {humanize(s)}" for s in bull]
+        lines += [f"🔴 {humanize(s)}" for s in bear]
     lines.append("")
     lines.append("──── 關鍵價位 ────")
     lines.append(f"{mark(prediction['hold_ma20'])} 站穩 MA20{ma20_txt}")
@@ -177,7 +178,7 @@ def format_prediction(stock_name, date, prediction):
     lines += [
         "",
         "──── 理由 ────",
-        prediction["reason"],
+        humanize(prediction["reason"]),
         "",
         f"🔗 看圖表：{_chart_link(stock_name)}",
     ]
@@ -250,7 +251,7 @@ def format_market_prediction(date, pred):
         lines.append(f"🌐 大盤昨收：{mk['direction']}{pt}")
     drivers = pred.get("drivers") or []
     if drivers:
-        lines += ["", "──── 依據 ────"] + [f"・{d}" for d in drivers]
-    lines += ["", "──── 理由 ────", pred.get("reason", "")]
+        lines += ["", "──── 依據 ────"] + [f"・{humanize(d)}" for d in drivers]
+    lines += ["", "──── 理由 ────", humanize(pred.get("reason", ""))]
     lines += ["", f"🔗 看圖表：{DASHBOARD_URL}"]
     return "\n".join(lines)

@@ -1,6 +1,7 @@
 import json
 from core.llm import generate_json
 from core.config import DASHBOARD_URL
+from core.textclean import humanize
 
 CRITIQUE_SCHEMA = {
     "type": "object",
@@ -73,7 +74,8 @@ def make_market_review(prediction, judged, today_bar=None, llm=generate_json):
         f"實際結果：{json.dumps(judged, ensure_ascii=False)}\n"
         f"當日加權指數K棒(開高低收)：{json.dumps(today_bar, ensure_ascii=False)}"
     )
-    review["critique"] = llm(_MARKET_REVIEW_SYSTEM, user, CRITIQUE_SCHEMA)["critique"]
+    review["critique"] = humanize(
+        llm(_MARKET_REVIEW_SYSTEM, user, CRITIQUE_SCHEMA)["critique"])
     return review
 
 
@@ -91,7 +93,7 @@ def format_market_review(date, review, rate):
     if rate is not None:
         lines += ["", f"📊 大盤方向命中率：{rate * 100:.0f}%"]
     if review.get("critique"):
-        lines += ["", "──── 檢討 ────", review["critique"]]
+        lines += ["", "──── 檢討 ────", humanize(review["critique"])]
     lines += ["", f"🔗 看圖表：{DASHBOARD_URL}"]
     return "\n".join(lines)
 
@@ -120,7 +122,7 @@ def make_review(prediction, judged, indicators, stock_name,
         f"當日指標：{json.dumps(indicators, ensure_ascii=False)}\n"
         f"當日大盤：{json.dumps(market, ensure_ascii=False)}"
     )
-    review["critique"] = llm(_SYSTEM, user, CRITIQUE_SCHEMA)["critique"]
+    review["critique"] = humanize(llm(_SYSTEM, user, CRITIQUE_SCHEMA)["critique"])
     return review
 
 
@@ -153,6 +155,6 @@ def format_review(stock_name, date, review, rate):
     if rate is not None:
         lines += ["", f"📊 歷史方向命中率：{rate * 100:.0f}%"]
     if review.get("critique"):
-        lines += ["", "──── 檢討 ────", review["critique"]]
+        lines += ["", "──── 檢討 ────", humanize(review["critique"])]
     lines += ["", f"🔗 看圖表：{DASHBOARD_URL}"]
     return "\n".join(lines)

@@ -21,6 +21,7 @@ from core.predict import (
     format_prediction, format_market_prediction,
 )
 from core.lessons import lessons_prompt
+from core.textclean import humanize
 from core import db
 import core.telegram as tg
 
@@ -327,7 +328,7 @@ def handle(text):
                 out += (f"\n\n──── 復盤 ────\n"
                         f"🎯 {hit}（實際{rv.get('direction_actual', '—')}）")
                 if rv.get("critique"):
-                    out += f"\n💬 檢討：{rv['critique']}"
+                    out += f"\n💬 檢討：{humanize(rv['critique'])}"
             return out
         # 無參數 → 清單內各股摘要
         lines = ["📋 今日各股預測摘要（詳細：/復盤 代號）"]
