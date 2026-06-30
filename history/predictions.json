@@ -231,5 +231,299 @@
       }
     },
     "review": null
+  },
+  {
+    "date": "2026-06-30",
+    "stock": "2330",
+    "prediction": {
+      "signal": "觀望",
+      "direction": "漲",
+      "confidence": "中",
+      "bull_signals": [
+        "均線多頭排列(MA5 2380 > MA20 2372 > MA60 2234.33)，MA20 斜率5日+16.25 向上，趨勢偏多",
+        "昨收2410 > 前收2370，且站穩 MA20(2372)與 MA5(2380)之上",
+        "美股隔夜費半SOX大漲+3.83%，台積電為半導體龍頭，對應指數最強，開盤偏多帶動；Nasdaq +2.07 亦正向",
+        "RSI14 59 位於多方區但未超買(<70)，仍有上行空間",
+        "現價2410遠離布林下軌(2238.69)、靠近上軌(2505.31)上半部，多方掌控"
+      ],
+      "bear_signals": [
+        "MACD柱狀macd_hist為負(-6.591)，快線36.941 < 慢線43.532，動能轉弱有死亡交叉跡象",
+        "KD低檔且K(38.4) < D(49.3)呈空方交叉，短線動能偏弱",
+        "昨收2410未突破20日高2535，距前波高仍有距離，且非回檔到任一支撐(處真空帶，位置偏高)",
+        "vol_ratio僅1.02量能平淡，未見帶量突破續攻力道"
+      ],
+      "hold_ma20": true,
+      "hold_support1": true,
+      "reason": "均線多頭排列、MA20向上、昨日收紅站穩均線，加上隔夜費半暴漲+3.83%對半導體龍頭台積電有明顯帶動，今日收盤相對昨收偏向『漲』，信心中等。但MACD柱翻負、KD空方交叉顯示短線動能轉弱，且現價處於均線上方真空帶、未回檔到MA20或任何支撐，量能也平淡。依回檔承接紀律不追高，未到支撐止穩量縮的進場條件，故訊號為『觀望』，錯過無傷，等回測MA20止穩再分批承接。",
+      "signal_llm": "觀望",
+      "indicators": {
+        "close": 2410.0,
+        "prev_close": 2370.0,
+        "ma5": 2380.0,
+        "ma20": 2372.0,
+        "ma60": 2234.33,
+        "ma20_slope5": 16.25,
+        "ma_align": "多頭排列",
+        "rsi14": 59.0,
+        "kd_k": 38.4,
+        "kd_d": 49.3,
+        "macd": 36.941,
+        "macd_signal": 43.532,
+        "macd_hist": -6.591,
+        "boll_upper": 2505.31,
+        "boll_lower": 2238.69,
+        "high_20d": 2535.0,
+        "low_20d": 2210.0,
+        "vol": 42817000.0,
+        "vol_ratio": 1.02,
+        "dist_support1_pct": null,
+        "dist_support3_pct": null
+      },
+      "market": null,
+      "foreign": {
+        "net": null,
+        "sold_streak": 0,
+        "stopped": null,
+        "date": null
+      },
+      "batches": 0
+    },
+    "review": null
+  },
+  {
+    "date": "2026-06-30",
+    "stock": "2344",
+    "prediction": {
+      "signal": "觀望",
+      "direction": "漲",
+      "confidence": "中",
+      "bull_signals": [
+        "美股隔夜費半SOX大漲+3.83%，本檔為DRAM/記憶體半導體股，對應指標最強，明顯利多今日開盤偏多；Nasdaq+2.07%同步助攻",
+        "均線多頭排列(MA5 208.3>MA20 188.5>MA60 142.68)，趨勢向上",
+        "MA20斜率ma20_slope5達+13.78，中期動能強勁，現價207.5遠站上MA20且高出MA60逾45%",
+        "昨日收盤207.5較前收203.0上漲，短線仍偏強",
+        "布林通道現價207.5距上軌236.3仍有空間，未過熱觸頂"
+      ],
+      "bear_signals": [
+        "KD出現死亡交叉跡象，K值53.6<D值64.0且K向下，短線轉弱",
+        "MACD柱狀macd_hist轉負(-0.208)，快線18.679已跌破慢線18.887，動能背離走弱",
+        "RSI14達69.2逼近超買區(70)，追高風險升高",
+        "現價207.5略低於MA5 208.3，短線乖離收斂、上攻力道趨緩",
+        "vol_ratio僅0.86量縮，距20日高點233.5尚遠，缺量難再強攻突破",
+        "現價位置偏高、未回測任一支撐(支撐1/MA20)，屬真空帶不利承接"
+      ],
+      "hold_ma20": true,
+      "hold_support1": true,
+      "reason": "華邦電為記憶體半導體，隔夜費半SOX大漲3.83%、Nasdaq漲2.07%強力帶動，加上多頭排列與MA20斜率陡升，今日收盤方向偏漲、信心中等。但KD死亡交叉、MACD柱轉負、RSI近超買且量縮，短線動能轉弱；依回檔承接紀律，現價位置偏高又未回測MA20或支撐1，屬追高真空帶，故進場訊號為觀望、等回檔到支撐止穩量縮再分批承接，錯過無傷。",
+      "signal_llm": "觀望",
+      "indicators": {
+        "close": 207.5,
+        "prev_close": 203.0,
+        "ma5": 208.3,
+        "ma20": 188.5,
+        "ma60": 142.68,
+        "ma20_slope5": 13.78,
+        "ma_align": "多頭排列",
+        "rsi14": 69.2,
+        "kd_k": 53.6,
+        "kd_d": 64.0,
+        "macd": 18.679,
+        "macd_signal": 18.887,
+        "macd_hist": -0.208,
+        "boll_upper": 236.3,
+        "boll_lower": 140.7,
+        "high_20d": 233.5,
+        "low_20d": 146.0,
+        "vol": 214412000.0,
+        "vol_ratio": 0.86,
+        "dist_support1_pct": -6.53,
+        "dist_support3_pct": 46.13
+      },
+      "market": null,
+      "foreign": {
+        "net": null,
+        "sold_streak": 0,
+        "stopped": null,
+        "date": null
+      },
+      "batches": 0
+    },
+    "review": null
+  },
+  {
+    "date": "2026-06-30",
+    "stock": "3037",
+    "prediction": {
+      "signal": "觀望",
+      "direction": "漲",
+      "confidence": "中",
+      "bull_signals": [
+        "均線多頭排列(MA5 994.4>MA20 962.35>MA60 860.78)，現價1070遠站三均線之上",
+        "MACD柱狀為正(macd_hist 2.053)，快線29.18>慢線27.13，動能偏多",
+        "KD金叉且K(61.4)>D(58.3)向上，中位偏多",
+        "昨日大漲收1070(+9.6% vs 976)，量增vol_ratio 1.18帶量上攻",
+        "美股隔夜費半SOX大漲+3.83%，欣興屬IC載板/半導體供應鏈，Nasdaq +2.07%同步走強，對今日開盤偏多有利"
+      ],
+      "bear_signals": [
+        "收盤1070已突破布林上軌(boll_upper 1060.71)，短線過熱、有拉回壓力",
+        "MA20斜率為負(ma20_slope5 -16.15)，中期均線仍下彎，多頭排列尚未完全轉強",
+        "現價逼近20日高1090，上檔套牢與獲利了結賣壓近在咫尺",
+        "RSI14僅58.3，未過70但漲幅已大，價量背離風險升高",
+        "現價遠離MA20(962.35)達約11%，位置偏高、處於真空帶，非回檔承接時機"
+      ],
+      "hold_ma20": true,
+      "hold_support1": true,
+      "reason": "欣興多頭結構完整、MACD與KD偏多，加上隔夜費半SOX+3.83%、Nasdaq+2.07%大漲對半導體載板族群偏多，今日方向偏漲。但昨日已大漲近一成、收盤站上布林上軌且逼近20日高1090，現價距MA20逾一成屬過熱真空帶，依回檔承接紀律不可追高，故進場訊號夾為觀望，待拉回支撐止穩量縮再分批承接。",
+      "signal_llm": "觀望",
+      "indicators": {
+        "close": 1070.0,
+        "prev_close": 976.0,
+        "ma5": 994.4,
+        "ma20": 962.35,
+        "ma60": 860.78,
+        "ma20_slope5": -16.15,
+        "ma_align": "多頭排列",
+        "rsi14": 58.3,
+        "kd_k": 61.4,
+        "kd_d": 58.3,
+        "macd": 29.18,
+        "macd_signal": 27.128,
+        "macd_hist": 2.053,
+        "boll_upper": 1060.71,
+        "boll_lower": 863.99,
+        "high_20d": 1090.0,
+        "low_20d": 811.0,
+        "vol": 31585000.0,
+        "vol_ratio": 1.18,
+        "dist_support1_pct": null,
+        "dist_support3_pct": null
+      },
+      "market": null,
+      "foreign": {
+        "net": null,
+        "sold_streak": 0,
+        "stopped": null,
+        "date": null
+      },
+      "batches": 0
+    },
+    "review": null
+  },
+  {
+    "date": "2026-06-30",
+    "stock": "3481",
+    "prediction": {
+      "signal": "避開",
+      "direction": "漲",
+      "confidence": "低",
+      "bull_signals": [
+        "均線多頭排列(MA5=68.2 > MA20=58.15 > MA60=41.0)，MA20 斜率 +4.58 強勁上揚，中長多格局明確",
+        "MACD 6.934 在零軸上方且 macd_hist=+0.561 為正，動能仍偏多",
+        "美股隔夜費半SOX大漲+3.83%、Nasdaq+2.07%，群創屬面板/科技電子，外部氛圍偏多，利於開高",
+        "收盤 68.7 高於昨收 67.0，且仍在 MA5(68.2)之上，短線多方掌控"
+      ],
+      "bear_signals": [
+        "RSI14=73.9 已過熱(>70)，KD K=78.8/D=79.6 同處高檔且 K 略低於 D，有高檔死亡交叉與鈍化疑慮",
+        "現價 68.7 接近 20 日高點 72.6 與布林上軌 75.17，上方追價空間有限、回檔風險升高",
+        "vol_ratio 僅 1.06，價漲量未明顯放大，突破力道不足",
+        "位置明顯偏高、距離任何支撐(MA20=58.15)甚遠，屬真空帶，非回檔承接區"
+      ],
+      "hold_ma20": true,
+      "hold_support1": true,
+      "reason": "群創均線多頭排列、MACD 動能仍在，加上隔夜費半與Nasdaq大漲，今日收盤偏向小漲機率略高，故 direction 取漲；但 RSI、KD 雙雙高檔過熱，股價貼近20日高與布林上軌、量能未放大，追高勝率不佳，confidence 給低。依回檔承接紀律，現價位於遠離支撐的真空帶、非量縮止穩於支撐處，不可追高，故 signal 為觀望，等回測 MA20 附近止穩量縮再分批承接。",
+      "signal_llm": "觀望",
+      "signal_rule_note": "禁區：群創（漲停追高禁區、動能股）（紀律上限：避開）",
+      "indicators": {
+        "close": 68.7,
+        "prev_close": 67.0,
+        "ma5": 68.2,
+        "ma20": 58.15,
+        "ma60": 41.0,
+        "ma20_slope5": 4.58,
+        "ma_align": "多頭排列",
+        "rsi14": 73.9,
+        "kd_k": 78.8,
+        "kd_d": 79.6,
+        "macd": 6.934,
+        "macd_signal": 6.372,
+        "macd_hist": 0.561,
+        "boll_upper": 75.17,
+        "boll_lower": 41.14,
+        "high_20d": 72.6,
+        "low_20d": 40.25,
+        "vol": 519002000.0,
+        "vol_ratio": 1.06,
+        "dist_support1_pct": null,
+        "dist_support3_pct": null
+      },
+      "market": null,
+      "foreign": {
+        "net": null,
+        "sold_streak": 0,
+        "stopped": null,
+        "date": null
+      },
+      "batches": 0
+    },
+    "review": null
+  },
+  {
+    "date": "2026-06-30",
+    "stock": "5203",
+    "prediction": {
+      "signal": "觀望",
+      "direction": "漲",
+      "confidence": "中",
+      "bull_signals": [
+        "美股隔夜科技強勢：Nasdaq +2.07%、費半SOX +3.83%，訊連屬科技/多媒體軟體股，隔夜科技指數大漲對今日開盤偏多",
+        "MA20 斜率為正(ma20_slope5=0.42)，且現價67.3仍站在 MA60(65.92)之上，中長期未轉空",
+        "現價67.3貼近布林下軌(boll_lower=65.89)與20日低點(low_20d=65.1)、MA60(65.92)支撐區，屬低檔，具技術性反彈空間",
+        "KD 處低檔(K=32.0、D=32.5)，RSI14=43.4偏中性偏弱，下跌動能趨緩",
+        "量縮(vol_ratio=0.75)，賣壓未持續放大，符合回檔量縮型態"
+      ],
+      "bear_signals": [
+        "昨日收黑(67.3 vs 前收68.8)，且收盤跌破 MA5(67.52)與 MA20(68.97)，短均轉弱",
+        "均線糾結(ma_align=糾結)，方向未明，無多頭排列支撐",
+        "MACD 快線0.258 低於訊號線0.572，柱狀體 macd_hist=-0.314 為負且擴大，動能仍偏空",
+        "KD 中 K(32.0) 已略低於 D(32.5)，低檔仍有死叉壓力，未見明確黃金交叉",
+        "現價距20日高點(74.8)仍遠，反彈須先克服 MA20(68.97)與布林中軌壓力"
+      ],
+      "hold_ma20": false,
+      "hold_support1": true,
+      "reason": "訊連昨日收黑跌破MA5與MA20、MACD柱狀轉負，短線動能偏弱；但價格已回檔至MA60、布林下軌與20日低點的支撐區，KD低檔、量縮，加上隔夜費半+3.83%、Nasdaq+2.07%大漲帶動科技股氣氛，今日相對昨收偏向技術性反彈收紅，方向看漲、信心中。惟昨日尚未出現『收盤止穩』訊號，且仍在MA20之下、屬回檔承接法的未確認階段，依紀律先觀望、等帶量站回均線且收盤站穩再分批承接，避免追價。",
+      "signal_llm": "觀望",
+      "indicators": {
+        "close": 67.3,
+        "prev_close": 68.8,
+        "ma5": 67.52,
+        "ma20": 68.97,
+        "ma60": 65.92,
+        "ma20_slope5": 0.42,
+        "ma_align": "糾結",
+        "rsi14": 43.4,
+        "kd_k": 32.0,
+        "kd_d": 32.5,
+        "macd": 0.258,
+        "macd_signal": 0.572,
+        "macd_hist": -0.314,
+        "boll_upper": 72.05,
+        "boll_lower": 65.89,
+        "high_20d": 74.8,
+        "low_20d": 65.1,
+        "vol": 392000.0,
+        "vol_ratio": 0.75,
+        "dist_support1_pct": null,
+        "dist_support3_pct": null
+      },
+      "market": null,
+      "foreign": {
+        "net": null,
+        "sold_streak": 0,
+        "stopped": null,
+        "date": null
+      },
+      "batches": 0
+    },
+    "review": null
   }
 ]
