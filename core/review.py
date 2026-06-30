@@ -90,7 +90,7 @@ def format_review(stock_name, date, review, rate):
     if mk.get("direction"):
         pct = mk.get("pct")
         pct_txt = f" {pct:+.2f}%" if isinstance(pct, (int, float)) else ""
-        lines.append(f"🌐 大盤：{mk['direction']}{pct_txt}")
+        lines.append(f"🌐 大盤(今收)：{mk['direction']}{pct_txt}")
     if rate is not None:
         lines += ["", f"📊 歷史方向命中率：{rate * 100:.0f}%"]
     if review.get("critique"):

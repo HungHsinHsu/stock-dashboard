@@ -83,7 +83,7 @@ def format_prediction(stock_name, date, prediction):
         pct = mk.get("pct")
         pct_txt = f" {pct:+.2f}%" if isinstance(pct, (int, float)) else ""
         ma_txt = "站上" if mk.get("above_ma20") else "跌破"
-        lines.append(f"🌐 大盤：{mk['direction']}{pct_txt}（{ma_txt}MA20）")
+        lines.append(f"🌐 大盤(昨收參考)：{mk['direction']}{pct_txt}（{ma_txt}MA20）")
     lines += [
         "",
         "──── 理由 ────",
