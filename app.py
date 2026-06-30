@@ -136,11 +136,44 @@ with tab_hist:
     if not records:
         st.info("尚無預測紀錄。GitHub Actions 跑過開盤/收盤後會出現。")
     else:
+        ordered = sorted(records, key=lambda x: x["date"], reverse=True)
         rate = hit_rate(records)
         if rate is not None:
             st.metric("方向命中率", f"{rate * 100:.0f}%")
+
+        # 最新一筆：完整顯示方向／信心／進出訊號與偏多偏空理由
+        latest = ordered[0]
+        lp = latest.get("prediction") or {}
+        if lp:
+            arrow = "🔺漲" if lp.get("direction") == "漲" else "🔻跌"
+            conf = lp.get("confidence")
+            conf_txt = f"（信心{conf}）" if conf else ""
+            st.markdown(f"#### 最新預測 · {latest['date']}")
+            m1, m2 = st.columns(2)
+            m1.metric("預期方向", f"{arrow}{conf_txt}")
+            m2.metric("進場訊號", lp.get("signal", "—"))
+            bull = lp.get("bull_signals") or []
+            bear = lp.get("bear_signals") or []
+            if bull or bear:
+                b1, b2 = st.columns(2)
+                with b1:
+                    st.markdown("**🟢 偏多**")
+                    for sgl in bull:
+                        st.markdown(f"- {sgl}")
+                    if not bull:
+                        st.caption("—")
+                with b2:
+                    st.markdown("**🔴 偏空**")
+                    for sgl in bear:
+                        st.markdown(f"- {sgl}")
+                    if not bear:
+                        st.caption("—")
+            if lp.get("reason"):
+                st.caption(f"💬 {lp['reason']}")
+            st.divider()
+
         rows = []
-        for r in sorted(records, key=lambda x: x["date"], reverse=True):
+        for r in ordered:
             p = r.get("prediction") or {}
             rv = r.get("review") or {}
             res = rv.get("results") or {}
@@ -148,6 +181,7 @@ with tab_hist:
                 "日期": r["date"],
                 "訊號": p.get("signal", "—"),
                 "預測方向": p.get("direction", "—"),
+                "信心": p.get("confidence", "—"),
                 "實際方向": rv.get("direction_actual", "—"),
                 "方向命中": "✅" if res.get("direction") else (
                     "❌" if rv else "—"),
