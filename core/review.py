@@ -17,6 +17,7 @@ _SYSTEM = (
     "盤中是否劇烈震盪、開高走低或開低走高？有沒有沒料到的狀況？下次能更準的地方？\n"
     "請參考當日 K 棒(開高低收量)與大盤走勢。"
     "輸出精簡分點：3~5 條重點、每條一句話、可直接拿來修正下次判斷；每條獨立一行、以「- 」開頭。"
+    "用自然中文，禁止出現程式變數/欄位名(如 hold_ma20、hold_support1、signal、direction、vol_ratio、macd_hist、ma20_slope5、dist_support1_pct、ma_align 等)，改用中文說法(站穩MA20、守住支撐1、進場訊號、方向、量比、MACD柱、MA20斜率、距支撐距離、均線排列)。"
 )
 
 
@@ -60,6 +61,7 @@ _MARKET_REVIEW_SYSTEM = (
     "・方向對 → 別自滿，檢討：是實力還是運氣？漲跌幅是否如預期？盤中是否劇烈震盪？"
     "有沒有沒料到的狀況？下次能更準的地方？\n"
     "輸出精簡分點：3~5 條重點，每條一句話；每條獨立一行、以「- 」開頭。"
+    "用自然中文，禁止出現程式變數/欄位名(如 hold_ma20、hold_support1、signal、direction、vol_ratio、macd_hist、ma20_slope5、dist_support1_pct、ma_align 等)，改用中文說法(站穩MA20、守住支撐1、進場訊號、方向、量比、MACD柱、MA20斜率、距支撐距離、均線排列)。"
 )
 
 
