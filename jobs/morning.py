@@ -1,19 +1,21 @@
-from core.data import fetch_daily, fetch_index, STOCKS
+from core.data import fetch_daily, fetch_index
 from core.indicators import compute_indicators
 from core.predict import make_prediction, format_prediction, PREDICTION_SCHEMA  # noqa: F401
 from core.market import market_summary
 from core.llm import generate_json
 from core.store import load_history, save_history, upsert_record, HISTORY_PATH
+from core.watchlist import effective_stocks
 import core.telegram as tg
 
 
 def run(today=None, llm=generate_json, fetch=fetch_daily,
-        fetch_idx=fetch_index, notify=None):
+        fetch_idx=fetch_index, notify=None, stocks=None):
+    stocks = effective_stocks() if stocks is None else stocks
     market = market_summary(fetch_idx(today=today))
     records = load_history(HISTORY_PATH)
     produced, skipped = [], []
 
-    for name, cfg in STOCKS.items():
+    for name, cfg in stocks.items():
         df = fetch(cfg["code"], today=today)
         if df.empty:
             skipped.append(name)
@@ -44,7 +46,7 @@ if __name__ == "__main__":
     import sys
     if "--dry-run" in sys.argv:
         market = market_summary(fetch_index())
-        for name, cfg in STOCKS.items():
+        for name, cfg in effective_stocks().items():
             df = fetch_daily(cfg["code"])
             if df.empty:
                 print(f"{name}：資料缺漏")

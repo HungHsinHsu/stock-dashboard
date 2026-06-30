@@ -112,7 +112,9 @@ def test_evening_run_updates_record(tmp_path, monkeypatch):
     recs = evening.run(today=pd.Timestamp("2026-06-30"),
                        llm=lambda s, u, sc: {"critique": "x"},
                        fetch=lambda code, today=None: df,
-                       fetch_idx=lambda today=None: _idx_df())
+                       fetch_idx=lambda today=None: _idx_df(),
+                       stocks={"華邦電 (2344)": {"code": "2344",
+                               "supports": {"支撐1 (短期)": 222}}})
     assert recs
     rec = recs[0]
     assert rec["review"]["actual_close"] == 201.0

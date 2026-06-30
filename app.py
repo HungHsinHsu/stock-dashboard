@@ -6,7 +6,8 @@ import requests
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-from core.data import STOCKS as CORE_STOCKS, fetch_daily, fetch_index
+from core.data import fetch_daily, fetch_index
+from core.watchlist import effective_stocks
 from core.market import market_summary
 from core.store import load_history
 from core.review import hit_rate
@@ -27,7 +28,8 @@ if mkt and mkt.get("close") is not None:
     st.metric("加權指數(大盤)", f"{mkt['close']:.2f}", delta)
 
 # 固定支撐位為手畫的水平支撐；MA20 改為即時計算的動態均線（不再寫死）。
-STOCKS = CORE_STOCKS
+# 清單 = 預設股票 + 透過 Telegram /add 加入的股票（watchlist.json）。
+STOCKS = effective_stocks()
 
 # 選股放主畫面頂端：手機側邊欄預設收合，主畫面比較好點。
 choice = st.selectbox("選擇股票", list(STOCKS.keys()))

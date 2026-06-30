@@ -41,6 +41,16 @@ Repo → Actions → stock-predict → Run workflow → 選 morning，
 ## 6. 排程
 平日台灣 08:30 自動開盤預測、15:30 自動收盤復盤（見 .github/workflows/predict.yml）。
 
+## 7. 用 Telegram 指令管理股票清單
+直接傳指令給你的 bot（只有你的 chat id 能用）：
+- `/add 2330` — 加入股票（可帶支撐：`/add 2330 1000 850`）
+- `/remove 2330` — 移除
+- `/list` — 看目前清單
+- `/help` — 說明
+
+由 .github/workflows/bot.yml 每 ~10 分鐘輪詢一次，指令會在數分鐘內生效；
+清單存在 watchlist.json，排程預測與儀表板都會自動讀取。
+
 ## 想改省訂閱用量？
 `core/llm.py` 的 `MODEL` 目前是 `claude-opus-4-8`。改成 `claude-sonnet-4-6`
 可較省訂閱額度、速度也較快，台股技術分析多半夠用。

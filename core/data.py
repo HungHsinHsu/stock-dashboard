@@ -22,6 +22,27 @@ STOCKS = {
 }
 
 
+def fetch_stock_name(code, today=None):
+    """用代號查中文股名（例 2330 -> 台積電）；查不到回 None。"""
+    today = today or datetime.today()
+    ym = today.strftime("%Y%m01")
+    url = (
+        "https://www.twse.com.tw/exchangeReport/STOCK_DAY"
+        f"?response=json&date={ym}&stockNo={code}"
+    )
+    try:
+        title = requests.get(url, headers=HEADERS, timeout=10).json().get("title", "")
+    except Exception:
+        return None
+    # 例： "115年06月 2330 台積電 各日成交資訊"
+    parts = title.split()
+    if code in parts:
+        i = parts.index(code)
+        if i + 1 < len(parts):
+            return parts[i + 1]
+    return None
+
+
 def parse_twse_json(j):
     """把 TWSE STOCK_DAY 回應轉成 list[dict]；非 OK 或無 data 回 []。"""
     if j.get("stat") != "OK" or "data" not in j:
