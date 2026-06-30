@@ -25,3 +25,23 @@ def test_parse_twse_json_not_ok():
 def test_stocks_shape():
     assert "華邦電 (2344)" in STOCKS
     assert STOCKS["華邦電 (2344)"]["code"] == "2344"
+
+
+def test_stooq_change_parses(monkeypatch):
+    import core.data as data
+    csv = ("Date,Open,High,Low,Close,Volume\n"
+           "2026-06-26,100,101,99,100,0\n"
+           "2026-06-27,100,106,100,105,0\n")
+
+    class _R:
+        text = csv
+
+    monkeypatch.setattr(data.requests, "get", lambda *a, **k: _R())
+    assert data._stooq_change("^spx") == (105.0, 5.0)  # 105 vs 100 = +5%
+
+
+def test_fetch_us_overnight(monkeypatch):
+    import core.data as data
+    monkeypatch.setattr(data, "_stooq_change", lambda sym: (100.0, 1.5))
+    out = data.fetch_us_overnight()
+    assert out["費半SOX"] == 1.5 and len(out) == 4

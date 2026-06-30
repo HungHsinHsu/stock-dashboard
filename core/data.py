@@ -47,6 +47,47 @@ def fetch_stock_name(code, today=None):
     return None
 
 
+US_INDICES = {"費半SOX": "^sox", "Nasdaq": "^ndq", "標普500": "^spx", "道瓊": "^dji"}
+
+
+def _stooq_change(symbol):
+    """用 stooq 日線抓某指數最近兩日收盤，回 (close, pct) 或 None。"""
+    today = datetime.today()
+    d2 = today.strftime("%Y%m%d")
+    d1 = (today - relativedelta(days=12)).strftime("%Y%m%d")
+    url = f"https://stooq.com/q/d/l/?s={symbol}&d1={d1}&d2={d2}&i=d"
+    try:
+        lines = requests.get(url, headers=HEADERS, timeout=15).text.strip().splitlines()
+    except Exception:
+        return None
+    closes = []
+    for row in lines[1:]:                      # 跳過表頭 Date,Open,High,Low,Close,Volume
+        cols = row.split(",")
+        try:
+            closes.append(float(cols[4]))
+        except (IndexError, ValueError):
+            continue
+    if len(closes) < 2:
+        return None
+    prev, last = closes[-2], closes[-1]
+    return (last, round((last - prev) / prev * 100, 2)) if prev else None
+
+
+def fetch_us_overnight():
+    """美股主要指數隔夜漲跌 {name: pct}（抓不到的略過）。"""
+    out = {}
+    for name, sym in US_INDICES.items():
+        c = _stooq_change(sym)
+        if c:
+            out[name] = c[1]
+    return out
+
+
+def fetch_taifex_night():
+    """台指期夜盤（gap）— 免費穩定資料源確認中，暫回 None（不阻擋大盤預測）。"""
+    return None
+
+
 def fetch_stock_list():
     """全部上市股票對照 {code: name}；雙來源備援，失敗回 {}。"""
     out = {}

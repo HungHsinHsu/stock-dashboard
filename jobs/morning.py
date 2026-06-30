@@ -1,6 +1,11 @@
-from core.data import fetch_daily, fetch_index
+from core.data import (
+    fetch_daily, fetch_index, fetch_us_overnight, fetch_taifex_night,
+)
 from core.indicators import compute_indicators
-from core.predict import make_prediction, format_prediction, PREDICTION_SCHEMA  # noqa: F401
+from core.predict import (
+    make_prediction, format_prediction, PREDICTION_SCHEMA,  # noqa: F401
+    make_market_prediction, format_market_prediction,
+)
 from core.market import market_summary
 from core.llm import generate_json
 from core.store import load_history, save_history, upsert_record, HISTORY_PATH
@@ -9,11 +14,24 @@ import core.telegram as tg
 
 
 def run(today=None, llm=generate_json, fetch=fetch_daily,
-        fetch_idx=fetch_index, notify=None, stocks=None):
+        fetch_idx=fetch_index, notify=None, stocks=None,
+        fetch_us=fetch_us_overnight, fetch_tf=fetch_taifex_night):
     stocks = effective_stocks() if stocks is None else stocks
-    market = market_summary(fetch_idx(today=today))
+    index_df = fetch_idx(today=today)
+    market = market_summary(index_df)
     records = load_history(HISTORY_PATH)
     produced, skipped = [], []
+
+    # 大盤(加權指數)開盤預測：以美股隔夜 + 台指期夜盤為領先指標、大盤技術面為輔
+    if not index_df.empty:
+        idate = str(today.date()) if today is not None else str(index_df.index[-1].date())
+        try:
+            idx_ind = compute_indicators(index_df, {})
+            mpred = make_market_prediction(idx_ind, fetch_us(), market,
+                                           fetch_tf(), llm=llm)
+            tg.send(format_market_prediction(idate, mpred))
+        except Exception as e:
+            print("大盤預測失敗：", e)
 
     for name, cfg in stocks.items():
         df = fetch(cfg["code"], today=today)
