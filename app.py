@@ -145,18 +145,22 @@ with tab_hist:
         latest = ordered[0]
         lp = latest.get("prediction") or {}
         if lp:
-            arrow = "🔺漲" if lp.get("direction") == "漲" else "🔻跌"
+            arrow = "🔺 漲" if lp.get("direction") == "漲" else "🔻 跌"
             conf = lp.get("confidence")
             conf_txt = f"（信心{conf}）" if conf else ""
-            st.markdown(f"#### 最新預測 · {latest['date']}")
-            m1, m2, m3 = st.columns(3)
-            m1.metric("預期方向", f"{arrow}{conf_txt}")
-            m2.metric("進場訊號", lp.get("signal", "—"))
+            sig = lp.get("signal", "—")
             bt = lp.get("batches")
-            m3.metric("部位", f"{bt}/3 批" if isinstance(bt, int) else "—")
+            bt_txt = f"{bt}/3 批" if isinstance(bt, int) else "—"
+            # 用 markdown 條列，避免 st.metric 在窄欄位把「漲（信心中）」截斷成「漲（信...」
+            st.markdown(f"#### 最新預測 · {latest['date']}")
+            st.markdown(
+                f"- **預期方向**：{arrow}{conf_txt}\n"
+                f"- **進場訊號**：{sig}\n"
+                f"- **部位**：{bt_txt}"
+            )
             note = lp.get("signal_rule_note")
             if note:
-                st.caption(f"📐 紀律：{note}")
+                st.info(f"📐 紀律：{note}")
             bull = lp.get("bull_signals") or []
             bear = lp.get("bear_signals") or []
             if bull or bear:
