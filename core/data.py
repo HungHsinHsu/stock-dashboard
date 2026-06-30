@@ -1,9 +1,13 @@
+import time
 import pandas as pd
 import requests
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (stock-dashboard)"}
+
+# 每次打 TWSE 之間的禮貌間隔（秒），避免多檔時瞬間連發被限流/封 IP。
+TWSE_DELAY = 0.3
 
 # 要預測/復盤的股票清單。新增一檔 = 在這裡多加一個項目即可。
 #   key   = 顯示名稱（自取，建議「名稱 (代號)」）
@@ -122,6 +126,8 @@ def fetch_daily(code, months=6, today=None):
     today = today or datetime.today()
     frames = []
     for i in range(months):
+        if i:
+            time.sleep(TWSE_DELAY)
         d = today - relativedelta(months=i)
         ym = d.strftime("%Y%m01")
         url = (
@@ -173,6 +179,8 @@ def fetch_index(months=6, today=None):
     today = today or datetime.today()
     frames = []
     for i in range(months):
+        if i:
+            time.sleep(TWSE_DELAY)
         d = today - relativedelta(months=i)
         ym = d.strftime("%Y%m01")
         url = (
