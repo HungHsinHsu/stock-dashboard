@@ -6,8 +6,9 @@ import jobs.morning as morning
 def _fake_llm(system, user, schema, client=None):
     assert schema is PREDICTION_SCHEMA
     return {
-        "signal": "觀望", "direction": "跌", "hold_ma20": False,
-        "hold_support1": False, "reason": "量縮跌破MA20",
+        "signal": "觀望", "direction": "跌", "confidence": "中",
+        "bull_signals": ["站穩 MA20"], "bear_signals": ["MACD 翻空", "KD 死亡交叉"],
+        "hold_ma20": False, "hold_support1": False, "reason": "量縮跌破MA20",
     }
 
 
@@ -21,13 +22,15 @@ def test_make_prediction_includes_market():
 
 def test_format_prediction_shows_market():
     pred = {
-        "signal": "觀望", "direction": "跌", "hold_ma20": False,
-        "hold_support1": False, "reason": "量縮",
+        "signal": "觀望", "direction": "跌", "confidence": "低",
+        "bull_signals": [], "bear_signals": ["跌破 20 日低點"],
+        "hold_ma20": False, "hold_support1": False, "reason": "量縮",
         "indicators": {"close": 203.0, "ma20": 186.5},
         "market": {"direction": "跌", "pct": -0.7, "above_ma20": False},
     }
     s = format_prediction("華邦電 (2344)", "2026-06-30", pred)
     assert "大盤" in s and "跌" in s
+    assert "信心低" in s and "跌破 20 日低點" in s  # 顯示信心與技術訊號
     assert "streamlit.app" in s  # 附上圖表連結
 
 
