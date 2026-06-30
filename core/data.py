@@ -180,18 +180,18 @@ def fetch_foreign_flow(code, today=None, max_back=8):
     d, checked = today, 0
     while len(nets) < 3 and checked < max_back:
         ymd = d.strftime("%Y%m%d")
+        # T86＝三大法人買賣超日報；全部個股的 selectType 是 ALLBUT0999（非 ALL）
+        url = f"{T86_URL}?response=json&date={ymd}&selectType=ALLBUT0999"
         try:
-            resp = requests.get(
-                f"{T86_URL}?response=json&date={ymd}&selectType=ALL",
-                headers=HEADERS, timeout=15,
-            )
+            resp = requests.get(url, headers=HEADERS, timeout=15)
             j = resp.json()
         except Exception as e:
             dbg = f"{ymd} 例外 {type(e).__name__}: {e}"
             j = {}
         else:
             if j.get("stat") != "OK":
-                dbg = f"{ymd} stat={j.get('stat')!r} http={getattr(resp, 'status_code', '?')}"
+                body = (resp.text or "")[:160].replace("\n", " ")
+                dbg = f"{ymd} http={getattr(resp, 'status_code', '?')} stat={j.get('stat')!r} body={body!r}"
         if j.get("stat") == "OK":
             net = _foreign_net_from_t86(j, code)
             if net is not None:
