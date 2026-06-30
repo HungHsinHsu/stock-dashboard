@@ -64,4 +64,21 @@ def test_constrain_keeps_valid_entry_and_warns_foreign():
     ind = {"close": 223, "prev_close": 222, "ma20": 181,
            "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
     final, note = constrain_signal({"signal": "進場"}, ind)
-    assert final == "進場" and "外資" in note  # 進場仍提醒人工確認外資與盤後定價
+    assert final == "進場" and "外資" in note  # 外資資料缺漏→放行但提醒
+
+
+_ENTRY_IND = {"close": 223, "prev_close": 222, "ma20": 181,
+              "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
+
+
+def test_foreign_still_selling_blocks_entry():
+    # 技術面到位但外資仍賣超 → 夾回觀望
+    final, note = constrain_signal({"signal": "進場"}, _ENTRY_IND,
+                                   foreign_stopped=False)
+    assert final == "觀望" and "外資仍在賣超" in note
+
+
+def test_foreign_stopped_allows_entry():
+    final, note = constrain_signal({"signal": "進場"}, _ENTRY_IND,
+                                   foreign_stopped=True)
+    assert final == "進場" and "外資已停止倒貨" in note

@@ -76,6 +76,51 @@ def test_taifex_change_no_tx():
     assert _taifex_change([{"Contract": "MTX", "%Change": "1.0"}]) is None
 
 
+def test_foreign_net_from_t86_picks_foreign_col():
+    from core.data import _foreign_net_from_t86
+    j = {"stat": "OK",
+         "fields": ["證券代號", "證券名稱",
+                    "外陸資買賣超股數(不含外資自營商)", "投信買賣超股數",
+                    "三大法人買賣超股數"],
+         "data": [["2344", "華邦電", "-1,234,000", "5,000", "-1,000,000"],
+                  ["2330", "台積電", "2,000,000", "0", "2,000,000"]]}
+    assert _foreign_net_from_t86(j, "2344") == -1234000
+    assert _foreign_net_from_t86(j, "2330") == 2000000
+    assert _foreign_net_from_t86(j, "9999") == 0      # 開市但該股無紀錄→0
+    assert _foreign_net_from_t86({"stat": "no"}, "2344") is None
+
+
+def test_fetch_foreign_flow_streak_and_stopped(monkeypatch):
+    import core.data as data
+    # 最近三個交易日(新到舊)：+500、-300、-200 → 最近未賣超→stopped，連賣0
+    seq = [
+        {"stat": "OK", "fields": ["證券代號", "外陸資買賣超股數(不含外資自營商)"],
+         "data": [["2344", "500,000"]]},
+        {"stat": "OK", "fields": ["證券代號", "外陸資買賣超股數(不含外資自營商)"],
+         "data": [["2344", "-300,000"]]},
+        {"stat": "OK", "fields": ["證券代號", "外陸資買賣超股數(不含外資自營商)"],
+         "data": [["2344", "-200,000"]]},
+    ]
+    calls = {"i": 0}
+
+    class _R:
+        def __init__(self, p):
+            self._p = p
+
+        def json(self):
+            return self._p
+
+    def fake_get(url, **k):
+        p = seq[min(calls["i"], len(seq) - 1)]
+        calls["i"] += 1
+        return _R(p)
+
+    monkeypatch.setattr(data, "TWSE_DELAY", 0)
+    monkeypatch.setattr(data.requests, "get", fake_get)
+    out = data.fetch_foreign_flow("2344", today=__import__("datetime").datetime(2026, 6, 30))
+    assert out["net"] == 500000 and out["stopped"] is True and out["sold_streak"] == 0
+
+
 def test_fetch_taifex_prefers_night_session(monkeypatch):
     import core.data as data
 

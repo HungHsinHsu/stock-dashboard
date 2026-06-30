@@ -1,5 +1,6 @@
 from core.data import (
     fetch_daily, fetch_index, fetch_us_overnight, fetch_taifex,
+    fetch_foreign_flow,
 )
 from core.indicators import compute_indicators
 from core.predict import (
@@ -15,7 +16,8 @@ import core.telegram as tg
 
 def run(today=None, llm=generate_json, fetch=fetch_daily,
         fetch_idx=fetch_index, notify=None, stocks=None,
-        fetch_us=fetch_us_overnight, fetch_tf=fetch_taifex):
+        fetch_us=fetch_us_overnight, fetch_tf=fetch_taifex,
+        fetch_fg=fetch_foreign_flow):
     stocks = effective_stocks() if stocks is None else stocks
     index_df = fetch_idx(today=today)
     market = market_summary(index_df)
@@ -43,9 +45,14 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         date = str(df.index[-1].date()) if today is None else str(today.date())
         indicators = compute_indicators(df, cfg.get("supports", {}))
         try:
+            foreign = fetch_fg(cfg["code"], today=today)
+        except Exception as e:
+            print(f"{name} 外資資料失敗：", e)
+            foreign = None
+        try:
             prediction = make_prediction(indicators, name, market=market,
                                          us_overnight=us, llm=llm,
-                                         code=cfg["code"])
+                                         code=cfg["code"], foreign=foreign)
         except Exception as e:  # 單檔預測失敗不影響其他檔
             print(f"{name} 預測失敗：", e)
             skipped.append(name)

@@ -19,7 +19,8 @@ def _fake_llm(system, user, schema, client=None):
     }
 
 
-_NO_LEAD = {"fetch_us": lambda: {}, "fetch_tf": lambda: None}
+_NO_LEAD = {"fetch_us": lambda: {}, "fetch_tf": lambda: None,
+            "fetch_fg": lambda code, today=None: None}
 
 
 def test_make_prediction_includes_market():

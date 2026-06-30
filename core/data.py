@@ -1,7 +1,7 @@
 import time
 import pandas as pd
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (stock-dashboard)"}
@@ -138,6 +138,74 @@ def fetch_taifex():
         if pct is not None:
             return pct
     return None
+
+
+T86_URL = "https://www.twse.com.tw/fund/T86"
+
+
+def _foreign_net_from_t86(j, code):
+    """從 T86 回應取某股『外資買賣超股數』；非 OK 回 None，當日該股無紀錄回 0。"""
+    if j.get("stat") != "OK":
+        return None
+    fields = j.get("fields") or []
+    idx = None
+    for i, f in enumerate(fields):      # 優先：外陸資買賣超股數(不含外資自營商)
+        if "外" in f and "買賣超" in f and "自營商" not in f:
+            idx = i
+            break
+    if idx is None:
+        for i, f in enumerate(fields):  # 後備：任何含「外…買賣超」
+            if "外" in f and "買賣超" in f:
+                idx = i
+                break
+    if idx is None:
+        return None
+    for row in j.get("data", []):
+        try:
+            if str(row[0]).strip() == str(code):
+                return int(str(row[idx]).replace(",", "").strip())
+        except (ValueError, IndexError):
+            return None
+    return 0  # 當日有開市但該股不在三大法人買賣超名單 → 視為外資沒動
+
+
+def fetch_foreign_flow(code, today=None, max_back=8):
+    """近幾個交易日外資對該股買賣超(股數，新到舊)。
+
+    回 {"net": 最近一日, "sold_streak": 連續賣超天數, "stopped": bool|None,
+        "date": 'YYYY-MM-DD'|None}。stopped=最近一日是否未賣超(>=0)。抓不到回 stopped=None。
+    """
+    today = today or datetime.today()
+    nets, last_date = [], None
+    d, checked = today, 0
+    while len(nets) < 3 and checked < max_back:
+        ymd = d.strftime("%Y%m%d")
+        try:
+            j = requests.get(
+                f"{T86_URL}?response=json&date={ymd}&selectType=ALL",
+                headers=HEADERS, timeout=15,
+            ).json()
+        except Exception:
+            j = {}
+        if j.get("stat") == "OK":
+            net = _foreign_net_from_t86(j, code)
+            if net is not None:
+                nets.append(net)
+                if last_date is None:
+                    last_date = d.strftime("%Y-%m-%d")
+        checked += 1
+        d -= timedelta(days=1)
+        time.sleep(TWSE_DELAY)
+    if not nets:
+        return {"net": None, "sold_streak": 0, "stopped": None, "date": None}
+    streak = 0
+    for n in nets:
+        if n < 0:
+            streak += 1
+        else:
+            break
+    return {"net": nets[0], "sold_streak": streak,
+            "stopped": nets[0] >= 0, "date": last_date}
 
 
 def fetch_stock_list():

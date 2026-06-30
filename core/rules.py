@@ -49,9 +49,13 @@ def _pct_to_ma20(close, ma20):
     return (close - ma20) / ma20 * 100
 
 
-def entry_setup(ind, code=None):
+def entry_setup(ind, code=None, foreign_stopped=None):
     """判斷『回檔承接法』的進場資格。回 dict：
-       {ceiling, at_batch, vol_ok, hold_ok, reason}。ceiling = 紀律允許的最高訊號。"""
+       {ceiling, at_batch, vol_ok, hold_ok, reason}。ceiling = 紀律允許的最高訊號。
+
+    foreign_stopped：外資是否停止倒貨(進場 AND 第四條)。True=已停手、False=仍賣超、
+    None=無資料。為 False 時即使技術面到位也夾回觀望；None 時放行但於 note 提醒人工確認。
+    """
     close = ind.get("close")
     ma20 = ind.get("ma20")
     prev = ind.get("prev_close")
@@ -63,15 +67,17 @@ def entry_setup(ind, code=None):
     vol_ok = vr is not None and vr < VOL_SHRINK            # 量縮
     hold_ok = prev is None or (close is not None and close >= prev)  # 止穩(收盤沒再破底)
 
+    def result(ceiling, at_batch, reason):
+        return {"ceiling": ceiling, "at_batch": at_batch, "vol_ok": vol_ok,
+                "hold_ok": hold_ok, "reason": reason}
+
     # 禁區
     if is_denied(code):
-        return {"ceiling": "避開", "at_batch": None, "vol_ok": vol_ok,
-                "hold_ok": hold_ok, "reason": f"禁區：{DENYLIST[str(code)]}"}
+        return result("避開", None, f"禁區：{DENYLIST[str(code)]}")
 
     # 停損：收盤跌破長期均線(支撐3)
     if d3 is not None and d3 < 0:
-        return {"ceiling": "避開", "at_batch": None, "vol_ok": vol_ok,
-                "hold_ok": hold_ok, "reason": "收盤跌破支撐3(長期均線)＝停損區，全數出場"}
+        return result("避開", None, "收盤跌破支撐3(長期均線)＝停損區，全數出場")
 
     def near(dpct):
         return dpct is not None and -NEAR_PCT <= dpct <= NEAR_PCT
@@ -84,18 +90,25 @@ def entry_setup(ind, code=None):
     elif near(d3):
         at_batch = "支撐3(第三批)"
 
-    # 情境一：到價 + 止穩 + 量縮 → 可進該批
-    if at_batch and hold_ok and vol_ok:
-        return {"ceiling": "進場", "at_batch": at_batch, "vol_ok": vol_ok,
-                "hold_ok": hold_ok,
-                "reason": f"回檔到{at_batch}、收盤止穩且量縮，符合往下接情境"}
+    # 技術面是否符合進場情境
+    qualified, base_reason = False, ""
+    if at_batch and hold_ok and vol_ok:                  # 情境一：往下接
+        qualified = True
+        base_reason = f"回檔到{at_batch}、收盤止穩且量縮，符合往下接情境"
+    else:
+        just_reclaimed = d2 is not None and 0 <= d2 <= NEAR_PCT
+        if (just_reclaimed and vr is not None and vr > VOL_EXPAND and hold_ok
+                and ind.get("ma_align") != "空頭排列"):  # 情境二：往上站
+            qualified, at_batch = True, "站回均線"
+            base_reason = "帶量站回上方均線且收盤站穩，符合往上站情境"
 
-    # 情境二：帶量「站回」上方均線並收盤站穩（剛站回 MA20，須貼近均線、非遠離；非空頭排列）
-    just_reclaimed = d2 is not None and 0 <= d2 <= NEAR_PCT
-    if (just_reclaimed and vr is not None and vr > VOL_EXPAND and hold_ok
-            and ind.get("ma_align") != "空頭排列"):
-        return {"ceiling": "進場", "at_batch": "站回均線", "vol_ok": True,
-                "hold_ok": hold_ok, "reason": "帶量站回上方均線且收盤站穩，符合往上站情境"}
+    if qualified:
+        # 進場 AND 第四條：外資停止倒貨
+        if foreign_stopped is False:
+            return result("觀望", at_batch, base_reason + "，但外資仍在賣超→等外資停手")
+        if foreign_stopped is None:
+            return result("進場", at_batch, base_reason + "；外資買賣超資料缺漏，請自行確認")
+        return result("進場", at_batch, base_reason + "，且外資已停止倒貨")
 
     # 其餘：真空帶/未到價/未止穩/放量殺 → 等
     if at_batch and not (hold_ok and vol_ok):
@@ -104,21 +117,18 @@ def entry_setup(ind, code=None):
             miss.append("尚未收盤止穩")
         if not vol_ok:
             miss.append("量未縮")
-        return {"ceiling": "觀望", "at_batch": at_batch, "vol_ok": vol_ok,
-                "hold_ok": hold_ok,
-                "reason": f"已到{at_batch}，但{'、'.join(miss)}，等收盤確認"}
-    return {"ceiling": "觀望", "at_batch": None, "vol_ok": vol_ok,
-            "hold_ok": hold_ok, "reason": "未到任一支撐(真空帶/位置偏高)，不是進場點"}
+        return result("觀望", at_batch, f"已到{at_batch}，但{'、'.join(miss)}，等收盤確認")
+    return result("觀望", None, "未到任一支撐(真空帶/位置偏高)，不是進場點")
 
 
-def signal_ceiling(ind, code=None):
-    return entry_setup(ind, code)["ceiling"]
+def signal_ceiling(ind, code=None, foreign_stopped=None):
+    return entry_setup(ind, code, foreign_stopped)["ceiling"]
 
 
-def constrain_signal(pred, ind, code=None):
+def constrain_signal(pred, ind, code=None, foreign_stopped=None):
     """把 LLM 的 signal 夾進紀律允許範圍。回 (final_signal, note|None)。"""
     llm_sig = pred.get("signal", "觀望")
-    setup = entry_setup(ind, code)
+    setup = entry_setup(ind, code, foreign_stopped)
     ceil = setup["ceiling"]
     final = llm_sig if _rank(llm_sig) <= _rank(ceil) else ceil
     note = None

@@ -50,22 +50,26 @@ _SYSTEM = (
 
 
 def make_prediction(indicators, stock_name, market=None, us_overnight=None,
-                    llm=generate_json, code=None):
+                    llm=generate_json, code=None, foreign=None):
     user = (
         f"股票：{stock_name}\n"
         f"技術指標(到昨日收盤為止)：\n{json.dumps(indicators, ensure_ascii=False)}\n"
         f"大盤(加權指數)昨收摘要：\n{json.dumps(market, ensure_ascii=False)}\n"
-        f"美股隔夜四大指數漲跌(%)：\n{json.dumps(us_overnight, ensure_ascii=False)}"
+        f"美股隔夜四大指數漲跌(%)：\n{json.dumps(us_overnight, ensure_ascii=False)}\n"
+        f"外資對本股近期買賣超：\n{json.dumps(foreign, ensure_ascii=False)}"
     )
     pred = llm(_SYSTEM, user, PREDICTION_SCHEMA)
     # 進場與否：規則為主、LLM 受限。把 LLM 的 signal 夾進紀律允許範圍。
-    final_signal, rule_note = constrain_signal(pred, indicators, code)
+    foreign_stopped = foreign.get("stopped") if foreign else None
+    final_signal, rule_note = constrain_signal(pred, indicators, code,
+                                               foreign_stopped)
     pred["signal_llm"] = pred.get("signal")     # 保留 LLM 原始判斷供對照
     pred["signal"] = final_signal
     if rule_note:
         pred["signal_rule_note"] = rule_note
     pred["indicators"] = indicators
     pred["market"] = market
+    pred["foreign"] = foreign
     return pred
 
 
@@ -101,6 +105,13 @@ def format_prediction(stock_name, date, prediction):
     lines.append(f"{mark(prediction['hold_ma20'])} 站穩 MA20{ma20_txt}")
     if ind.get("dist_support1_pct") is not None:
         lines.append(f"{mark(prediction['hold_support1'])} 守住支撐1")
+    fo = prediction.get("foreign") or {}
+    if fo.get("net") is not None:
+        zhang = fo["net"] / 1000.0   # 股 → 張
+        state = "賣超" if zhang < 0 else "買超"
+        streak = fo.get("sold_streak") or 0
+        streak_txt = f"（連{streak}日賣超）" if streak >= 2 else ""
+        lines.append(f"🏦 外資：{state} {abs(zhang):,.0f} 張{streak_txt}")
     mk = prediction.get("market") or {}
     if mk.get("direction"):
         pct = mk.get("pct")
