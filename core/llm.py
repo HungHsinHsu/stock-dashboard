@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import time
 
 MODEL = "claude-opus-4-8"
 
@@ -41,7 +42,7 @@ async def _agent_complete(system, user, schema, model):
         model=model,
         system_prompt=full_system,
         allowed_tools=[],   # 純文字生成，不需任何工具
-        max_turns=1,
+        max_turns=6,        # 給足回合；偶爾第一則非最終結果會被 max_turns=1 誤殺
     )
     text = None
     async for message in query(prompt=user, options=options):
@@ -51,8 +52,20 @@ async def _agent_complete(system, user, schema, model):
     return text
 
 
-def _default_complete(system, user, schema):
-    return asyncio.run(_agent_complete(system, user, schema, MODEL))
+def _default_complete(system, user, schema, attempts=3):
+    """跑 Agent SDK，對偶發錯誤(含 Reached maximum number of turns、空回覆)重試。"""
+    last = None
+    for i in range(attempts):
+        try:
+            text = asyncio.run(_agent_complete(system, user, schema, MODEL))
+            if text and text.strip():
+                return text
+            last = LLMError("Empty response from Agent SDK")
+        except Exception as e:  # noqa: BLE001 — SDK 會丟泛型 Exception
+            last = e
+        if i < attempts - 1:
+            time.sleep(2 * (i + 1))
+    raise last if last is not None else LLMError("Agent SDK failed")
 
 
 def generate_json(system, user, schema, complete=None):

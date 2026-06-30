@@ -42,8 +42,13 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
             continue
         date = str(df.index[-1].date()) if today is None else str(today.date())
         indicators = compute_indicators(df, cfg.get("supports", {}))
-        prediction = make_prediction(indicators, name, market=market,
-                                     us_overnight=us, llm=llm)
+        try:
+            prediction = make_prediction(indicators, name, market=market,
+                                         us_overnight=us, llm=llm)
+        except Exception as e:  # 單檔預測失敗不影響其他檔
+            print(f"{name} 預測失敗：", e)
+            skipped.append(name)
+            continue
         record = {
             "date": date,
             "stock": cfg["code"],
