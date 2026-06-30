@@ -4,13 +4,22 @@ import subprocess
 import time
 import requests
 
-from core.data import STOCKS as BASE_STOCKS, resolve_stocks
+from core.data import (
+    STOCKS as BASE_STOCKS, resolve_stocks,
+    fetch_daily, fetch_index, fetch_us_overnight, fetch_taifex, fetch_foreign_flow,
+)
 from core.watchlist import add_stock, remove_stock, effective_stocks
 from core.positions import (
-    enter_batch, exit_position, held_positions, MAX_BATCHES,
+    enter_batch, exit_position, held_positions, get_batches, MAX_BATCHES,
 )
 from core.store import load_history
-from core.predict import format_prediction
+from core.market import market_summary
+from core.indicators import compute_indicators
+from core.predict import (
+    make_prediction, make_market_prediction,
+    format_prediction, format_market_prediction,
+)
+from core.lessons import lessons_prompt
 import core.telegram as tg
 
 STATE_PATH = "bot_state.json"
@@ -21,6 +30,8 @@ HELP = "\n".join([
     "—— 查預測 ——",
     "/p　今日全部個股預測摘要",
     "/p 2330　單檔詳細預測",
+    "/f　即時試算大盤（不等自動推送）",
+    "/f 2330　即時試算個股",
     "",
     "—— 股票清單 ——",
     "/add 2330　加入",
@@ -65,6 +76,37 @@ def _summary_line(name, rec):
     bt = p.get("batches")
     bt_txt = f"｜{bt}/3批" if isinstance(bt, int) else ""
     return f"・{name}：{p.get('signal', '—')}｜預期{p.get('direction', '—')}{conf_txt}{bt_txt}"
+
+
+def _forecast_market():
+    """即時重新計算大盤開盤前預測（依最新收盤資料）。"""
+    idx_df = fetch_index()
+    if idx_df.empty:
+        return "⚠️ 抓不到大盤資料，稍後再試。"
+    market = market_summary(idx_df)
+    us = fetch_us_overnight()
+    tf = fetch_taifex()
+    ind = compute_indicators(idx_df, {})
+    mpred = make_market_prediction(ind, us, market, tf,
+                                   lessons=lessons_prompt(load_history(), "大盤"))
+    card = format_market_prediction(str(idx_df.index[-1].date()), mpred)
+    return "🔮 即時試算（依最新收盤、預判下一交易日）\n\n" + card
+
+
+def _forecast_stock(code, name, supports):
+    """即時重新計算個股開盤前預測。"""
+    df = fetch_daily(code)
+    if df.empty:
+        return f"⚠️ {name} 抓不到資料。"
+    market = market_summary(fetch_index())
+    us = fetch_us_overnight()
+    foreign = fetch_foreign_flow(code)
+    ind = compute_indicators(df, supports or {})
+    pred = make_prediction(ind, name, market=market, us_overnight=us, code=code,
+                           foreign=foreign, batches=get_batches(code),
+                           lessons=lessons_prompt(load_history(), code))
+    card = format_prediction(name, str(df.index[-1].date()), pred)
+    return "🔮 即時試算（依最新收盤、預判下一交易日）\n\n" + card
 
 
 def _resolve_one(query):
@@ -215,6 +257,24 @@ def handle(text):
         if not any_rec:
             return "目前清單內的股票都還沒有預測紀錄。"
         return "\n".join(lines)
+    if cmd in ("f", "forecast"):
+        _git_pull()                       # 取最新 history 供教訓回饋
+        if args:
+            code, disp = _resolve_one(args[0])
+            if code is None:
+                return disp
+            cfg = next((c for c in effective_stocks().values()
+                        if c.get("code") == code), {})
+            tg.send("⏳ 即時計算中（約 30–60 秒）…")
+            try:
+                return _forecast_stock(code, _name_for(code), cfg.get("supports"))
+            except Exception as e:
+                return f"⚠️ 即時計算失敗：{e}"
+        tg.send("⏳ 即時計算大盤中（約 30–60 秒）…")
+        try:
+            return _forecast_market()
+        except Exception as e:
+            return f"⚠️ 即時計算失敗：{e}"
     return "不認得的指令。傳 /help 看用法。"
 
 

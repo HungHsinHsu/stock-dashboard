@@ -70,3 +70,34 @@ def test_p_no_records(monkeypatch):
     monkeypatch.setattr(bot, "_git_pull", lambda: None)
     monkeypatch.setattr(bot, "load_history", lambda: [])
     assert "沒有預測紀錄" in bot.handle("/p")
+
+
+def _wire_forecast(monkeypatch):
+    acks = []
+    monkeypatch.setattr(bot, "_git_pull", lambda: None)
+    monkeypatch.setattr(bot, "tg", type("T", (), {
+        "send": staticmethod(lambda t: acks.append(t) or True)}))
+    monkeypatch.setattr(bot, "_forecast_market", lambda: "MARKET_CARD")
+    monkeypatch.setattr(bot, "_forecast_stock",
+                        lambda code, name, supports: f"STOCK_CARD:{code}")
+    return acks
+
+
+def test_f_market_live(monkeypatch):
+    acks = _wire_forecast(monkeypatch)
+    out = bot.handle("/f")
+    assert out == "MARKET_CARD"
+    assert any("計算" in a for a in acks)          # 有先回覆「計算中」
+
+
+def test_f_stock_live(monkeypatch):
+    acks = _wire_forecast(monkeypatch)
+    monkeypatch.setattr(bot, "resolve_stocks", lambda q: [("2330", "台積電")])
+    monkeypatch.setattr(bot, "effective_stocks",
+                        lambda: {"台積電 (2330)": {"code": "2330"}})
+    out = bot.handle("/f 2330")
+    assert out == "STOCK_CARD:2330"
+
+
+def test_f_in_help():
+    assert "/f" in bot.HELP

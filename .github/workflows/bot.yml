@@ -19,12 +19,18 @@ jobs:
     timeout-minutes: 355   # < 6h，留餘裕讓迴圈自行收尾
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # /f 即時預測要呼叫 LLM（Claude Agent SDK 透過 Claude Code CLI）
+      - run: npm install -g @anthropic-ai/claude-code
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install requests pandas python-dateutil
+      - run: pip install -r requirements.txt
       - name: Long-poll Telegram commands
         env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m jobs.bot --loop
