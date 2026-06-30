@@ -111,12 +111,21 @@ def render_history(records, show_signal):
         row = {"日期": r["date"]}
         if show_signal:
             row["訊號"] = p.get("signal", "—")
+        ac, pc = rv.get("actual_close"), rv.get("prev_close")
+        if isinstance(ac, (int, float)) and isinstance(pc, (int, float)) and pc:
+            chg = ac - pc
+            chg_txt = f"{chg:+.2f}"
+            pct_txt = f"{chg / pc * 100:+.2f}%"
+        else:
+            chg_txt = pct_txt = "—"
         row.update({
             "預測方向": p.get("direction", "—"),
             "信心": p.get("confidence", "—"),
             "實際方向": rv.get("direction_actual", "—"),
             "方向命中": "✅" if res.get("direction") else ("❌" if rv else "—"),
-            "收盤": rv.get("actual_close", "—"),
+            "收盤": f"{ac:.2f}" if isinstance(ac, (int, float)) else "—",
+            "漲跌": chg_txt,
+            "漲跌%": pct_txt,
         })
         rows.append(row)
     st.dataframe(rows, use_container_width=True, hide_index=True)
