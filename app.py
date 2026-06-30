@@ -177,9 +177,11 @@ def render_history(records, show_signal):
         for r in crits[:8]:
             rv = r["review"]
             p = r.get("prediction") or {}
-            st.markdown(
-                f"- **{r['date']}**（預測{p.get('direction', '—')}、"
-                f"實際{rv.get('direction_actual', '—')}）：{rv['critique']}")
+            hit = "✅" if (rv.get("results") or {}).get("direction") else "❌"
+            title = (f"{r['date']}　預測{p.get('direction', '—')} → "
+                     f"實際{rv.get('direction_actual', '—')} {hit}")
+            with st.expander(title):
+                st.markdown(rv["critique"])
 
 
 tab_market, tab_stock = st.tabs(["🌐 大盤", "📈 個股"])

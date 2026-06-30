@@ -46,6 +46,14 @@ _SYSTEM = (
     "科技電子看 Nasdaq、傳產與工業看道瓊、其餘看標普；把對應的美股隔夜訊號"
     "納入今日開盤方向判斷(例如半導體股遇費半大漲偏多、大跌偏空)，並在 bull/bear "
     "訊號中具體點名是哪個美股指數。\n"
+    "【最重要：嚴禁『大盤/美股漲就預設個股看漲』的 beta 偏誤】"
+    "個股當日方向『主要由其自身技術面決定』，大盤與美股只是輔助修正、不是主因。"
+    "請務必評估【相對強弱】：若大盤/美股偏多、但本檔自身技術面偏空"
+    "(跌破均線、MACD 翻負且柱狀擴大、KD 未交叉、外資賣超、量價背離、相對大盤弱)，"
+    "這代表『相對弱勢』，是強烈看跌訊號——此時 direction 應取『跌』，不可因大盤漲就喊漲；"
+    "反之大盤弱但個股逆勢強亦然。direction 必須誠實反映『個股自身淨多空』，"
+    "不可每檔都偏多；多空若各半，寧可給『跌』或低信心，也不要一律順著大盤喊漲。"
+    "判斷後請自我檢查：『我是不是只因為大盤/美股漲就給漲？』若是，重新檢視個股自身訊號。\n"
     "若提供【過去教訓】，請參考過去誤判原因以避免重蹈；但仍以當前技術面客觀判斷，"
     "不可因過去錯誤就一律反向或過度反應。"
 )
@@ -54,10 +62,23 @@ _SYSTEM = (
 def make_prediction(indicators, stock_name, market=None, us_overnight=None,
                     llm=generate_json, code=None, foreign=None, batches=None,
                     lessons=""):
+    # 客觀相對強弱：個股昨日漲跌 vs 大盤昨日漲跌（負=弱於大盤，看跌參考）
+    rel_txt = ""
+    try:
+        c, pc = indicators.get("close"), indicators.get("prev_close")
+        mp = (market or {}).get("pct")
+        if c and pc and isinstance(mp, (int, float)):
+            sp = (c - pc) / pc * 100
+            rel = sp - mp
+            tag = "弱於大盤(看跌參考)" if rel < 0 else "強於大盤"
+            rel_txt = (f"\n相對強弱：個股昨日 {sp:+.2f}% vs 大盤昨日 {mp:+.2f}%，"
+                       f"相對 {rel:+.2f}% → {tag}")
+    except Exception:
+        pass
     user = (
         f"股票：{stock_name}\n"
         f"技術指標(到昨日收盤為止)：\n{json.dumps(indicators, ensure_ascii=False)}\n"
-        f"大盤(加權指數)昨收摘要：\n{json.dumps(market, ensure_ascii=False)}\n"
+        f"大盤(加權指數)昨收摘要：\n{json.dumps(market, ensure_ascii=False)}{rel_txt}\n"
         f"美股隔夜四大指數漲跌(%)：\n{json.dumps(us_overnight, ensure_ascii=False)}\n"
         f"外資對本股近期買賣超：\n{json.dumps(foreign, ensure_ascii=False)}"
     )
