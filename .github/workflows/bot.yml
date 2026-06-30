@@ -2,13 +2,13 @@ name: stock-bot
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # 每 10 分鐘檢查一次 Telegram 指令
+    - cron: "*/15 * * * *"  # 接力重啟：排隊的 run 會在前一個結束時立刻接上
   workflow_dispatch:
 
 permissions:
   contents: write
 
-# 同時只跑一個，避免兩次輪詢互相覆蓋
+# 只允許一個在跑；新觸發排隊，前一個結束就立刻接上 → 近乎不間斷
 concurrency:
   group: stock-bot
   cancel-in-progress: false
@@ -16,28 +16,15 @@ concurrency:
 jobs:
   poll:
     runs-on: ubuntu-latest
+    timeout-minutes: 355   # < 6h，留餘裕讓迴圈自行收尾
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: pip install requests pandas python-dateutil
-      - name: Poll Telegram commands
+      - name: Long-poll Telegram commands
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m jobs.bot
-      - name: Commit watchlist / state
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          for f in watchlist.json bot_state.json; do
-            [ -f "$f" ] && git add "$f"
-          done
-          if git diff --staged --quiet; then
-            echo "No changes"
-          else
-            git commit -m "Chore: 更新股票清單/輪詢狀態 [skip ci]"
-            git pull --rebase origin "$GITHUB_REF_NAME"
-            git push origin "HEAD:$GITHUB_REF_NAME"
-          fi
+        run: python -m jobs.bot --loop

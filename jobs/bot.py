@@ -1,5 +1,7 @@
 import json
 import os
+import subprocess
+import time
 import requests
 
 from core.data import STOCKS as BASE_STOCKS, resolve_stocks
@@ -38,9 +40,13 @@ def _save_offset(offset, path=STATE_PATH):
         json.dump({"offset": offset}, f)
 
 
-def get_updates(token, offset):
+def get_updates(token, offset, long_poll=0):
+    """long_poll>0 時用 Telegram 長輪詢：有訊息即回，否則阻塞至多 long_poll 秒。"""
     url = f"https://api.telegram.org/bot{token}/getUpdates"
-    r = requests.get(url, params={"offset": offset, "timeout": 0}, timeout=20)
+    r = requests.get(
+        url, params={"offset": offset, "timeout": long_poll},
+        timeout=long_poll + 15,
+    )
     return r.json().get("result", [])
 
 
@@ -98,15 +104,9 @@ def handle(text):
     return "不認得的指令。傳 /help 看用法。"
 
 
-def run():
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
-        print("缺 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID")
-        return
-    offset = _load_offset()
-    updates = get_updates(token, offset)
-    handled = 0
+def _process(updates, chat_id):
+    """處理一批 updates，回 (new_offset, handled_count)。"""
+    offset, handled = 0, 0
     for u in updates:
         offset = max(offset, u["update_id"] + 1)
         msg = u.get("message") or u.get("edited_message")
@@ -122,9 +122,66 @@ def run():
         if reply:
             tg.send(reply)
             handled += 1
-    _save_offset(offset)
-    print(f"updates={len(updates)} handled={handled} offset={offset}")
+    return offset, handled
+
+
+def _commit_push():
+    """把 watchlist/state 變更 commit & push 回分支（在 Actions runner 內）。"""
+    ref = os.environ.get("GITHUB_REF_NAME", "main")
+    files = [f for f in ("watchlist.json", STATE_PATH) if os.path.exists(f)]
+    if not files:
+        return
+    try:
+        subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=False)
+        subprocess.run(
+            ["git", "config", "user.email",
+             "github-actions[bot]@users.noreply.github.com"], check=False)
+        subprocess.run(["git", "add", *files], check=False)
+        staged = subprocess.run(["git", "diff", "--staged", "--quiet"]).returncode
+        if staged == 1:  # 有變更才 commit
+            subprocess.run(
+                ["git", "commit", "-m", "Chore: 更新股票清單/輪詢狀態 [skip ci]"],
+                check=False)
+        subprocess.run(["git", "pull", "--rebase", "origin", ref], check=False)
+        subprocess.run(["git", "push", "origin", f"HEAD:{ref}"], check=False)
+    except Exception as e:
+        print("git commit/push 失敗：", e)
+
+
+def run(loop=False):
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        print("缺 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID")
+        return
+    offset = _load_offset()
+
+    if not loop:  # 單次（手動/測試用）
+        new_off, handled = _process(get_updates(token, offset), chat_id)
+        offset = max(offset, new_off)
+        _save_offset(offset)
+        print(f"handled={handled} offset={offset}")
+        return
+
+    # 長輪詢：持續監聽約 5.8 小時（< Actions 6h 上限），由 cron 接力重啟。
+    deadline = time.monotonic() + 5.8 * 3600
+    print(f"long-poll start, offset={offset}")
+    while time.monotonic() < deadline:
+        try:
+            updates = get_updates(token, offset, long_poll=25)
+        except Exception as e:
+            print("getUpdates 失敗，稍後重試：", e)
+            time.sleep(5)
+            continue
+        if not updates:
+            continue  # 長輪詢已阻塞約 25 秒，直接再聽
+        new_off, handled = _process(updates, chat_id)
+        offset = max(offset, new_off)
+        _save_offset(offset)
+        _commit_push()  # 即時把清單/offset 推回，排程才讀得到
+        print(f"handled={handled} offset={offset}")
 
 
 if __name__ == "__main__":
-    run()
+    import sys
+    run(loop="--loop" in sys.argv)
