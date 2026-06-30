@@ -19,16 +19,18 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
     stocks = effective_stocks() if stocks is None else stocks
     index_df = fetch_idx(today=today)
     market = market_summary(index_df)
+    us = fetch_us()
+    taifex = fetch_tf()
+    print("美股隔夜:", us, "| 台指期:", taifex)
     records = load_history(HISTORY_PATH)
     produced, skipped = [], []
 
-    # 大盤(加權指數)開盤預測：以美股隔夜 + 台指期夜盤為領先指標、大盤技術面為輔
+    # 大盤(加權指數)開盤預測：以美股隔夜 + 台指期為領先指標、大盤技術面為輔
     if not index_df.empty:
         idate = str(today.date()) if today is not None else str(index_df.index[-1].date())
         try:
             idx_ind = compute_indicators(index_df, {})
-            mpred = make_market_prediction(idx_ind, fetch_us(), market,
-                                           fetch_tf(), llm=llm)
+            mpred = make_market_prediction(idx_ind, us, market, taifex, llm=llm)
             tg.send(format_market_prediction(idate, mpred))
         except Exception as e:
             print("大盤預測失敗：", e)
@@ -40,7 +42,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
             continue
         date = str(df.index[-1].date()) if today is None else str(today.date())
         indicators = compute_indicators(df, cfg.get("supports", {}))
-        prediction = make_prediction(indicators, name, market=market, llm=llm)
+        prediction = make_prediction(indicators, name, market=market,
+                                     us_overnight=us, llm=llm)
         record = {
             "date": date,
             "stock": cfg["code"],

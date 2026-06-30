@@ -33,15 +33,22 @@ _SYSTEM = (
     "每條都要引用具體指標數字)，再淨評估得出 direction 與 confidence。"
     "多空訊號相當或彼此矛盾時，confidence 給『低』、direction 取較可能的一方。\n"
     "另給：進場訊號(進場/觀望/避開)、是否站穩 MA20、是否守住支撐1、白話總結理由。"
-    "可驗證宣告以『今日收盤 vs 昨日收盤』為準。大盤(加權指數)趨勢一併納入考量。"
+    "可驗證宣告以『今日收盤 vs 昨日收盤』為準。大盤(加權指數)趨勢一併納入考量。\n"
+    "另提供【美股隔夜】四大指數(費半SOX/Nasdaq/標普500/道瓊)漲跌(%)。"
+    "請依【本檔股票所屬產業】調整參考權重：半導體/IC 以費半(SOX)為主、"
+    "科技電子看 Nasdaq、傳產與工業看道瓊、其餘看標普；把對應的美股隔夜訊號"
+    "納入今日開盤方向判斷(例如半導體股遇費半大漲偏多、大跌偏空)，並在 bull/bear "
+    "訊號中具體點名是哪個美股指數。"
 )
 
 
-def make_prediction(indicators, stock_name, market=None, llm=generate_json):
+def make_prediction(indicators, stock_name, market=None, us_overnight=None,
+                    llm=generate_json):
     user = (
         f"股票：{stock_name}\n"
         f"技術指標(到昨日收盤為止)：\n{json.dumps(indicators, ensure_ascii=False)}\n"
-        f"大盤(加權指數)摘要：\n{json.dumps(market, ensure_ascii=False)}"
+        f"大盤(加權指數)昨收摘要：\n{json.dumps(market, ensure_ascii=False)}\n"
+        f"美股隔夜四大指數漲跌(%)：\n{json.dumps(us_overnight, ensure_ascii=False)}"
     )
     pred = llm(_SYSTEM, user, PREDICTION_SCHEMA)
     pred["indicators"] = indicators
