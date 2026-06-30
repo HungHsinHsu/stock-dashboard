@@ -114,5 +114,27 @@ def test_f_stock_live(monkeypatch):
     assert out == "STOCK_CARD:2330"
 
 
+def test_resolve_chinese_name_from_watchlist_when_listing_empty(monkeypatch):
+    # 清單內已有台積電，但外部 TWSE 名單抓不到（回 []）→ 仍能用中文名解析
+    monkeypatch.setattr(bot, "effective_stocks",
+                        lambda: {"台積電 (2330)": {"code": "2330"}})
+    monkeypatch.setattr(bot, "resolve_stocks", lambda q: [])
+    code, disp = bot._resolve_one("台積電")
+    assert code == "2330" and disp == "台積電 (2330)"
+    # 代號一樣可解析
+    assert bot._resolve_one("2330")[0] == "2330"
+    # 部分名稱（台積）也命中
+    assert bot._resolve_one("台積")[0] == "2330"
+
+
+def test_predict_chinese_name_when_listing_empty(monkeypatch):
+    _wire_predict(monkeypatch)
+    monkeypatch.setattr(bot, "effective_stocks",
+                        lambda: {"華邦電 (2344)": {"code": "2344"}})
+    monkeypatch.setattr(bot, "resolve_stocks", lambda q: [])   # 外部名單失效
+    out = bot.handle("/預測 華邦電")
+    assert "華邦電" in out and "找不到" not in out
+
+
 def test_forecast_in_help():
     assert "/forecast" in bot.HELP

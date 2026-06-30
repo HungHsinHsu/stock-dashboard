@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import time
 import requests
@@ -138,8 +139,32 @@ def _forecast_stock(code, name, supports):
     return "🔮 即時試算（依最新收盤、預判下一交易日）\n\n" + card
 
 
+def _resolve_in_watchlist(query):
+    """先在使用者追蹤清單裡解析（即使 TWSE 名單抓不到也能用）。
+    回 (code, 顯示名) 或 None。"""
+    q = (query or "").strip()
+    if not q:
+        return None
+    idx = []  # [(code, 中文名, 顯示名)]
+    for disp, cfg in effective_stocks().items():
+        code = cfg.get("code")
+        m = re.match(r"^(.*?)\s*[（(]\s*\w+\s*[)）]\s*$", disp)
+        name = (m.group(1).strip() if m else disp).strip()
+        idx.append((code, name, disp))
+    if q.isdigit():
+        return next(((c, d) for c, n, d in idx if c == q), None)
+    exact = [(c, d) for c, n, d in idx if n == q]
+    if exact:
+        return exact[0]
+    partial = [(c, d) for c, n, d in idx if q in n]
+    return partial[0] if len(partial) == 1 else None
+
+
 def _resolve_one(query):
     """把代號或名稱解析成單一 (code, 顯示名)。回 (code, disp) 或 (None, 錯誤字串)。"""
+    local = _resolve_in_watchlist(query)   # 清單內優先，不依賴外部名單可用性
+    if local:
+        return local
     matches = resolve_stocks(query)
     if not matches:
         return None, f"找不到「{query}」。請確認代號或中文名稱（限上市股票）。"
