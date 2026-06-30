@@ -55,6 +55,7 @@ jobs:
             exit 0
           fi
           git add history/predictions.json
+          [ -f lessons.json ] && git add lessons.json
           if git diff --staged --quiet; then
             echo "No changes"
           else

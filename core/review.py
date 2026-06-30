@@ -49,6 +49,28 @@ def judge_market(prediction, today_close, prev_close):
     }
 
 
+_MARKET_REVIEW_SYSTEM = (
+    "你是台股大盤(加權指數)分析師。早盤對加權指數的『開盤方向』預測在收盤後被證實為錯。"
+    "請依美股隔夜、台指期夜盤等領先指標與大盤技術面，分析為何看錯"
+    "（例如開高走低、權值股拖累、夜盤領先指標失靈、過度樂觀/悲觀、量能不足等），"
+    "給出具體、可在未來避免重蹈的檢討。"
+)
+
+
+def make_market_review(prediction, judged, llm=generate_json):
+    """大盤復盤：方向錯才呼叫 LLM 產生檢討；對則 critique=None。"""
+    review = dict(judged)
+    if judged["success"]:
+        review["critique"] = None
+        return review
+    user = (
+        f"原大盤預測：{json.dumps(prediction, ensure_ascii=False)}\n"
+        f"實際結果：{json.dumps(judged, ensure_ascii=False)}"
+    )
+    review["critique"] = llm(_MARKET_REVIEW_SYSTEM, user, CRITIQUE_SCHEMA)["critique"]
+    return review
+
+
 def format_market_review(date, review, rate):
     chg = review["actual_close"] - review["prev_close"]
     trend = "📈" if chg >= 0 else "📉"
@@ -62,6 +84,8 @@ def format_market_review(date, review, rate):
     ]
     if rate is not None:
         lines += ["", f"📊 大盤方向命中率：{rate * 100:.0f}%"]
+    if review.get("critique"):
+        lines += ["", "──── 檢討 ────", review["critique"]]
     lines += ["", f"🔗 看圖表：{DASHBOARD_URL}"]
     return "\n".join(lines)
 

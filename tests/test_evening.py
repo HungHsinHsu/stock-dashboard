@@ -24,9 +24,9 @@ def _stock_rec(date="2026-06-30", review=None):
             "review": review}
 
 
-def _market_rec(date="2026-06-30", review=None):
+def _market_rec(date="2026-06-30", direction="漲", review=None):
     return {"date": date, "stock": "大盤",
-            "prediction": {"direction": "漲", "confidence": "中",
+            "prediction": {"direction": direction, "confidence": "中",
                            "drivers": [], "reason": "x"},
             "review": review}
 
@@ -37,16 +37,18 @@ def _fake_llm(system, user, schema, client=None):
 
 def _patch(monkeypatch, hp):
     monkeypatch.setattr(evening, "HISTORY_PATH", hp)
-    sends = []
+    sends, lessons = [], []
     monkeypatch.setattr(evening, "tg", type("T", (), {
         "send": staticmethod(lambda t: sends.append(t) or True)}))
-    return sends
+    monkeypatch.setattr(evening, "add_lesson",
+                        lambda *a, **k: lessons.append(a))
+    return sends, lessons
 
 
 def test_market_review_pushed(tmp_path, monkeypatch):
     hp = str(tmp_path / "h.json")
     _seed(hp, [_market_rec()])
-    sends = _patch(monkeypatch, hp)
+    sends, lessons = _patch(monkeypatch, hp)
     out = evening.run(
         today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
         fetch=lambda code, today=None: _df("2026-06-30"),
@@ -60,7 +62,7 @@ def test_market_review_pushed(tmp_path, monkeypatch):
 def test_stock_review_saved_but_not_pushed(tmp_path, monkeypatch):
     hp = str(tmp_path / "h.json")
     _seed(hp, [_stock_rec()])
-    sends = _patch(monkeypatch, hp)
+    sends, lessons = _patch(monkeypatch, hp)
     out = evening.run(
         today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
         fetch=lambda code, today=None: _df("2026-06-30"),
@@ -70,10 +72,24 @@ def test_stock_review_saved_but_not_pushed(tmp_path, monkeypatch):
     assert not any("收盤復盤" in s for s in sends)            # 但個股不自動推播
 
 
+def test_market_miss_pushes_critique_and_records_lesson(tmp_path, monkeypatch):
+    hp = str(tmp_path / "h.json")
+    _seed(hp, [_market_rec(direction="跌")])      # 預測跌、實際漲(遞增)→未中
+    sends, lessons = _patch(monkeypatch, hp)
+    out = evening.run(
+        today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
+        fetch=lambda code, today=None: _df("2026-06-30"),
+        fetch_idx=lambda today=None: _df("2026-06-30"),
+        stocks={})
+    assert out and out[0]["review"]["success"] is False
+    assert any("檢討" in s and "量價背離" in s for s in sends)   # 大盤檢討有推
+    assert lessons and lessons[0][0] == "大盤"                  # 教訓已累加
+
+
 def test_evening_waits_when_today_data_missing(tmp_path, monkeypatch):
     hp = str(tmp_path / "h.json")
     _seed(hp, [_stock_rec()])
-    sends = _patch(monkeypatch, hp)
+    sends, lessons = _patch(monkeypatch, hp)
     out = evening.run(
         today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
         fetch=lambda code, today=None: _df("2026-06-29"),     # 當日資料未到
@@ -86,7 +102,7 @@ def test_evening_waits_when_today_data_missing(tmp_path, monkeypatch):
 def test_evening_skips_already_reviewed(tmp_path, monkeypatch):
     hp = str(tmp_path / "h.json")
     _seed(hp, [_market_rec(review={"success": True, "results": {"direction": True}})])
-    sends = _patch(monkeypatch, hp)
+    sends, lessons = _patch(monkeypatch, hp)
     out = evening.run(
         today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
         fetch=lambda code, today=None: _df("2026-06-30"),

@@ -66,6 +66,21 @@ def test_make_review_success_no_critique_keeps_market():
     assert out["market"]["direction"] == "漲"
 
 
+def test_make_market_review_hit_no_critique():
+    from core.review import make_market_review
+    out = make_market_review({"direction": "漲"}, {"success": True},
+                             llm=lambda s, u, sc: {"critique": "x"})
+    assert out["critique"] is None
+
+
+def test_make_market_review_miss_critique():
+    from core.review import make_market_review
+    out = make_market_review(
+        {"direction": "漲"}, {"success": False, "direction_actual": "跌"},
+        llm=lambda s, u, sc: {"critique": "夜盤領先指標失靈、開高走低"})
+    assert out["critique"] == "夜盤領先指標失靈、開高走低"
+
+
 def test_format_review_shows_market():
     review = {
         "actual_close": 201.0, "prev_close": 203.0, "direction_actual": "跌",

@@ -3,8 +3,9 @@ from core.indicators import compute_indicators
 from core.market import market_summary
 from core.review import (
     judge, make_review, format_review, hit_rate,
-    judge_market, format_market_review,
+    judge_market, make_market_review, format_market_review,
 )
+from core.lessons import add_lesson
 from core.llm import generate_json
 from core.store import load_history, save_history, upsert_record, get_record, HISTORY_PATH
 from core.watchlist import effective_stocks
@@ -27,10 +28,13 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
         closes = idx_df["Close"]
         if (mrec and mrec.get("prediction") and not mrec.get("review")
                 and len(closes) >= 2):
-            jm = judge_market(mrec["prediction"], closes.iloc[-1], closes.iloc[-2])
+            judged = judge_market(mrec["prediction"], closes.iloc[-1], closes.iloc[-2])
+            jm = make_market_review(mrec["prediction"], judged, llm=llm)
             mrec["review"] = jm
             records = upsert_record(records, mrec)
             produced.append(mrec)
+            if jm.get("critique"):
+                add_lesson("大盤", date, jm["critique"])
             mkt_recs = [r for r in records if r.get("stock") == "大盤"]
             tg.send(format_market_review(date, jm, hit_rate(mkt_recs)))
     elif not idx_df.empty:
@@ -63,6 +67,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
                              market=market, llm=llm)
         rec["review"] = review
         records = upsert_record(records, rec)
+        if review.get("critique"):
+            add_lesson(cfg["code"], date, review["critique"])
         # 個股復盤不自動推播（存檔即可，/p 查得到、儀表板看得到）
         produced.append(rec)
 

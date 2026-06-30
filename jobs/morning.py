@@ -12,6 +12,7 @@ from core.llm import generate_json
 from core.store import load_history, save_history, upsert_record, HISTORY_PATH
 from core.watchlist import effective_stocks
 from core.positions import get_batches
+from core.lessons import lessons_prompt
 import core.telegram as tg
 from datetime import datetime
 
@@ -35,7 +36,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
     if not index_df.empty:
         try:
             idx_ind = compute_indicators(index_df, {})
-            mpred = make_market_prediction(idx_ind, us, market, taifex, llm=llm)
+            mpred = make_market_prediction(idx_ind, us, market, taifex, llm=llm,
+                                           lessons=lessons_prompt(records, "大盤"))
             records = upsert_record(records, {
                 "date": run_date, "stock": "大盤",
                 "prediction": mpred, "review": None})
@@ -60,7 +62,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
             prediction = make_prediction(indicators, name, market=market,
                                          us_overnight=us, llm=llm,
                                          code=cfg["code"], foreign=foreign,
-                                         batches=get_batches(cfg["code"]))
+                                         batches=get_batches(cfg["code"]),
+                                         lessons=lessons_prompt(records, cfg["code"]))
         except Exception as e:  # 單檔預測失敗不影響其他檔
             print(f"{name} 預測失敗：", e)
             skipped.append(name)

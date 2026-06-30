@@ -195,7 +195,15 @@ def handle(text):
             rec = _latest_for(records, code)
             if rec is None:
                 return f"{disp} 目前沒有預測紀錄。"
-            return format_prediction(_name_for(code), rec["date"], rec["prediction"])
+            out = format_prediction(_name_for(code), rec["date"], rec["prediction"])
+            rv = rec.get("review")
+            if rv:
+                hit = "命中 ✅" if rv.get("success") else "未中 ❌"
+                out += (f"\n\n──── 復盤 ────\n"
+                        f"🎯 {hit}（實際{rv.get('direction_actual', '—')}）")
+                if rv.get("critique"):
+                    out += f"\n💬 檢討：{rv['critique']}"
+            return out
         # 無參數 → 清單內各股摘要
         lines = ["📋 今日各股預測摘要（詳細：/p 代號）"]
         any_rec = False

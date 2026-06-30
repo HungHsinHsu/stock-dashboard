@@ -45,12 +45,15 @@ _SYSTEM = (
     "請依【本檔股票所屬產業】調整參考權重：半導體/IC 以費半(SOX)為主、"
     "科技電子看 Nasdaq、傳產與工業看道瓊、其餘看標普；把對應的美股隔夜訊號"
     "納入今日開盤方向判斷(例如半導體股遇費半大漲偏多、大跌偏空)，並在 bull/bear "
-    "訊號中具體點名是哪個美股指數。"
+    "訊號中具體點名是哪個美股指數。\n"
+    "若提供【過去教訓】，請參考過去誤判原因以避免重蹈；但仍以當前技術面客觀判斷，"
+    "不可因過去錯誤就一律反向或過度反應。"
 )
 
 
 def make_prediction(indicators, stock_name, market=None, us_overnight=None,
-                    llm=generate_json, code=None, foreign=None, batches=None):
+                    llm=generate_json, code=None, foreign=None, batches=None,
+                    lessons=""):
     user = (
         f"股票：{stock_name}\n"
         f"技術指標(到昨日收盤為止)：\n{json.dumps(indicators, ensure_ascii=False)}\n"
@@ -58,6 +61,8 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
         f"美股隔夜四大指數漲跌(%)：\n{json.dumps(us_overnight, ensure_ascii=False)}\n"
         f"外資對本股近期買賣超：\n{json.dumps(foreign, ensure_ascii=False)}"
     )
+    if lessons:
+        user += f"\n\n{lessons}"
     pred = llm(_SYSTEM, user, PREDICTION_SCHEMA)
     # 進場與否：規則為主、LLM 受限。把 LLM 的 signal 夾進紀律允許範圍。
     foreign_stopped = foreign.get("stopped") if foreign else None
@@ -167,18 +172,22 @@ _MARKET_SYSTEM = (
     "與【美股隔夜】(尤其費城半導體 SOX 對台股電子權值影響大)；"
     "其次才是大盤自身技術面(均線/MACD/KD/RSI)。\n"
     "以領先指標為主、技術面為輔，列出 drivers(引用具體數字)，再給 direction 與 confidence。"
-    "台指期夜盤與美股隔夜方向一致時 confidence 可較高；資料缺漏或彼此矛盾則用『低』。"
+    "台指期夜盤與美股隔夜方向一致時 confidence 可較高；資料缺漏或彼此矛盾則用『低』。\n"
+    "若提供【過去教訓】，參考過去誤判避免重蹈，但仍以當前領先指標與技術面客觀判斷，"
+    "不可因過去錯誤就一律反向。"
 )
 
 
 def make_market_prediction(index_indicators, us_overnight, market_data,
-                           taifex_night=None, llm=generate_json):
+                           taifex_night=None, llm=generate_json, lessons=""):
     user = (
         f"美股隔夜漲跌(%)：{json.dumps(us_overnight, ensure_ascii=False)}\n"
         f"台指期夜盤漲跌(%)：{json.dumps(taifex_night, ensure_ascii=False)}\n"
         f"大盤昨收摘要：{json.dumps(market_data, ensure_ascii=False)}\n"
         f"大盤技術指標(到昨收)：{json.dumps(index_indicators, ensure_ascii=False)}"
     )
+    if lessons:
+        user += f"\n\n{lessons}"
     out = llm(_MARKET_SYSTEM, user, MARKET_PRED_SCHEMA)
     out["us_overnight"] = us_overnight
     out["taifex_night"] = taifex_night

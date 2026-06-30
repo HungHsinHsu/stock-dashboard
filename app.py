@@ -121,6 +121,17 @@ def render_history(records, show_signal):
         rows.append(row)
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
+    # 檢討（預測失敗的教訓）
+    crits = [r for r in ordered if (r.get("review") or {}).get("critique")]
+    if crits:
+        st.markdown("**📝 檢討紀錄（預測失敗的教訓）**")
+        for r in crits[:8]:
+            rv = r["review"]
+            p = r.get("prediction") or {}
+            st.markdown(
+                f"- **{r['date']}**（預測{p.get('direction', '—')}、"
+                f"實際{rv.get('direction_actual', '—')}）：{rv['critique']}")
+
 
 tab_market, tab_stock = st.tabs(["🌐 大盤", "📈 個股"])
 
