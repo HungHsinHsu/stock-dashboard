@@ -6,22 +6,30 @@ from core.llm import generate_json
 from core.store import load_history, save_history, upsert_record, get_record, HISTORY_PATH
 from core.watchlist import effective_stocks
 import core.telegram as tg
+from datetime import datetime
 
 
 def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index, stocks=None):
     stocks = effective_stocks() if stocks is None else stocks
+    # 復盤對「執行當日」這天的開盤預測；需確認當日收盤資料已發布才結算。
+    date = str(today.date()) if today is not None else str(datetime.today().date())
     market = market_summary(fetch_idx(today=today))
     records = load_history(HISTORY_PATH)
-    produced = []
+    produced, waiting = [], []
 
     for name, cfg in stocks.items():
         df = fetch(cfg["code"], today=today)
         if df.empty:
             continue
-        date = str(df.index[-1].date()) if today is None else str(today.date())
+        # 當日收盤(日 K)是否已發布？沒有就先不結算，留待 18:00 再跑。
+        if str(df.index[-1].date()) != date:
+            waiting.append(name)
+            continue
         rec = get_record(records, date, cfg["code"])
         if rec is None or not rec.get("prediction"):
             tg.send(f"⚠️ 找不到 {name} {date} 的開盤預測，略過復盤。")
+            continue
+        if rec.get("review"):     # 已復盤過(例如 15:30 已完成)，避免 18:00 重複推送
             continue
 
         indicators = compute_indicators(df, cfg.get("supports", {}))
@@ -43,6 +51,10 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
 
     if produced:
         save_history(records, HISTORY_PATH)
+    if waiting:
+        tg.send(
+            "⏳ 今日收盤資料尚未發布（" + "、".join(waiting) +
+            "），暫時無法結算。18:00 會自動再復盤一次。")
     return produced
 
 

@@ -13,6 +13,7 @@ from core.store import load_history, save_history, upsert_record, HISTORY_PATH
 from core.watchlist import effective_stocks
 from core.positions import get_batches
 import core.telegram as tg
+from datetime import datetime
 
 
 def run(today=None, llm=generate_json, fetch=fetch_daily,
@@ -20,6 +21,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         fetch_us=fetch_us_overnight, fetch_tf=fetch_taifex,
         fetch_fg=fetch_foreign_flow):
     stocks = effective_stocks() if stocks is None else stocks
+    # 預測以「執行當日」為標籤(今日開盤前預測)，供當日收盤復盤對得上。
+    run_date = str(today.date()) if today is not None else str(datetime.today().date())
     index_df = fetch_idx(today=today)
     market = market_summary(index_df)
     us = fetch_us()
@@ -30,7 +33,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
 
     # 大盤(加權指數)開盤預測：以美股隔夜 + 台指期為領先指標、大盤技術面為輔
     if not index_df.empty:
-        idate = str(today.date()) if today is not None else str(index_df.index[-1].date())
+        idate = run_date
         try:
             idx_ind = compute_indicators(index_df, {})
             mpred = make_market_prediction(idx_ind, us, market, taifex, llm=llm)
@@ -43,7 +46,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         if df.empty:
             skipped.append(name)
             continue
-        date = str(df.index[-1].date()) if today is None else str(today.date())
+        date = run_date
         indicators = compute_indicators(df, cfg.get("supports", {}))
         try:
             foreign = fetch_fg(cfg["code"], today=today)

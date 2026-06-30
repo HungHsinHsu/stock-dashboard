@@ -3,7 +3,8 @@ name: stock-predict
 on:
   schedule:
     - cron: "30 0 * * 1-5"   # 台灣 08:30 開盤預測
-    - cron: "30 7 * * 1-5"   # 台灣 15:30 收盤復盤
+    - cron: "30 7 * * 1-5"   # 台灣 15:30 收盤復盤（當日資料若已發布即結算）
+    - cron: "0 10 * * 1-5"   # 台灣 18:00 收盤復盤補跑（15:30 資料未到時）
   workflow_dispatch:
     inputs:
       job:
