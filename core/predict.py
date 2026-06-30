@@ -39,20 +39,33 @@ def make_prediction(indicators, stock_name, market=None, llm=generate_json):
 def format_prediction(stock_name, date, prediction):
     ind = prediction.get("indicators", {})
     ma20 = ind.get("ma20")
-    ma20_txt = f"{ma20:.1f}" if isinstance(ma20, (int, float)) else "—"
-    lines = (
-        f"📈 {stock_name} 開盤預測 {date}\n"
-        f"進場訊號：{prediction['signal']}\n"
-        f"方向：預期{prediction['direction']}\n"
-        f"站穩MA20：{'是' if prediction['hold_ma20'] else '否'}(MA20={ma20_txt})\n"
-        f"守住支撐1：{'是' if prediction['hold_support1'] else '否'}\n"
-        f"理由：{prediction['reason']}"
-    )
+    ma20_txt = f"（{ma20:.1f}）" if isinstance(ma20, (int, float)) else ""
+
+    def mark(ok):
+        return "✅" if ok else "⚠️"
+
+    lines = [
+        f"📈 {stock_name}｜開盤預測",
+        f"🗓 {date}",
+        "",
+        f"🚦 訊號：{prediction['signal']}",
+        f"🧭 方向：預期{prediction['direction']}",
+        "",
+        "──── 技術面 ────",
+        f"{mark(prediction['hold_ma20'])} 站穩 MA20{ma20_txt}",
+        f"{mark(prediction['hold_support1'])} 守住支撐1",
+    ]
     mk = prediction.get("market") or {}
     if mk.get("direction"):
         pct = mk.get("pct")
         pct_txt = f" {pct:+.2f}%" if isinstance(pct, (int, float)) else ""
         ma_txt = "站上" if mk.get("above_ma20") else "跌破"
-        lines += f"\n大盤：{mk['direction']}{pct_txt}，{ma_txt}自身MA20"
-    lines += f"\n📊 看圖表：{DASHBOARD_URL}"
-    return lines
+        lines.append(f"🌐 大盤：{mk['direction']}{pct_txt}（{ma_txt}MA20）")
+    lines += [
+        "",
+        "──── 理由 ────",
+        prediction["reason"],
+        "",
+        f"🔗 看圖表：{DASHBOARD_URL}",
+    ]
+    return "\n".join(lines)

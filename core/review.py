@@ -71,21 +71,27 @@ def format_review(stock_name, date, review, rate):
         return "✅" if ok else "❌"
 
     chg = review["actual_close"] - review["prev_close"]
+    trend = "📈" if chg >= 0 else "📉"
     lines = [
-        f"🔍 {stock_name} 收盤復盤 {date}",
-        f"今日收盤：{review['actual_close']:.2f}（{chg:+.2f}）",
-        f"方向 實際{review['direction_actual']} {mark(r['direction'])}",
-        f"站穩MA20 {mark(r['hold_ma20'])}　守住支撐1 {mark(r['hold_support1'])}",
-        f"本日預測：{'命中 ✅' if review['success'] else '未中 ❌'}",
+        f"🔍 {stock_name}｜收盤復盤",
+        f"🗓 {date}",
+        "",
+        f"{trend} 收盤：{review['actual_close']:.2f}（{chg:+.2f}）",
+        f"🎯 本日預測：{'命中 ✅' if review['success'] else '未中 ❌'}",
+        "",
+        "──── 對錯一覽 ────",
+        f"{mark(r['direction'])} 方向（實際{review['direction_actual']}）",
+        f"{mark(r['hold_ma20'])} 站穩 MA20",
+        f"{mark(r['hold_support1'])} 守住支撐1",
     ]
     mk = review.get("market") or {}
     if mk.get("direction"):
         pct = mk.get("pct")
         pct_txt = f" {pct:+.2f}%" if isinstance(pct, (int, float)) else ""
-        lines.append(f"大盤：{mk['direction']}{pct_txt}")
+        lines.append(f"🌐 大盤：{mk['direction']}{pct_txt}")
     if rate is not None:
-        lines.append(f"歷史方向命中率：{rate * 100:.0f}%")
+        lines += ["", f"📊 歷史方向命中率：{rate * 100:.0f}%"]
     if review.get("critique"):
-        lines.append(f"檢討：{review['critique']}")
-    lines.append(f"📊 看圖表：{DASHBOARD_URL}")
+        lines += ["", "──── 檢討 ────", review["critique"]]
+    lines += ["", f"🔗 看圖表：{DASHBOARD_URL}"]
     return "\n".join(lines)
