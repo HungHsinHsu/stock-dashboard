@@ -213,4 +213,5 @@ def format_market_prediction(date, pred):
     if drivers:
         lines += ["", "──── 依據 ────"] + [f"・{d}" for d in drivers]
     lines += ["", "──── 理由 ────", pred.get("reason", "")]
+    lines += ["", f"🔗 看圖表：{DASHBOARD_URL}"]
     return "\n".join(lines)

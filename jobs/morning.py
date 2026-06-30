@@ -29,15 +29,18 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
     taifex = fetch_tf()
     print("美股隔夜:", us, "| 台指期(夜盤):", taifex)
     records = load_history(HISTORY_PATH)
-    produced, skipped = [], []
+    produced, skipped, market_done = [], [], False
 
     # 大盤(加權指數)開盤預測：以美股隔夜 + 台指期為領先指標、大盤技術面為輔
     if not index_df.empty:
-        idate = run_date
         try:
             idx_ind = compute_indicators(index_df, {})
             mpred = make_market_prediction(idx_ind, us, market, taifex, llm=llm)
-            tg.send(format_market_prediction(idate, mpred))
+            records = upsert_record(records, {
+                "date": run_date, "stock": "大盤",
+                "prediction": mpred, "review": None})
+            market_done = True
+            tg.send(format_market_prediction(run_date, mpred))
         except Exception as e:
             print("大盤預測失敗：", e)
 
@@ -72,7 +75,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         # 個股預測不自動推播，僅存檔；改由 Telegram /p 指令查詢、儀表板顯示。
         produced.append(record)
 
-    if produced:
+    if produced or market_done:
         save_history(records, HISTORY_PATH)
     if not produced:
         tg.send("⚠️ 今日資料缺漏，已跳過開盤預測。")
