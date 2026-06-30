@@ -23,6 +23,31 @@ _NO_LEAD = {"fetch_us": lambda: {}, "fetch_tf": lambda: None,
             "fetch_fg": lambda code, today=None: None}
 
 
+_ENTRY_IND = {"close": 223, "prev_close": 222, "ma20": 181,
+              "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
+_FOREIGN_OK = {"stopped": True, "net": 100000, "sold_streak": 0}
+
+
+def _entry_llm(system, user, schema, client=None):
+    return {"signal": "進場", "direction": "漲", "confidence": "中",
+            "bull_signals": [], "bear_signals": [], "hold_ma20": True,
+            "hold_support1": True, "reason": "回測支撐"}
+
+
+def test_batches_show_next_batch_when_entry():
+    out = make_prediction(_ENTRY_IND, "華邦電 (2344)", llm=_entry_llm,
+                          code="2344", foreign=_FOREIGN_OK, batches=2)
+    assert out["signal"] == "進場"
+    assert "第 3 批" in out["signal_rule_note"]
+
+
+def test_batches_full_downgrades_entry_to_watch():
+    out = make_prediction(_ENTRY_IND, "華邦電 (2344)", llm=_entry_llm,
+                          code="2344", foreign=_FOREIGN_OK, batches=3)
+    assert out["signal"] == "觀望"            # 三批已滿不再加碼
+    assert "三批已滿" in out["signal_rule_note"]
+
+
 def test_make_prediction_includes_market():
     ind = {"close": 203.0, "ma20": 186.5}
     market = {"direction": "跌", "pct": -0.7, "above_ma20": False}

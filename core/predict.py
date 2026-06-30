@@ -50,7 +50,7 @@ _SYSTEM = (
 
 
 def make_prediction(indicators, stock_name, market=None, us_overnight=None,
-                    llm=generate_json, code=None, foreign=None):
+                    llm=generate_json, code=None, foreign=None, batches=None):
     user = (
         f"股票：{stock_name}\n"
         f"技術指標(到昨日收盤為止)：\n{json.dumps(indicators, ensure_ascii=False)}\n"
@@ -63,6 +63,19 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
     foreign_stopped = foreign.get("stopped") if foreign else None
     final_signal, rule_note = constrain_signal(pred, indicators, code,
                                                foreign_stopped)
+    # 分批部位：依已進批數調整(三批已滿不加碼；停損且有部位提示全數出場)
+    if batches is not None:
+        if final_signal == "進場":
+            if batches >= 3:
+                final_signal = "觀望"
+                rule_note = _join_note(rule_note, "三批已滿(3/3)，不再加碼")
+            else:
+                rule_note = _join_note(
+                    rule_note, f"目前 {batches}/3 批，本次符合可進第 {batches + 1} 批")
+        elif final_signal == "避開" and batches > 0:
+            rule_note = _join_note(
+                rule_note, f"停損訊號且手上有 {batches}/3 批，依紀律全數出場（/out 清空）")
+
     pred["signal_llm"] = pred.get("signal")     # 保留 LLM 原始判斷供對照
     pred["signal"] = final_signal
     if rule_note:
@@ -70,7 +83,12 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
     pred["indicators"] = indicators
     pred["market"] = market
     pred["foreign"] = foreign
+    pred["batches"] = batches
     return pred
+
+
+def _join_note(note, extra):
+    return (note + "；" + extra) if note else extra
 
 
 def format_prediction(stock_name, date, prediction):
@@ -90,6 +108,9 @@ def format_prediction(stock_name, date, prediction):
         f"🚦 訊號：{prediction['signal']}",
         f"🧭 方向：預期{prediction['direction']}{conf_txt}",
     ]
+    bt = prediction.get("batches")
+    if isinstance(bt, int):
+        lines.append(f"📦 部位：{bt}/3 批")
     note = prediction.get("signal_rule_note")
     if note:
         lines.append(f"　（紀律調整：{note}）")

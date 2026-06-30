@@ -149,9 +149,14 @@ with tab_hist:
             conf = lp.get("confidence")
             conf_txt = f"（信心{conf}）" if conf else ""
             st.markdown(f"#### 最新預測 · {latest['date']}")
-            m1, m2 = st.columns(2)
+            m1, m2, m3 = st.columns(3)
             m1.metric("預期方向", f"{arrow}{conf_txt}")
             m2.metric("進場訊號", lp.get("signal", "—"))
+            bt = lp.get("batches")
+            m3.metric("部位", f"{bt}/3 批" if isinstance(bt, int) else "—")
+            note = lp.get("signal_rule_note")
+            if note:
+                st.caption(f"📐 紀律：{note}")
             bull = lp.get("bull_signals") or []
             bear = lp.get("bear_signals") or []
             if bull or bear:

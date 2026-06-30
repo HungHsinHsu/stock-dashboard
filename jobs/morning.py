@@ -11,6 +11,7 @@ from core.market import market_summary
 from core.llm import generate_json
 from core.store import load_history, save_history, upsert_record, HISTORY_PATH
 from core.watchlist import effective_stocks
+from core.positions import get_batches
 import core.telegram as tg
 
 
@@ -52,7 +53,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         try:
             prediction = make_prediction(indicators, name, market=market,
                                          us_overnight=us, llm=llm,
-                                         code=cfg["code"], foreign=foreign)
+                                         code=cfg["code"], foreign=foreign,
+                                         batches=get_batches(cfg["code"]))
         except Exception as e:  # 單檔預測失敗不影響其他檔
             print(f"{name} 預測失敗：", e)
             skipped.append(name)
