@@ -67,7 +67,7 @@ def test_format_prediction_shows_market():
     s = format_prediction("華邦電 (2344)", "2026-06-30", pred)
     assert "大盤" in s and "跌" in s
     assert "信心低" in s and "跌破 20 日低點" in s  # 顯示信心與技術訊號
-    assert "streamlit.app" in s  # 附上圖表連結
+    assert "streamlit.app" in s and "code=2344" in s  # 深連結帶該股代號
 
 
 def test_make_and_format_market_prediction():

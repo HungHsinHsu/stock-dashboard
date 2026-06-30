@@ -1,7 +1,15 @@
 import json
+import re
 from core.llm import generate_json
 from core.config import DASHBOARD_URL
 from core.rules import constrain_signal
+
+
+def _chart_link(stock_name):
+    """個股圖表深連結：?code=代號，讓儀表板直接開到該股個股頁。"""
+    m = re.search(r"\(([0-9A-Za-z]+)\)\s*$", stock_name or "")
+    sep = "&" if "?" in DASHBOARD_URL else "?"
+    return f"{DASHBOARD_URL}{sep}code={m.group(1)}" if m else DASHBOARD_URL
 
 PREDICTION_SCHEMA = {
     "type": "object",
@@ -171,7 +179,7 @@ def format_prediction(stock_name, date, prediction):
         "──── 理由 ────",
         prediction["reason"],
         "",
-        f"🔗 看圖表：{DASHBOARD_URL}",
+        f"🔗 看圖表：{_chart_link(stock_name)}",
     ]
     return "\n".join(lines)
 

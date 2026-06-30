@@ -224,10 +224,14 @@ def render_history(records, show_signal):
                 st.markdown(_md_bullets(rv["critique"]))
 
 
-tab_market, tab_stock = st.tabs(["🌐 大盤", "📈 個股"])
+# 深連結：?code=2344 → 直接開個股頁、選好該股
+_qp_code = st.query_params.get("code")
+_page = st.radio("頁面", ["🌐 大盤", "📈 個股"],
+                 index=(1 if _qp_code else 0),
+                 horizontal=True, label_visibility="collapsed")
 
 # ──────────────────────────── 大盤頁 ────────────────────────────
-with tab_market:
+if _page == "🌐 大盤":
     idx_df = load_index_df()
     mkt = market_summary(idx_df)
     if mkt and mkt.get("close") is not None:
@@ -281,9 +285,12 @@ with tab_market:
         st.info("尚無大盤預測紀錄。")
 
 # ──────────────────────────── 個股頁 ────────────────────────────
-with tab_stock:
+else:
     STOCKS = effective_stocks()
-    choice = st.selectbox("選擇股票", list(STOCKS.keys()))
+    _names = list(STOCKS.keys())
+    _idx = next((i for i, n in enumerate(_names)
+                 if STOCKS[n]["code"] == _qp_code), 0)
+    choice = st.selectbox("選擇股票", _names, index=_idx)
     cfg = STOCKS[choice]
     df = load_stock_df(cfg["code"])
 
