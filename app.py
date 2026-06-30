@@ -44,7 +44,7 @@ def _migrate_once():
 _migrate_once()
 
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=120)
 def load_records():
     return load_history()
 

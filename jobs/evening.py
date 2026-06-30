@@ -23,11 +23,16 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
     market = market_summary(idx_df)
     records = load_history(HISTORY_PATH)
     produced, waiting = [], []
+    idx_last = str(idx_df.index[-1].date()) if not idx_df.empty else "EMPTY"
+    print(f"[evening] db={db.db_enabled()} date={date} 指數最後交易日={idx_last} "
+          f"載入紀錄={len(records)} 筆")
 
     # 大盤復盤（只驗方向）；唯一自動推播的一則。當日指數收盤已發布才結算。
     if not idx_df.empty and str(idx_df.index[-1].date()) == date:
         mrec = get_record(records, date, "大盤")
         closes = idx_df["Close"]
+        print(f"[evening] 大盤: 有預測={bool(mrec and mrec.get('prediction'))} "
+              f"已復盤={bool(mrec and mrec.get('review'))}")
         if (mrec and mrec.get("prediction") and not mrec.get("review")
                 and len(closes) >= 2):
             judged = judge_market(mrec["prediction"], closes.iloc[-1], closes.iloc[-2])
@@ -52,8 +57,10 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
             continue
         rec = get_record(records, date, cfg["code"])
         if rec is None or not rec.get("prediction"):
+            print(f"[evening] {name}: 找不到 {date} 預測，略過")
             continue                      # 沒有對應預測就略過，不推播
         if rec.get("review"):             # 已復盤過，避免 18:00 重複
+            print(f"[evening] {name}: 已復盤，略過")
             continue
 
         indicators = compute_indicators(df, cfg.get("supports", {}))
@@ -71,9 +78,11 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
         records = upsert_record(records, rec)
         if review.get("critique"):
             add_lesson(cfg["code"], date, review["critique"])
+        print(f"[evening] {name}: 復盤完成 命中={review['results'].get('direction')}")
         # 個股復盤不自動推播（存檔即可，/p 查得到、儀表板看得到）
         produced.append(rec)
 
+    print(f"[evening] produced={len(produced)} waiting={waiting}")
     if produced:
         save_history(records, HISTORY_PATH)
     if waiting:
