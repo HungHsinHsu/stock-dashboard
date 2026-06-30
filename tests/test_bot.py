@@ -27,15 +27,30 @@ def test_in_caps_at_three(monkeypatch, tmp_path):
     assert "3/3" in msg and "三批已滿" in msg
 
 
-def test_help_lists_position_commands():
-    assert "/in" in bot.HELP and "/out" in bot.HELP and "/pos" in bot.HELP
-    assert "/p" in bot.HELP
+def test_help_uses_full_words():
+    for full in ("/predict", "/forecast", "/add", "/remove", "/list",
+                 "/enter", "/exit", "/position", "/help"):
+        assert full in bot.HELP
 
 
 def test_help_one_command_per_line():
-    # 每行最多一個指令（一個 "/"），不會把多個指令擠在同一行
+    # 每行最多一個指令（中文別名提示行例外）
     for line in bot.HELP.splitlines():
+        if line.startswith("（"):
+            continue
         assert line.count("/") <= 1
+
+
+def test_chinese_and_full_aliases():
+    # 中文與完整英文別名都能用
+    assert bot.handle("/說明") == bot.HELP
+    assert bot.handle("/help") == bot.HELP
+
+
+def test_register_commands_payload():
+    cmds = {c for c, _ in bot.BOT_COMMANDS}
+    assert {"predict", "forecast", "add", "remove", "list",
+            "enter", "exit", "position", "help"} <= cmds
 
 
 _REC = {"date": "2026-06-30", "stock": "2344",
@@ -99,5 +114,5 @@ def test_f_stock_live(monkeypatch):
     assert out == "STOCK_CARD:2330"
 
 
-def test_f_in_help():
-    assert "/f" in bot.HELP
+def test_forecast_in_help():
+    assert "/forecast" in bot.HELP

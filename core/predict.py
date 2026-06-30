@@ -79,7 +79,7 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
                     rule_note, f"目前 {batches}/3 批，本次符合可進第 {batches + 1} 批")
         elif final_signal == "避開" and batches > 0:
             rule_note = _join_note(
-                rule_note, f"停損訊號且手上有 {batches}/3 批，依紀律全數出場（/out 清空）")
+                rule_note, f"停損訊號且手上有 {batches}/3 批，依紀律全數出場（/exit 清空）")
 
     pred["signal_llm"] = pred.get("signal")     # 保留 LLM 原始判斷供對照
     pred["signal"] = final_signal

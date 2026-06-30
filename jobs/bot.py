@@ -28,10 +28,10 @@ HELP = "\n".join([
     "📋 指令清單（代號或中文名稱皆可）",
     "",
     "—— 查預測 ——",
-    "/p　今日全部個股預測摘要",
-    "/p 2330　單檔詳細預測",
-    "/f　即時試算大盤（不等自動推送）",
-    "/f 2330　即時試算個股",
+    "/predict　今天全部個股預測摘要",
+    "/predict 2330　單檔詳細預測",
+    "/forecast　即時試算大盤（不等自動推送）",
+    "/forecast 2330　即時試算個股",
     "",
     "—— 股票清單 ——",
     "/add 2330　加入",
@@ -40,12 +40,38 @@ HELP = "\n".join([
     "/list　目前清單",
     "",
     "—— 部位（回檔承接法分三批）——",
-    "/in 2330　進一批",
-    "/out 2330　出場清空",
-    "/pos　目前持有批數",
+    "/enter 2330　記錄進一批",
+    "/exit 2330　出場、清空部位",
+    "/position　目前持有批數",
     "",
     "/help　說明",
+    "（中文也通：/預測 /即時預測 /加入 /移除 /清單 /進場 /出場 /部位 /說明）",
 ])
+
+# Telegram 指令選單（打「/」會跳出，附中文說明）。command 須小寫英文。
+BOT_COMMANDS = [
+    ("predict", "查今天的預測（加代號看單檔）"),
+    ("forecast", "即時試算預測，不等自動推送"),
+    ("add", "加入追蹤股票"),
+    ("remove", "移除追蹤股票"),
+    ("list", "目前追蹤清單"),
+    ("enter", "記錄進一批部位"),
+    ("exit", "出場、清空部位"),
+    ("position", "目前持有批數"),
+    ("help", "指令說明"),
+]
+
+
+def register_commands(token):
+    """把指令清單註冊到 Telegram 選單（打「/」會自動跳出）。"""
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{token}/setMyCommands",
+            json={"commands": [{"command": c, "description": d}
+                               for c, d in BOT_COMMANDS]},
+            timeout=10)
+    except Exception as e:
+        print("setMyCommands 失敗：", e)
 
 
 def _git_pull():
@@ -158,12 +184,12 @@ def handle(text):
     cmd = parts[0].lower().lstrip("/").split("@")[0]
     args = parts[1:]
 
-    if cmd in ("start", "help"):
+    if cmd in ("start", "help", "說明", "幫助", "指令"):
         return HELP
-    if cmd == "list":
+    if cmd in ("list", "清單", "列表"):
         names = list(effective_stocks().keys())
         return "📋 目前追蹤清單：\n" + "\n".join(f"・{n}" for n in names)
-    if cmd == "add":
+    if cmd in ("add", "加入", "新增"):
         if not args:
             return "用法：/add 代號或名稱，例如 /add 2330 或 /add 台積電"
         query, rest = args[0], args[1:]
@@ -183,7 +209,7 @@ def handle(text):
         disp = f"{name} ({code})" if name else f"({code})"
         add_stock(code, name=disp, supports=supports)
         return f"✅ 已加入 {disp}" + ("（含支撐）" if supports else "")
-    if cmd in ("remove", "del", "delete", "rm"):
+    if cmd in ("remove", "移除", "刪除", "del", "delete", "rm"):
         if not args:
             return "用法：/remove 代號或名稱，例如 /remove 2330 或 /remove 台積電"
         query = args[0]
@@ -201,31 +227,31 @@ def handle(text):
         if code in {c["code"] for c in BASE_STOCKS.values()}:
             return f"{code} 是預設股票，無法用指令移除。"
         return f"清單中找不到 {code}。"
-    if cmd in ("in", "buy"):
+    if cmd in ("enter", "進場", "buy", "in", "買進"):
         if not args:
-            return "用法：/in 代號或名稱，例如 /in 2330"
+            return "用法：/enter 代號或名稱，例如 /enter 2330"
         code, disp = _resolve_one(args[0])
         if code is None:
             return disp
         new = enter_batch(code)
         tail = "　⚠️三批已滿，不再加碼" if new >= MAX_BATCHES else ""
         return f"✅ {disp} 已進第 {new} 批（{new}/{MAX_BATCHES}）{tail}"
-    if cmd in ("out", "exit", "sell"):
+    if cmd in ("exit", "出場", "sell", "out", "賣出", "清空"):
         if not args:
-            return "用法：/out 代號或名稱，例如 /out 2330"
+            return "用法：/exit 代號或名稱，例如 /exit 2330"
         code, disp = _resolve_one(args[0])
         if code is None:
             return disp
         had = exit_position(code)
         return (f"🗑 {disp} 已全數出場、清空部位" if had
                 else f"{disp} 本來就沒有部位。")
-    if cmd in ("pos", "position"):
+    if cmd in ("position", "部位", "pos", "持股"):
         held = held_positions()
         if not held:
             return "📦 目前沒有任何部位。"
         return "📦 目前部位：\n" + "\n".join(
             f"・{c}：{b}/{MAX_BATCHES} 批" for c, b in held.items())
-    if cmd in ("p", "predict", "pred"):
+    if cmd in ("predict", "預測", "查預測", "查", "p", "pred"):
         _git_pull()
         records = load_history()
         if not records:
@@ -257,7 +283,7 @@ def handle(text):
         if not any_rec:
             return "目前清單內的股票都還沒有預測紀錄。"
         return "\n".join(lines)
-    if cmd in ("f", "forecast"):
+    if cmd in ("forecast", "即時預測", "即時", "現在預測", "f"):
         _git_pull()                       # 取最新 history 供教訓回饋
         if args:
             code, disp = _resolve_one(args[0])
@@ -329,6 +355,7 @@ def run(loop=False):
     if not token or not chat_id:
         print("缺 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID")
         return
+    register_commands(token)   # 更新 Telegram 指令選單
     offset = _load_offset()
 
     if not loop:  # 單次（手動/測試用）
