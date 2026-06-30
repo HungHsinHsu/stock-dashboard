@@ -109,11 +109,12 @@ def test_evening_run_updates_record(tmp_path, monkeypatch):
     df.index = list(idx[:-1]) + [pd.Timestamp("2026-06-30")]
     df["MA20"] = df["Close"].rolling(20).mean()
 
-    rec = evening.run(today=pd.Timestamp("2026-06-30"),
-                      llm=lambda s, u, sc: {"critique": "x"},
-                      fetch=lambda code, today=None: df,
-                      fetch_idx=lambda today=None: _idx_df())
-    assert rec is not None
+    recs = evening.run(today=pd.Timestamp("2026-06-30"),
+                       llm=lambda s, u, sc: {"critique": "x"},
+                       fetch=lambda code, today=None: df,
+                       fetch_idx=lambda today=None: _idx_df())
+    assert recs
+    rec = recs[0]
     assert rec["review"]["actual_close"] == 201.0
     assert rec["review"]["market"]["direction"] == "漲"
     assert "復盤" in sent["t"]

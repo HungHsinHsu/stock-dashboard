@@ -53,8 +53,9 @@ def format_prediction(stock_name, date, prediction):
         "",
         "──── 技術面 ────",
         f"{mark(prediction['hold_ma20'])} 站穩 MA20{ma20_txt}",
-        f"{mark(prediction['hold_support1'])} 守住支撐1",
     ]
+    if ind.get("dist_support1_pct") is not None:
+        lines.append(f"{mark(prediction['hold_support1'])} 守住支撐1")
     mk = prediction.get("market") or {}
     if mk.get("direction"):
         pct = mk.get("pct")

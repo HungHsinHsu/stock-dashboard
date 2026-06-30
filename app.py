@@ -77,7 +77,7 @@ else:
 
     # 固定支撐位水平線
     colors = {"支撐1 (短期)": "orange", "支撐3 (長期)": "magenta"}
-    for name, price in cfg["supports"].items():
+    for name, price in cfg.get("supports", {}).items():
         fig.add_hline(y=price, line_dash="dash",
                       line_color=colors.get(name, "gray"),
                       annotation_text=f"{name} {price}",
@@ -111,12 +111,16 @@ else:
                 "scrollZoom": True},
     )
 
-    s = cfg["supports"]
-    if last > s["支撐1 (短期)"]:
+    s = cfg.get("supports", {})
+    s1 = s.get("支撐1 (短期)")
+    s3 = s.get("支撐3 (長期)")
+    if s1 is None and s3 is None:
+        st.info("此標的未設定支撐位，僅以 MA20 參考。")
+    elif s1 is not None and last > s1:
         st.success("價格在支撐1之上")
     elif pd.notna(ma20_last) and last > ma20_last:
         st.warning(f"⚠️ 真空帶：支撐1已破、MA20({ma20_last:.1f})之上。照紀律：等。")
-    elif last > s["支撐3 (長期)"]:
+    elif s3 is not None and last > s3:
         st.warning("⚠️ 跌破 MA20，接近支撐3，留意收盤是否止穩、量是否縮。")
     else:
         st.error("跌破支撐3，重新評估。")

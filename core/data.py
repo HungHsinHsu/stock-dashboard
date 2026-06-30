@@ -5,6 +5,15 @@ from dateutil.relativedelta import relativedelta
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (stock-dashboard)"}
 
+# 要預測/復盤的股票清單。新增一檔 = 在這裡多加一個項目即可。
+#   key   = 顯示名稱（自取，建議「名稱 (代號)」）
+#   code  = 證交所股票代號（必填）
+#   supports = 手畫的水平支撐（選填）。有填才會做「守住支撐1」判斷；
+#              省略則該股只看方向與 MA20。
+# 範例：
+#   "台積電 (2330)": {"code": "2330"},                       # 只填代號
+#   "聯發科 (2454)": {"code": "2454",
+#       "supports": {"支撐1 (短期)": 1000, "支撐3 (長期)": 850}},
 STOCKS = {
     "華邦電 (2344)": {
         "code": "2344",

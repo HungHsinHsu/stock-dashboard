@@ -65,14 +65,13 @@ def test_morning_run_writes_with_market(tmp_path, monkeypatch):
     monkeypatch.setattr(morning, "tg", type("T", (), {
         "send": staticmethod(lambda text: sent.setdefault("text", text) or True)
     }))
-    rec = morning.run(
+    recs = morning.run(
         today=pd.Timestamp("2026-06-30"),
         llm=_fake_llm,
         fetch=lambda code, today=None: _df_with_ma20(),
         fetch_idx=lambda today=None: _idx_df(),
     )
-    assert rec is not None
-    assert rec["prediction"]["market"]["direction"] == "漲"
+    assert recs and recs[0]["prediction"]["market"]["direction"] == "漲"
     assert "大盤" in sent["text"]
 
 
@@ -88,5 +87,25 @@ def test_morning_run_empty_data_notifies(tmp_path, monkeypatch):
         fetch=lambda code, today=None: pd.DataFrame(),
         fetch_idx=lambda today=None: _idx_df(),
     )
-    assert out is None
+    assert out == []
     assert "缺漏" in sent["text"]
+
+
+def test_morning_run_multiple_stocks(tmp_path, monkeypatch):
+    monkeypatch.setattr(morning, "HISTORY_PATH", str(tmp_path / "h.json"))
+    monkeypatch.setattr(morning, "STOCKS", {
+        "A (1111)": {"code": "1111",
+                     "supports": {"支撐1 (短期)": 50, "支撐3 (長期)": 30}},
+        "B (2222)": {"code": "2222"},  # 無支撐
+    })
+    sends = []
+    monkeypatch.setattr(morning, "tg", type("T", (), {
+        "send": staticmethod(lambda text: sends.append(text) or True)}))
+    recs = morning.run(
+        today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
+        fetch=lambda code, today=None: _df_with_ma20(),
+        fetch_idx=lambda today=None: _idx_df(),
+    )
+    assert len(recs) == 2
+    assert {r["stock"] for r in recs} == {"1111", "2222"}
+    assert len(sends) == 2  # 兩檔各推一則

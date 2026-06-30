@@ -17,15 +17,16 @@ _SYSTEM = (
 )
 
 
-def judge(prediction, today_close, prev_close, today_ma20, support1):
+def judge(prediction, today_close, prev_close, today_ma20, support1=None):
     direction_actual = "漲" if today_close >= prev_close else "跌"
     hold_ma20_actual = today_ma20 is not None and today_close >= today_ma20
-    hold_s1_actual = today_close >= support1
     results = {
         "direction": prediction.get("direction") == direction_actual,
         "hold_ma20": prediction.get("hold_ma20") == hold_ma20_actual,
-        "hold_support1": prediction.get("hold_support1") == hold_s1_actual,
     }
+    if support1 is not None:
+        hold_s1_actual = today_close >= support1
+        results["hold_support1"] = prediction.get("hold_support1") == hold_s1_actual
     return {
         "actual_close": today_close,
         "prev_close": prev_close,
@@ -82,8 +83,9 @@ def format_review(stock_name, date, review, rate):
         "──── 對錯一覽 ────",
         f"{mark(r['direction'])} 方向（實際{review['direction_actual']}）",
         f"{mark(r['hold_ma20'])} 站穩 MA20",
-        f"{mark(r['hold_support1'])} 守住支撐1",
     ]
+    if "hold_support1" in r:
+        lines.append(f"{mark(r['hold_support1'])} 守住支撐1")
     mk = review.get("market") or {}
     if mk.get("direction"):
         pct = mk.get("pct")
