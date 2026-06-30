@@ -75,6 +75,7 @@ def test_format_review_shows_market():
     }
     s = format_review("華邦電 (2344)", "2026-06-30", review, 0.6)
     assert "大盤" in s and "復盤" in s
+    assert "streamlit.app" in s  # 附上圖表連結
 
 
 def _idx_df(n=30):

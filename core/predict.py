@@ -1,5 +1,6 @@
 import json
 from core.llm import generate_json
+from core.config import DASHBOARD_URL
 
 PREDICTION_SCHEMA = {
     "type": "object",
@@ -53,4 +54,5 @@ def format_prediction(stock_name, date, prediction):
         pct_txt = f" {pct:+.2f}%" if isinstance(pct, (int, float)) else ""
         ma_txt = "站上" if mk.get("above_ma20") else "跌破"
         lines += f"\n大盤：{mk['direction']}{pct_txt}，{ma_txt}自身MA20"
+    lines += f"\n📊 看圖表：{DASHBOARD_URL}"
     return lines

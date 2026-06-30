@@ -28,6 +28,7 @@ def test_format_prediction_shows_market():
     }
     s = format_prediction("華邦電 (2344)", "2026-06-30", pred)
     assert "大盤" in s and "跌" in s
+    assert "streamlit.app" in s  # 附上圖表連結
 
 
 def test_format_prediction_no_market_ok():

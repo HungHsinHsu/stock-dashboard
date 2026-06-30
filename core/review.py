@@ -1,5 +1,6 @@
 import json
 from core.llm import generate_json
+from core.config import DASHBOARD_URL
 
 CRITIQUE_SCHEMA = {
     "type": "object",
@@ -86,4 +87,5 @@ def format_review(stock_name, date, review, rate):
         lines.append(f"歷史方向命中率：{rate * 100:.0f}%")
     if review.get("critique"):
         lines.append(f"檢討：{review['critique']}")
+    lines.append(f"📊 看圖表：{DASHBOARD_URL}")
     return "\n".join(lines)
