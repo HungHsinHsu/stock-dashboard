@@ -192,6 +192,12 @@ def test_qa_system_restricts_to_stocks():
     assert "只回答台股" in bot.QA_SYSTEM
 
 
+def test_qa_system_includes_rulebook():
+    # 回檔承接法策略手冊有灌進問答知識，使用者不必每次重講
+    assert "回檔承接法" in bot.QA_SYSTEM
+    assert "三批" in bot.QA_SYSTEM and "外資" in bot.QA_SYSTEM
+
+
 def test_slash_typo_still_reports_unknown(monkeypatch):
     # 以「/」開頭但打錯 → 仍回「不認得的指令」，不會誤丟給問答
     assert "不認得的指令" in bot.handle("/blahblah")

@@ -24,6 +24,7 @@ from core.predict import (
 )
 from core.lessons import lessons_prompt
 from core.textclean import humanize
+from core.strategy import RULEBOOK
 from core import db
 import core.telegram as tg
 
@@ -123,6 +124,8 @@ QA_SYSTEM = (
     "若使用者問的是程式/系統/bug 等技術問題，請回：這類技術問題請找開發端（Claude Code）處理。"
     "若問的是與台股／投資完全無關的內容（閒聊、其他領域、生活雜項等），"
     "不要回答其內容，只婉拒並提醒：「我只負責台股討論，這題幫不上忙喔 🙏」。"
+    "\n\n以下是你必須遵循的交易策略手冊；回答進出場/選股/紀律相關問題時"
+    "一律依這套規則，不要自創別的策略：\n" + RULEBOOK
 )
 
 
