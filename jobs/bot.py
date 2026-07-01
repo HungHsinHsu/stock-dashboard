@@ -31,6 +31,14 @@ import core.telegram as tg
 
 STATE_PATH = "bot_state.json"
 
+# 目前正在處理的擁有者（Telegram=admin；網頁 chatbox=登入的 username）。
+# 機器人單執行緒逐則處理，用模組層變數當上下文即可。
+_ACTIVE_OWNER = "admin"
+
+
+def _owner():
+    return _ACTIVE_OWNER
+
 HELP = "\n".join([
     "📋 指令清單（代號或中文名稱皆可）",
     "",
@@ -102,7 +110,7 @@ def _git_pull():
 
 
 def _name_for(code):
-    for n, cfg in effective_stocks().items():
+    for n, cfg in effective_stocks(_owner()).items():
         if cfg.get("code") == str(code):
             return n
     return f"({code})"
@@ -135,7 +143,7 @@ QA_SYSTEM = (
 def _qa_context():
     """組出給問答用的精簡背景：清單＋各股最新預測/復盤＋部位＋命中率。"""
     records = load_history()
-    stocks = effective_stocks()
+    stocks = effective_stocks(_owner())
     lines = ["【背景資料（僅供參考，非投顧建議）】",
              "追蹤清單：" + "、".join(stocks.keys())]
     for name, cfg in stocks.items():
@@ -149,7 +157,7 @@ def _qa_context():
         if rv.get("success") is not None:
             seg += f"，復盤{'命中' if rv['success'] else '未中'}"
         lines.append(seg)
-    held = held_positions()
+    held = held_positions(_owner())
     if held:
         lines.append("目前部位：" + "、".join(
             f"{c} {b}/{MAX_BATCHES}批" for c, b in held.items()))
@@ -206,7 +214,7 @@ def _forecast_stock(code, name, supports):
     margin = fetch_margin(code)
     ind = compute_indicators(df, supports or {})
     pred = make_prediction(ind, name, market=market, us_overnight=us, code=code,
-                           foreign=foreign, batches=get_batches(code),
+                           foreign=foreign, batches=get_batches(code, _owner()),
                            lessons=lessons_prompt(load_history(), code), margin=margin)
     card = format_prediction(name, str(df.index[-1].date()), pred, forecast=True)
     return "🔮 即時試算\n\n" + card
@@ -219,7 +227,7 @@ def _resolve_in_watchlist(query):
     if not q:
         return None
     idx = []  # [(code, 中文名, 顯示名)]
-    for disp, cfg in effective_stocks().items():
+    for disp, cfg in effective_stocks(_owner()).items():
         code = cfg.get("code")
         m = re.match(r"^(.*?)\s*[（(]\s*\w+\s*[)）]\s*$", disp)
         name = (m.group(1).strip() if m else disp).strip()
@@ -282,8 +290,10 @@ def get_updates(token, offset, long_poll=0):
     return r.json().get("result", [])
 
 
-def handle(text):
-    """解析一條指令，回傳要回覆的字串（None=不回）。"""
+def handle(text, owner="admin"):
+    """解析一條指令，回傳要回覆的字串（None=不回）。owner=清單/部位的擁有者。"""
+    global _ACTIVE_OWNER
+    _ACTIVE_OWNER = owner or "admin"
     parts = text.strip().split()
     if not parts:
         return None
@@ -293,7 +303,7 @@ def handle(text):
     if cmd in ("start", "help", "說明", "幫助", "指令"):
         return HELP
     if cmd in ("list", "清單", "列表"):
-        names = list(effective_stocks().keys())
+        names = list(effective_stocks(_owner()).keys())
         return "📋 目前追蹤清單：\n" + "\n".join(f"・{n}" for n in names)
     if cmd in ("add", "加入", "新增"):
         if not args:
@@ -313,7 +323,7 @@ def handle(text):
             except ValueError:
                 supports = None
         disp = f"{name} ({code})" if name else f"({code})"
-        add_stock(code, name=disp, supports=supports)
+        add_stock(code, name=disp, supports=supports, owner=_owner())
         return f"✅ 已加入 {disp}" + ("（含支撐）" if supports else "")
     if cmd in ("remove", "移除", "刪除", "del", "delete", "rm"):
         if not args:
@@ -328,7 +338,7 @@ def handle(text):
             if len(matches) > 1:
                 return _ambiguous(query, matches)
             code = matches[0][0]
-        if remove_stock(code):
+        if remove_stock(code, _owner()):
             return f"🗑 已移除 {code}"
         if code in {c["code"] for c in BASE_STOCKS.values()}:
             return f"{code} 是預設股票，無法用指令移除。"
@@ -339,7 +349,7 @@ def handle(text):
         code, disp = _resolve_one(args[0])
         if code is None:
             return disp
-        new = enter_batch(code)
+        new = enter_batch(code, owner=_owner())
         tail = "　⚠️三批已滿，不再加碼" if new >= MAX_BATCHES else ""
         return f"✅ {disp} 已進第 {new} 批（{new}/{MAX_BATCHES}）{tail}"
     if cmd in ("exit", "出場", "sell", "out", "賣出", "清空"):
@@ -348,11 +358,11 @@ def handle(text):
         code, disp = _resolve_one(args[0])
         if code is None:
             return disp
-        had = exit_position(code)
+        had = exit_position(code, _owner())
         return (f"🗑 {disp} 已全數出場、清空部位" if had
                 else f"{disp} 本來就沒有部位。")
     if cmd in ("position", "部位", "pos", "持股"):
-        held = held_positions()
+        held = held_positions(_owner())
         if not held:
             return "📦 目前沒有任何部位。"
         return "📦 目前部位：\n" + "\n".join(
@@ -365,7 +375,7 @@ def handle(text):
             code, disp = _resolve_one(args[0])
             if code is None:
                 return disp
-            cfg = next((c for c in effective_stocks().values()
+            cfg = next((c for c in effective_stocks(_owner()).values()
                         if c.get("code") == code), {})
             tg.send("⏳ 即時試算中（約 30–60 秒）…")
             try:
@@ -402,7 +412,7 @@ def handle(text):
         # 無參數 → 清單內各股摘要
         lines = ["📋 今日各股預測摘要（詳細：/復盤 代號）"]
         any_rec = False
-        for name, cfg in effective_stocks().items():
+        for name, cfg in effective_stocks(_owner()).items():
             rec = _latest_for(records, cfg["code"])
             if rec:
                 any_rec = True
@@ -417,8 +427,9 @@ def handle(text):
     return _answer_question(text)
 
 
-def process_web_message(text):
+def process_web_message(text, owner="admin"):
     """處理來自網頁 chatbox（或 LINE）的訊息：重用 handle()，回最終回覆字串。
+    owner=登入的帳號，用來讀寫『那個帳號自己的』清單/部位。
 
     handle() 內部有些指令會用 tg.send 發『⏳ 計算中』等中間提示；網頁端改用
     轉圈圈提示，這裡把 tg 暫時換成 no-op，避免那些中間訊息外洩到 Telegram。
@@ -433,7 +444,7 @@ def process_web_message(text):
 
     tg = _Null
     try:
-        return handle(text) or ""
+        return handle(text, owner=owner) or ""
     except Exception as e:            # 單則失敗不影響機器人存活
         return f"⚠️ 處理失敗：{e}"
     finally:
@@ -450,7 +461,8 @@ def drain_web_queue():
         print("chat_queue 讀取失敗：", e)
         return
     for item in pending:
-        reply = process_web_message(item.get("text", ""))
+        reply = process_web_message(item.get("text", ""),
+                                    owner=item.get("who") or "admin")
         try:
             db.complete_chat(item["id"], reply)
         except Exception as e:
@@ -522,6 +534,7 @@ def run(loop=False):
         print("缺 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID")
         return
     db.migrate_from_json()     # DB 首次啟用時匯入舊 JSON（無 DB 則 no-op）
+    db.migrate_owner_data()
     register_commands(token)   # 更新 Telegram 指令選單
     offset = _load_offset()
 

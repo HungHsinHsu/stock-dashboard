@@ -12,7 +12,7 @@ from core.llm import generate_json
 from core.store import (
     load_history, save_history, upsert_record, get_record, HISTORY_PATH,
 )
-from core.watchlist import effective_stocks
+from core.watchlist import all_tracked_stocks
 from core.positions import get_batches
 from core.lessons import lessons_prompt
 from core.config import DASHBOARD_URL
@@ -38,7 +38,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         fetch_fg=fetch_foreign_flow, fetch_mg=fetch_margin):
     from core import db
     db.migrate_from_json()     # DB 首次啟用時匯入舊 JSON（無 DB 則 no-op）
-    stocks = effective_stocks() if stocks is None else stocks
+    db.migrate_owner_data()    # 舊單一清單/部位 → admin 帳號命名空間
+    stocks = all_tracked_stocks() if stocks is None else stocks
     # 預測以「執行當日」為標籤(今日開盤前預測)，供當日收盤復盤對得上。
     run_date = str(today.date()) if today is not None else str(datetime.today().date())
     index_df = fetch_idx(today=today)
@@ -134,7 +135,7 @@ if __name__ == "__main__":
     import sys
     if "--dry-run" in sys.argv:
         market = market_summary(fetch_index())
-        for name, cfg in effective_stocks().items():
+        for name, cfg in all_tracked_stocks().items():
             df = fetch_daily(cfg["code"])
             if df.empty:
                 print(f"{name}：資料缺漏")

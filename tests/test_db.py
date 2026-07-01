@@ -27,10 +27,11 @@ def test_store_routes_to_db_when_enabled(monkeypatch):
 
 def test_positions_routes_to_db(monkeypatch):
     monkeypatch.setattr(db, "db_enabled", lambda: True)
-    monkeypatch.setattr(db, "load_positions", lambda: {"2330": {"batches": 2}})
-    cap = {}
-    monkeypatch.setattr(db, "save_positions", lambda p: cap.update(p=p))
-    assert positions.get_batches("2330") == 2
+    monkeypatch.setattr(db, "get_state",
+                        lambda key, default=None:
+                        {"2330": {"batches": 2}} if key == "pos:admin" else default)
+    assert positions.get_batches("2330") == 2                 # admin 命名空間
+    assert positions.get_batches("2330", owner="bob") == 0    # 別的帳號各自獨立
 
 
 def test_lessons_routes_to_db(monkeypatch):
@@ -42,8 +43,11 @@ def test_lessons_routes_to_db(monkeypatch):
 
 def test_watchlist_routes_to_db(monkeypatch):
     monkeypatch.setattr(db, "db_enabled", lambda: True)
-    monkeypatch.setattr(db, "load_watchlist", lambda: {"2330": {"name": "台積電 (2330)"}})
+    monkeypatch.setattr(db, "get_state",
+                        lambda key, default=None:
+                        {"2330": {"name": "台積電 (2330)"}} if key == "wl:admin" else default)
     assert "2330" in watchlist.load_watchlist()
+    assert watchlist.load_watchlist(owner="bob") == {}        # 帳號各自獨立
 
 
 def test_json_path_when_db_disabled(tmp_path, monkeypatch):

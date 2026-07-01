@@ -43,10 +43,12 @@ def _ensure_schema(cur):
     cur.execute("""CREATE TABLE IF NOT EXISTS chat_queue(
         id bigserial PRIMARY KEY,
         source text,
+        who text,
         text text,
         reply text,
         status text DEFAULT 'pending',
         ts timestamptz DEFAULT now())""")
+    cur.execute("ALTER TABLE chat_queue ADD COLUMN IF NOT EXISTS who text")
     # chatbox 使用者（admin 由 secrets 認定；此表存 admin 新增的一般使用者）
     cur.execute("""CREATE TABLE IF NOT EXISTS users(
         username text PRIMARY KEY,
@@ -173,13 +175,36 @@ def set_state(key, value):
     _run(q)
 
 
+def get_states_by_prefix(prefix):
+    """回 {key: value}，key 以 prefix 開頭（用於列舉各帳號的清單）。"""
+    def q(cur):
+        cur.execute("SELECT key, value FROM app_state WHERE key LIKE %s",
+                    (prefix + "%",))
+        return {k: _loads(v) for k, v in cur.fetchall()}
+    return _run(q)
+
+
+def migrate_owner_data():
+    """把舊的『單一』watchlist/positions 一次性搬到 admin 帳號命名空間(app_state)。"""
+    if not db_enabled():
+        return
+    if get_state("wl:admin") is None:
+        old = load_watchlist()          # 舊 watchlist 表
+        if old:
+            set_state("wl:admin", old)
+    if get_state("pos:admin") is None:
+        oldp = load_positions()         # 舊 positions 表
+        if oldp:
+            set_state("pos:admin", oldp)
+
+
 # ── chat_queue（網頁 chatbox / LINE → 機器人代跑）────────────────
-def enqueue_chat(text, source="web"):
-    """把一則使用者訊息排進佇列，回 id（供之後輪詢回覆）。"""
+def enqueue_chat(text, source="web", who="admin"):
+    """把一則使用者訊息排進佇列，回 id（供之後輪詢回覆）。who=登入帳號。"""
     def q(cur):
         cur.execute(
-            "INSERT INTO chat_queue(source, text, status) "
-            "VALUES(%s, %s, 'pending') RETURNING id", (source, text))
+            "INSERT INTO chat_queue(source, who, text, status) "
+            "VALUES(%s, %s, %s, 'pending') RETURNING id", (source, who, text))
         return cur.fetchone()[0]
     return _run(q)
 
@@ -198,9 +223,10 @@ def pending_chats(limit=5):
     """取尚未處理的訊息（機器人端）。"""
     def q(cur):
         cur.execute(
-            "SELECT id, source, text FROM chat_queue WHERE status='pending' "
+            "SELECT id, source, who, text FROM chat_queue WHERE status='pending' "
             "ORDER BY id LIMIT %s", (limit,))
-        return [{"id": i, "source": s, "text": t} for i, s, t in cur.fetchall()]
+        return [{"id": i, "source": s, "who": w, "text": t}
+                for i, s, w, t in cur.fetchall()]
     return _run(q)
 
 

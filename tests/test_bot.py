@@ -5,9 +5,9 @@ import core.positions as positions
 def _wire(monkeypatch, tmp_path):
     p = str(tmp_path / "pos.json")
     monkeypatch.setattr(bot, "resolve_stocks", lambda q: [("2344", "華邦電")])
-    monkeypatch.setattr(bot, "enter_batch", lambda code: positions.enter_batch(code, path=p))
-    monkeypatch.setattr(bot, "exit_position", lambda code: positions.exit_position(code, path=p))
-    monkeypatch.setattr(bot, "held_positions", lambda: positions.held_positions(path=p))
+    monkeypatch.setattr(bot, "enter_batch", lambda code, owner=None: positions.enter_batch(code, path=p))
+    monkeypatch.setattr(bot, "exit_position", lambda code, owner=None: positions.exit_position(code, path=p))
+    monkeypatch.setattr(bot, "held_positions", lambda owner=None: positions.held_positions(path=p))
 
 
 def test_in_pos_out_flow(monkeypatch, tmp_path):
@@ -65,7 +65,7 @@ def _wire_predict(monkeypatch):
     monkeypatch.setattr(bot, "_git_pull", lambda: None)
     monkeypatch.setattr(bot, "load_history", lambda: [_REC])
     monkeypatch.setattr(bot, "effective_stocks",
-                        lambda: {"華邦電 (2344)": {"code": "2344"}})
+                        lambda owner=None: {"華邦電 (2344)": {"code": "2344"}})
 
 
 def test_review_single_stock_detail(monkeypatch):
@@ -109,7 +109,7 @@ def test_f_stock_live(monkeypatch):
     acks = _wire_forecast(monkeypatch)
     monkeypatch.setattr(bot, "resolve_stocks", lambda q: [("2330", "台積電")])
     monkeypatch.setattr(bot, "effective_stocks",
-                        lambda: {"台積電 (2330)": {"code": "2330"}})
+                        lambda owner=None: {"台積電 (2330)": {"code": "2330"}})
     out = bot.handle("/f 2330")
     assert out == "STOCK_CARD:2330"
 
@@ -117,7 +117,7 @@ def test_f_stock_live(monkeypatch):
 def test_resolve_chinese_name_from_watchlist_when_listing_empty(monkeypatch):
     # 清單內已有台積電，但外部 TWSE 名單抓不到（回 []）→ 仍能用中文名解析
     monkeypatch.setattr(bot, "effective_stocks",
-                        lambda: {"台積電 (2330)": {"code": "2330"}})
+                        lambda owner=None: {"台積電 (2330)": {"code": "2330"}})
     monkeypatch.setattr(bot, "resolve_stocks", lambda q: [])
     code, disp = bot._resolve_one("台積電")
     assert code == "2330" and disp == "台積電 (2330)"
@@ -133,7 +133,7 @@ def test_predict_chinese_name_when_listing_empty(monkeypatch):
     monkeypatch.setattr(bot, "tg", type("T", (), {
         "send": staticmethod(lambda t: True)}))
     monkeypatch.setattr(bot, "effective_stocks",
-                        lambda: {"華邦電 (2344)": {"code": "2344"}})
+                        lambda owner=None: {"華邦電 (2344)": {"code": "2344"}})
     monkeypatch.setattr(bot, "resolve_stocks", lambda q: [])
     monkeypatch.setattr(bot, "_forecast_stock",
                         lambda code, name, supports: f"CARD:{code}")
@@ -146,7 +146,7 @@ def test_predict_is_live_forecast_not_today_result(monkeypatch):
     monkeypatch.setattr(bot, "tg", type("T", (), {
         "send": staticmethod(lambda t: True)}))
     monkeypatch.setattr(bot, "effective_stocks",
-                        lambda: {"華邦電 (2344)": {"code": "2344"}})
+                        lambda owner=None: {"華邦電 (2344)": {"code": "2344"}})
     monkeypatch.setattr(bot, "resolve_stocks", lambda q: [("2344", "華邦電")])
     monkeypatch.setattr(bot, "_forecast_stock",
                         lambda code, name, supports: "🔮 即時試算 預判下一交易日")
@@ -158,8 +158,8 @@ def test_freeform_question_routes_to_llm(monkeypatch):
     monkeypatch.setattr(bot, "_git_pull", lambda: None)
     monkeypatch.setattr(bot, "load_history", lambda: [])
     monkeypatch.setattr(bot, "effective_stocks",
-                        lambda: {"台積電 (2330)": {"code": "2330"}})
-    monkeypatch.setattr(bot, "held_positions", lambda: {})
+                        lambda owner=None: {"台積電 (2330)": {"code": "2330"}})
+    monkeypatch.setattr(bot, "held_positions", lambda owner=None: {})
     acks = []
     monkeypatch.setattr(bot, "tg", type("T", (), {
         "send": staticmethod(lambda t: acks.append(t) or True)}))
@@ -224,7 +224,7 @@ def test_process_web_message_suppresses_acks(monkeypatch):
     fake_tg = type("T", (), {"send": staticmethod(lambda t: recorder.append(t) or True)})
     monkeypatch.setattr(bot, "tg", fake_tg)
 
-    def fake_handle(text):
+    def fake_handle(text, owner="admin"):
         bot.tg.send("⏳ 計算中")          # 中間提示，網頁端不該收到
         return f"回覆:{text}"
 
@@ -233,3 +233,17 @@ def test_process_web_message_suppresses_acks(monkeypatch):
     assert out == "回覆:/預測 2330"
     assert recorder == []                 # ack 被攔掉、沒外洩 Telegram
     assert bot.tg is fake_tg              # 處理後還原
+
+
+def test_process_web_message_threads_owner(monkeypatch):
+    seen = {}
+
+    def fake_handle(text, owner="admin"):
+        seen["owner"] = owner
+        return "ok"
+
+    monkeypatch.setattr(bot, "handle", fake_handle)
+    monkeypatch.setattr(bot, "tg", type("T", (), {
+        "send": staticmethod(lambda t: True)}))
+    assert bot.process_web_message("hi", owner="bob") == "ok"
+    assert seen["owner"] == "bob"          # 網頁使用者的身分有傳進 handle

@@ -8,14 +8,14 @@ import jobs.bot as bot
 def test_add_and_load(tmp_path):
     p = str(tmp_path / "wl.json")
     add_stock("2330", name="台積電 (2330)", path=p)
-    assert load_watchlist(p)["2330"]["name"] == "台積電 (2330)"
+    assert load_watchlist(path=p)["2330"]["name"] == "台積電 (2330)"
 
 
 def test_add_with_supports(tmp_path):
     p = str(tmp_path / "wl.json")
     add_stock("2454", name="聯發科 (2454)",
               supports={"支撐1 (短期)": 1000, "支撐3 (長期)": 850}, path=p)
-    assert load_watchlist(p)["2454"]["supports"]["支撐1 (短期)"] == 1000
+    assert load_watchlist(path=p)["2454"]["supports"]["支撐1 (短期)"] == 1000
 
 
 def test_remove(tmp_path):
@@ -23,7 +23,7 @@ def test_remove(tmp_path):
     add_stock("2330", name="台積電 (2330)", path=p)
     assert remove_stock("2330", path=p) is True
     assert remove_stock("2330", path=p) is False
-    assert load_watchlist(p) == {}
+    assert load_watchlist(path=p) == {}
 
 
 def test_effective_merges_base_and_watchlist(tmp_path):

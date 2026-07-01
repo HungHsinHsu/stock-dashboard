@@ -8,7 +8,7 @@ from core.review import (
 from core.lessons import add_lesson
 from core.llm import generate_json
 from core.store import load_history, save_history, upsert_record, get_record, HISTORY_PATH
-from core.watchlist import effective_stocks
+from core.watchlist import all_tracked_stocks
 from core.config import DASHBOARD_URL
 import core.telegram as tg
 from datetime import datetime
@@ -43,7 +43,8 @@ def _today_bar(df):
 def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index, stocks=None):
     from core import db
     db.migrate_from_json()     # DB 首次啟用時匯入舊 JSON（無 DB 則 no-op）
-    stocks = effective_stocks() if stocks is None else stocks
+    db.migrate_owner_data()
+    stocks = all_tracked_stocks() if stocks is None else stocks
     # 復盤對「執行當日」這天的開盤預測；需確認當日收盤資料已發布才結算。
     date = str(today.date()) if today is not None else str(datetime.today().date())
     idx_df = fetch_idx(today=today)
@@ -133,7 +134,7 @@ if __name__ == "__main__":
     if "--dry-run" in sys.argv:
         market = market_summary(fetch_index())
         records = load_history(HISTORY_PATH)
-        for name, cfg in effective_stocks().items():
+        for name, cfg in all_tracked_stocks().items():
             df = fetch_daily(cfg["code"])
             if df.empty:
                 print(f"{name}：資料缺漏")

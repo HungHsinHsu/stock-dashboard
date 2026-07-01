@@ -83,12 +83,17 @@ def _login(username, password):
     return None
 
 
-def _web_ask(prompt, timeout_s=100):
+def _dash_owner():
+    u = st.session_state.get("auth_user")
+    return u["name"] if u else "admin"
+
+
+def _web_ask(prompt, who="admin", timeout_s=100):
     """把訊息排進 DB 佇列，等機器人處理完的回覆（最多約 timeout_s 秒）。"""
     if not db.db_enabled():
         return "⚠️ 未連上資料庫，chatbox 無法使用（請先設定 DATABASE_URL）。"
     try:
-        cid = db.enqueue_chat(prompt, source="web")
+        cid = db.enqueue_chat(prompt, source="web", who=who)
     except Exception as e:
         return f"⚠️ 送出失敗：{e}"
     with st.spinner("助理思考中…（最多約 1 分鐘）"):
@@ -142,7 +147,7 @@ def _render_chatbox():
     if prompt:
         st.session_state.setdefault("chat_hist", []).append(
             {"role": "user", "text": prompt})
-        reply = _web_ask(prompt)
+        reply = _web_ask(prompt, who=_dash_owner())
         st.session_state.chat_hist.append({"role": "assistant", "text": reply})
         st.rerun()
 
@@ -171,7 +176,17 @@ def render_account_sidebar():
             st.rerun()
         if user["role"] == "admin":
             _render_admin_panel()
+            _render_admin_links()
         _render_chatbox()
+
+
+def _render_admin_links():
+    """管理入口：直接連到 DB(Supabase) 與部署(Streamlit) 後台，方便查設定。"""
+    sb = _secret("SUPABASE_URL") or "https://supabase.com/dashboard/projects"
+    stl = _secret("STREAMLIT_APP_URL") or "https://share.streamlit.io/"
+    st.markdown("#### 🔗 管理入口")
+    st.markdown(f"- [🗄 Supabase 資料庫]({sb})")
+    st.markdown(f"- [🚀 Streamlit 部署 / Secrets]({stl})")
 
 
 render_account_sidebar()
@@ -336,12 +351,12 @@ def _pct(hits, n):
     return f"{hits / n * 100:.0f}% ({hits}/{n})" if n else "—"
 
 
-def render_history_overview(records):
+def render_history_overview(records, owner="admin"):
     """預測歷史總覽：日期×標的的命中矩陣，最右欄＝當日命中率、最底列＝累積命中率。"""
     if not records:
         st.info("尚無任何預測紀錄。開盤預測與收盤復盤會自動累積在這裡。")
         return
-    stocks = effective_stocks()
+    stocks = effective_stocks(owner)
     code2name = {cfg["code"]: name for name, cfg in stocks.items()}
     code2name["大盤"] = "🌐 大盤"
     targets = ["大盤"] + [cfg["code"] for cfg in stocks.values()]
@@ -490,11 +505,11 @@ if _page == "🌐 大盤":
 # ──────────────────────────── 預測歷史頁 ────────────────────────────
 elif _page == "📅 預測歷史":
     st.markdown("### 📅 預測歷史總覽")
-    render_history_overview(load_records())
+    render_history_overview(load_records(), _dash_owner())
 
 # ──────────────────────────── 個股頁 ────────────────────────────
 else:
-    STOCKS = effective_stocks()
+    STOCKS = effective_stocks(_dash_owner())
     _names = list(STOCKS.keys())
     _idx = next((i for i, n in enumerate(_names)
                  if STOCKS[n]["code"] == _qp_code), 0)
