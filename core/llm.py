@@ -29,15 +29,21 @@ def _extract_json(text):
 
 
 async def _agent_complete(system, user, schema, model):
-    """用 Claude Agent SDK（吃 Max 訂閱認證）跑一次查詢，回最終文字。"""
+    """用 Claude Agent SDK（吃 Max 訂閱認證）跑一次查詢，回最終文字。
+
+    schema=None → 自由文字回答；否則要求只輸出符合 schema 的 JSON。
+    """
     from claude_agent_sdk import query, ClaudeAgentOptions
 
-    full_system = (
-        f"{system}\n\n"
-        "只輸出一個合法的 JSON 物件，必須符合以下 JSON schema；"
-        "不要任何說明文字、前言或 markdown 圍欄。\n"
-        f"{json.dumps(schema, ensure_ascii=False)}"
-    )
+    if schema is not None:
+        full_system = (
+            f"{system}\n\n"
+            "只輸出一個合法的 JSON 物件，必須符合以下 JSON schema；"
+            "不要任何說明文字、前言或 markdown 圍欄。\n"
+            f"{json.dumps(schema, ensure_ascii=False)}"
+        )
+    else:
+        full_system = system
     options = ClaudeAgentOptions(
         model=model,
         system_prompt=full_system,
@@ -76,3 +82,12 @@ def generate_json(system, user, schema, complete=None):
     runner = complete or _default_complete
     text = runner(system, user, schema)
     return _extract_json(text)
+
+
+def generate_text(system, user, complete=None):
+    """自由文字回答（非 JSON），供機器人自然語言問答用。回純文字字串。
+
+    complete: 可注入的文字產生函式 (system, user, schema) -> str，方便測試。
+    """
+    runner = complete or _default_complete
+    return (runner(system, user, None) or "").strip()

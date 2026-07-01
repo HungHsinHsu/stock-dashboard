@@ -14,6 +14,8 @@ from core.positions import (
     enter_batch, exit_position, held_positions, get_batches, MAX_BATCHES,
 )
 from core.store import load_history
+from core.review import hit_rate
+from core.llm import generate_text
 from core.market import market_summary
 from core.indicators import compute_indicators
 from core.predict import (
@@ -50,6 +52,12 @@ HELP = "\n".join([
     "/position　目前持有批數",
     "",
     "/help　說明",
+    "",
+    "—— 直接問股票問題 ——",
+    "不用指令，直接打字問即可，例如：",
+    "「台積電站上均線了嗎？」「今天大盤氣氛如何？」",
+    "（技術/系統問題請找開發端，機器人只聊股票）",
+    "",
     "（英文也通：/predict /forecast /review /add /remove /list"
     " /enter /exit /position /help）",
 ])
@@ -101,6 +109,56 @@ def _name_for(code):
 def _latest_for(records, code):
     recs = [r for r in records if r.get("stock") == str(code) and r.get("prediction")]
     return max(recs, key=lambda r: r.get("date", ""), default=None)
+
+
+QA_SYSTEM = (
+    "你是台股投資討論助手，服務單一使用者。用自然、口語的繁體中文回答，"
+    "精簡扼要（沒必要不長篇），必要時分點。"
+    "會提供你『使用者的追蹤清單、各股最新預測與復盤、目前部位、命中率』當背景，"
+    "請善用這些資料回答；資料沒有的就照你的台股知識回答，並老實說是一般性看法。"
+    "重要：這是投資討論、不是保證獲利的投顧建議，涉及買賣決策時提醒風險、由使用者自行判斷。"
+    "不要杜撰未提供的具體數字或新聞；不確定就說不確定。"
+    "禁止出現程式變數/欄位名（如 hold_ma20、signal、direction 等），一律用中文說法。"
+    "若使用者問的是程式/系統/bug 等技術問題，請回：這類技術問題請找開發端（Claude Code）處理。"
+)
+
+
+def _qa_context():
+    """組出給問答用的精簡背景：清單＋各股最新預測/復盤＋部位＋命中率。"""
+    records = load_history()
+    stocks = effective_stocks()
+    lines = ["【背景資料（僅供參考，非投顧建議）】",
+             "追蹤清單：" + "、".join(stocks.keys())]
+    for name, cfg in stocks.items():
+        rec = _latest_for(records, cfg["code"])
+        if not rec:
+            continue
+        p = rec.get("prediction") or {}
+        seg = (f"- {name}：{rec.get('date','')} 預測方向{p.get('direction','—')}"
+               f"／訊號{p.get('signal','—')}")
+        rv = rec.get("review") or {}
+        if rv.get("success") is not None:
+            seg += f"，復盤{'命中' if rv['success'] else '未中'}"
+        lines.append(seg)
+    held = held_positions()
+    if held:
+        lines.append("目前部位：" + "、".join(
+            f"{c} {b}/{MAX_BATCHES}批" for c, b in held.items()))
+    rate = hit_rate(records)
+    if rate is not None:
+        lines.append(f"歷史大盤/個股方向命中率：{rate * 100:.0f}%")
+    return "\n".join(lines)
+
+
+def _answer_question(text):
+    """把非指令訊息當成股票問題，帶背景交給 Claude 回答。"""
+    tg.send("🤔 想一下…")
+    try:
+        _git_pull()
+        user = f"{_qa_context()}\n\n使用者問題：{text}"
+        return humanize(generate_text(QA_SYSTEM, user))
+    except Exception as e:
+        return f"⚠️ 回答失敗：{e}"
 
 
 def _summary_line(name, rec):
@@ -342,7 +400,11 @@ def handle(text):
         if not any_rec:
             return "目前清單內的股票都還沒有預測紀錄。"
         return "\n".join(lines)
-    return "不認得的指令。傳 /help 看用法。"
+    # 以「/」開頭卻沒對到任何指令 → 打錯指令
+    if text.strip().startswith("/"):
+        return "不認得的指令。傳 /help 看用法。"
+    # 其餘自由文字 → 當成股票問題，交給 Claude 回答
+    return _answer_question(text)
 
 
 def _process(updates, chat_id):

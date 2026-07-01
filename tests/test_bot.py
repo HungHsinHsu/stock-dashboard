@@ -154,5 +154,33 @@ def test_predict_is_live_forecast_not_today_result(monkeypatch):
     assert "即時試算" in out and "命中" not in out
 
 
+def test_freeform_question_routes_to_llm(monkeypatch):
+    monkeypatch.setattr(bot, "_git_pull", lambda: None)
+    monkeypatch.setattr(bot, "load_history", lambda: [])
+    monkeypatch.setattr(bot, "effective_stocks",
+                        lambda: {"台積電 (2330)": {"code": "2330"}})
+    monkeypatch.setattr(bot, "held_positions", lambda: {})
+    acks = []
+    monkeypatch.setattr(bot, "tg", type("T", (), {
+        "send": staticmethod(lambda t: acks.append(t) or True)}))
+    seen = {}
+
+    def fake_gt(system, user):
+        seen["system"], seen["user"] = system, user
+        return "台積電目前站上季線，偏多。"
+
+    monkeypatch.setattr(bot, "generate_text", fake_gt)
+    out = bot.handle("台積電還能買嗎？")
+    assert out == "台積電目前站上季線，偏多。"
+    assert "台積電還能買嗎" in seen["user"]        # 問題有帶入
+    assert "追蹤清單" in seen["user"]              # 背景有帶入
+    assert any("想一下" in a for a in acks)         # 有先回覆思考中
+
+
+def test_slash_typo_still_reports_unknown(monkeypatch):
+    # 以「/」開頭但打錯 → 仍回「不認得的指令」，不會誤丟給問答
+    assert "不認得的指令" in bot.handle("/blahblah")
+
+
 def test_forecast_in_help():
     assert "/forecast" in bot.HELP
