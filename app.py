@@ -20,8 +20,14 @@ from core import db
 
 st.set_page_config(page_title="台股觀察儀表板", layout="centered", page_icon="📊")
 st.title("📊 台股觀察儀表板")
-st.caption(
-    f"🗄 資料來源：{'Postgres 資料庫 ✅' if db.db_enabled() else 'JSON 檔（未連到 DB）'}")
+if db.db_enabled():
+    st.caption("🗄 資料來源：Postgres 資料庫 ✅")
+else:
+    st.error(
+        "⚠️ 未連上資料庫（DATABASE_URL 未設定）。系統一律以 Postgres 為準，"
+        "此頁目前只能顯示舊 JSON 快照、預測/復盤可能不是最新或空白。\n\n"
+        "請到 Streamlit → 右下 **Manage app / Settings → Secrets**，加入一行："
+        "`DATABASE_URL = \"你的 Supabase 連線字串\"`，儲存後 App 會自動重啟即恢復。")
 
 # 多抓一點歷史，週/月線才有足夠根數
 @st.cache_data(ttl=3600)
