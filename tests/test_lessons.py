@@ -35,13 +35,29 @@ def test_add_lesson_dedup_and_cap(tmp_path):
     assert len(load_lessons(p)) == 2
 
 
+def _hit_crit(date, stock, d, crit):
+    """猜對且有檢討（例如漲幅不如預期）。"""
+    return {"date": date, "stock": stock, "prediction": {"direction": d},
+            "review": {"success": True, "direction_actual": d,
+                       "results": {"direction": True}, "critique": crit}}
+
+
 def test_lessons_prompt_includes_rate_and_critique(tmp_path):
     recs = [
         _miss("2026-06-20", "2344", "漲", "跌", "量縮誤判止穩"),
         _hit("2026-06-21", "2344", "跌"),
     ]
     txt = lessons_prompt(recs, "2344", path=str(tmp_path / "none.json"))
-    assert "過去教訓" in txt and "量縮誤判止穩" in txt and "命中率" in txt
+    assert "過去復盤回饋" in txt and "量縮誤判止穩" in txt and "命中率" in txt
+
+
+def test_lessons_prompt_feeds_back_correct_prediction_critique(tmp_path):
+    # 猜對但有隱憂的檢討，現在也要回饋（不再只餵猜錯的）
+    recs = [
+        _hit_crit("2026-06-21", "2344", "漲", "漲幅遠不如預期、盤中開高走低"),
+    ]
+    txt = lessons_prompt(recs, "2344", path=str(tmp_path / "none.json"))
+    assert "漲幅遠不如預期" in txt and "命中✅" in txt
 
 
 def test_lessons_prompt_empty_when_nothing(tmp_path):
