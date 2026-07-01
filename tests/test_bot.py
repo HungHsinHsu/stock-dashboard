@@ -177,6 +177,15 @@ def test_freeform_question_routes_to_llm(monkeypatch):
     assert any("想一下" in a for a in acks)         # 有先回覆思考中
 
 
+def test_startup_notice_sent(monkeypatch):
+    sends = []
+    monkeypatch.setattr(bot, "tg", type("T", (), {
+        "send": staticmethod(lambda t: sends.append(t) or True)}))
+    bot._notify_started()
+    assert sends and "重啟完成" in sends[0]      # 有主動報上線
+    assert "預測" not in sends[0] or "股票問題" in sends[0]  # 不是股票預測內容
+
+
 def test_qa_system_restricts_to_stocks():
     # 嚴格婉拒非台股主題的規則有寫進系統提示
     assert "只負責台股討論" in bot.QA_SYSTEM

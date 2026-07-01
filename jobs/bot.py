@@ -457,6 +457,17 @@ def _commit_push():
         print("git commit/push 失敗：", e)
 
 
+def _notify_started():
+    """開機/重啟完成後主動通知使用者（不含股票內容，只報上線）。"""
+    sha = (os.environ.get("GITHUB_SHA") or "")[:7]
+    ver = f"（版本 {sha}）" if sha else ""
+    try:
+        tg.send(f"🤖 機器人已重啟完成，開始待命 ✅{ver}\n"
+                "可直接問股票問題，或用 /help 看指令。")
+    except Exception as e:
+        print("開機通知失敗：", e)
+
+
 def run(loop=False):
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
@@ -477,6 +488,7 @@ def run(loop=False):
     # 長輪詢：持續監聽約 5.8 小時（< Actions 6h 上限），由 cron 接力重啟。
     deadline = time.monotonic() + 5.8 * 3600
     print(f"long-poll start, offset={offset}")
+    _notify_started()          # 上線後主動報「重啟完成」
     while time.monotonic() < deadline:
         try:
             updates = get_updates(token, offset, long_poll=25)
