@@ -9,8 +9,19 @@ from core.lessons import add_lesson
 from core.llm import generate_json
 from core.store import load_history, save_history, upsert_record, get_record, HISTORY_PATH
 from core.watchlist import effective_stocks
+from core.config import DASHBOARD_URL
 import core.telegram as tg
 from datetime import datetime
+
+
+def _stock_review_digest(items, date):
+    """把個股復盤壓成一則精簡總表（避免逐檔卡片洗版）。items=[(name, review)]。"""
+    lines = [f"📋 個股收盤復盤出爐（{date}）", ""]
+    for name, rv in items:
+        hit = "命中 ✅" if rv.get("success") else "未中 ❌"
+        lines.append(f"🔍 {name}：{hit}（實際{rv.get('direction_actual', '—')}）")
+    lines += ["", "詳細檢討看網頁，或用 /復盤 代號", f"🔗 {DASHBOARD_URL}"]
+    return "\n".join(lines)
 
 
 def _today_bar(df):
@@ -38,7 +49,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
     idx_df = fetch_idx(today=today)
     market = market_summary(idx_df)
     records = load_history(HISTORY_PATH)
-    produced, waiting = [], []
+    produced, waiting, stock_summ = [], [], []
     idx_last = str(idx_df.index[-1].date()) if not idx_df.empty else "EMPTY"
     print(f"[evening] db={db.db_enabled()} date={date} 指數最後交易日={idx_last} "
           f"載入紀錄={len(records)} 筆")
@@ -97,12 +108,15 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
         if not review.get("success"):     # 教訓只收『預測錯』的
             add_lesson(cfg["code"], date, review.get("critique"))
         print(f"[evening] {name}: 復盤完成 命中={review['results'].get('direction')}")
-        # 個股復盤不自動推播（存檔即可，/p 查得到、儀表板看得到）
+        # 個股復盤不逐檔推卡片，改為結束後發一則精簡總表
         produced.append(rec)
+        stock_summ.append((name, review))
 
     print(f"[evening] produced={len(produced)} waiting={waiting}")
     if produced:
         save_history(records, HISTORY_PATH)
+    if stock_summ:                       # 個股復盤出爐 → 一則總表通知
+        tg.send(_stock_review_digest(stock_summ, date))
     if waiting:
         tg.send(
             "⏳ 今日收盤資料尚未發布（" + "、".join(waiting) +

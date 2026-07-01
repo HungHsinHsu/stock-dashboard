@@ -15,8 +15,21 @@ from core.store import (
 from core.watchlist import effective_stocks
 from core.positions import get_batches
 from core.lessons import lessons_prompt
+from core.config import DASHBOARD_URL
 import core.telegram as tg
 from datetime import datetime
+
+
+def _stock_pred_digest(items, date):
+    """把個股開盤預測壓成一則精簡總表（避免逐檔卡片洗版）。items=[(name, prediction)]。"""
+    lines = [f"📋 今日個股開盤預測出爐（{date}）", ""]
+    for name, p in items:
+        conf = p.get("confidence")
+        conf_txt = f"（{conf}）" if conf else ""
+        lines.append(
+            f"📈 {name}：{p.get('signal', '—')}｜預期{p.get('direction', '—')}{conf_txt}")
+    lines += ["", "詳細看網頁，或用 /預測 代號 即時試算", f"🔗 {DASHBOARD_URL}"]
+    return "\n".join(lines)
 
 
 def run(today=None, llm=generate_json, fetch=fetch_daily,
@@ -35,6 +48,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
     print("美股隔夜:", us, "| 台指期(夜盤):", taifex)
     records = load_history(HISTORY_PATH)
     produced, skipped, market_done = [], [], False
+    stock_summ = []      # (name, prediction) 供結束後發一則個股預測總表
     locked_any = False   # 今日已有預測被鎖定（多半是備援班次重跑）→ 靜默不報缺漏
 
     # 大盤(加權指數)開盤預測：以美股隔夜 + 台指期為領先指標、大盤技術面為輔
@@ -93,11 +107,14 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         records = upsert_record(records, record)
         print(f"  {name}: 方向={prediction['direction']} "
               f"信心={prediction['confidence']} 訊號={prediction['signal']}")
-        # 個股預測不自動推播，僅存檔；改由 Telegram /p 指令查詢、儀表板顯示。
+        # 個股預測不逐檔推卡片，改為結束後發一則精簡總表
         produced.append(record)
+        stock_summ.append((name, prediction))
 
     if produced or market_done:
         save_history(records, HISTORY_PATH)
+    if stock_summ:                       # 個股預測出爐 → 一則總表通知
+        tg.send(_stock_pred_digest(stock_summ, run_date))
     # 只有「真的沒資料、且今日尚無任何預測」才報缺漏；
     # 備援班次重跑(全被鎖定)或大盤已推但個股鎖定，一律不誤報。
     if not produced and not market_done and not locked_any:

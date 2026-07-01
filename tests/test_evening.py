@@ -69,7 +69,9 @@ def test_stock_review_saved_but_not_pushed(tmp_path, monkeypatch):
         fetch_idx=lambda today=None: _df("2026-06-30"),
         stocks={"華邦電 (2344)": {"code": "2344"}})
     assert len(out) == 1 and out[0]["review"] is not None   # 有復盤、有存
-    assert not any("收盤復盤" in s for s in sends)            # 但個股不自動推播
+    assert not any("對錯一覽" in s for s in sends)            # 不逐檔推完整卡片
+    assert any("個股收盤復盤出爐" in s for s in sends)         # 但會發一則精簡總表
+    assert any("2344" in s for s in sends)                   # 總表含該股
 
 
 def test_market_miss_pushes_critique_and_records_lesson(tmp_path, monkeypatch):

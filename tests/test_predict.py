@@ -244,5 +244,8 @@ def test_morning_run_multiple_stocks(tmp_path, monkeypatch):
     )
     assert len(recs) == 2
     assert {r["stock"] for r in recs} == {"1111", "2222"}
-    assert sum("📈" in s for s in sends) == 0          # 個股不自動推播
-    assert sum("加權指數" in s for s in sends) == 1     # 只自動推大盤預測
+    assert sum("加權指數" in s for s in sends) == 1     # 大盤完整卡片一則
+    # 個股不逐檔推卡片，改為一則精簡總表（含兩檔）
+    digests = [s for s in sends if "個股開盤預測出爐" in s]
+    assert len(digests) == 1
+    assert "A (1111)" in digests[0] and "B (2222)" in digests[0]
