@@ -43,8 +43,8 @@ def test_help_one_command_per_line():
 
 def test_chinese_and_full_aliases():
     # 中文與完整英文別名都能用
-    assert bot.handle("/說明") == bot.HELP
-    assert bot.handle("/help") == bot.HELP
+    assert bot.HELP in bot.handle("/說明")
+    assert bot.HELP in bot.handle("/help")
 
 
 def test_register_commands_payload():
@@ -101,7 +101,7 @@ def _wire_forecast(monkeypatch):
 def test_f_market_live(monkeypatch):
     acks = _wire_forecast(monkeypatch)
     out = bot.handle("/f")
-    assert out == "MARKET_CARD"
+    assert out.startswith("MARKET_CARD")
     assert any("試算" in a for a in acks)          # 有先回覆「試算中」
 
 
@@ -111,7 +111,7 @@ def test_f_stock_live(monkeypatch):
     monkeypatch.setattr(bot, "effective_stocks",
                         lambda owner=None: {"台積電 (2330)": {"code": "2330"}})
     out = bot.handle("/f 2330")
-    assert out == "STOCK_CARD:2330"
+    assert out.startswith("STOCK_CARD:2330")
 
 
 def test_resolve_chinese_name_from_watchlist_when_listing_empty(monkeypatch):
@@ -137,7 +137,7 @@ def test_predict_chinese_name_when_listing_empty(monkeypatch):
     monkeypatch.setattr(bot, "resolve_stocks", lambda q: [])
     monkeypatch.setattr(bot, "_forecast_stock",
                         lambda code, name, supports: f"CARD:{code}")
-    assert bot.handle("/預測 華邦電") == "CARD:2344"
+    assert bot.handle("/預測 華邦電").startswith("CARD:2344")
 
 
 def test_predict_is_live_forecast_not_today_result(monkeypatch):
@@ -247,3 +247,19 @@ def test_process_web_message_threads_owner(monkeypatch):
         "send": staticmethod(lambda t: True)}))
     assert bot.process_web_message("hi", owner="bob") == "ok"
     assert seen["owner"] == "bob"          # 網頁使用者的身分有傳進 handle
+
+
+def test_command_reply_has_link_but_qa_does_not(monkeypatch):
+    monkeypatch.setattr(bot, "_git_pull", lambda: None)
+    monkeypatch.setattr(bot, "effective_stocks",
+                        lambda owner=None: {"華邦電 (2344)": {"code": "2344"}})
+    # 指令 /list → 回覆一定帶網站連結
+    assert bot.DASHBOARD_URL in bot.handle("/list")
+    # 自由問答 → 不帶連結
+    monkeypatch.setattr(bot, "load_history", lambda: [])
+    monkeypatch.setattr(bot, "held_positions", lambda owner=None: {})
+    monkeypatch.setattr(bot, "tg", type("T", (), {
+        "send": staticmethod(lambda t: True)}))
+    monkeypatch.setattr(bot, "generate_text", lambda s, u: "一般性看法")
+    qa = bot.handle("台積電最近如何")
+    assert bot.DASHBOARD_URL not in qa

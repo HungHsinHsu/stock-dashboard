@@ -26,6 +26,7 @@ from core.predict import (
 from core.lessons import lessons_prompt
 from core.textclean import humanize
 from core.strategy import RULEBOOK, OPERATIONS
+from core.config import DASHBOARD_URL
 from core import db
 import core.telegram as tg
 
@@ -290,10 +291,51 @@ def get_updates(token, offset, long_poll=0):
     return r.json().get("result", [])
 
 
+# 所有指令別名（用來判斷「這是不是指令」→ 指令回覆一定附網站連結）
+KNOWN_CMDS = {
+    "start", "help", "說明", "幫助", "指令",
+    "list", "清單", "列表", "add", "加入", "新增",
+    "remove", "移除", "刪除", "del", "delete", "rm",
+    "enter", "進場", "buy", "in", "買進",
+    "exit", "出場", "sell", "out", "賣出", "清空",
+    "position", "部位", "pos", "持股",
+    "predict", "預測", "forecast", "即時預測", "即時", "現在預測", "p", "pred", "f",
+    "review", "復盤", "結果", "查", "查預測", "查詢", "紀錄", "記錄",
+}
+
+
+def _is_command(text):
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    if stripped.startswith("/"):
+        return True
+    first = stripped.split()[0].lower().lstrip("/").split("@")[0]
+    return first in KNOWN_CMDS
+
+
+def _append_link(reply):
+    """指令回覆一定附上網站連結（已含就不重複）。"""
+    if not reply or not DASHBOARD_URL:
+        return reply
+    if DASHBOARD_URL in reply:
+        return reply
+    return reply + f"\n\n🔗 看網站：{DASHBOARD_URL}"
+
+
 def handle(text, owner="admin"):
-    """解析一條指令，回傳要回覆的字串（None=不回）。owner=清單/部位的擁有者。"""
+    """解析一條訊息並回覆。owner=清單/部位的擁有者。
+    指令的回覆一定附網站連結；自由聊天問答則不附。"""
     global _ACTIVE_OWNER
     _ACTIVE_OWNER = owner or "admin"
+    reply = _dispatch(text)
+    if reply is not None and _is_command(text):
+        reply = _append_link(reply)
+    return reply
+
+
+def _dispatch(text):
+    """實際分派指令/問答，回覆字串（None=不回）。"""
     parts = text.strip().split()
     if not parts:
         return None
