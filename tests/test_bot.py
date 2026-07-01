@@ -177,6 +177,12 @@ def test_freeform_question_routes_to_llm(monkeypatch):
     assert any("想一下" in a for a in acks)         # 有先回覆思考中
 
 
+def test_qa_system_restricts_to_stocks():
+    # 嚴格婉拒非台股主題的規則有寫進系統提示
+    assert "只負責台股討論" in bot.QA_SYSTEM
+    assert "只回答台股" in bot.QA_SYSTEM
+
+
 def test_slash_typo_still_reports_unknown(monkeypatch):
     # 以「/」開頭但打錯 → 仍回「不認得的指令」，不會誤丟給問答
     assert "不認得的指令" in bot.handle("/blahblah")
