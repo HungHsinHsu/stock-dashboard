@@ -18,7 +18,7 @@ from core.store import load_history
 from core.review import hit_rate
 from core import db
 
-st.set_page_config(page_title="台股觀察儀表板", layout="centered", page_icon="📊")
+st.set_page_config(page_title="台股觀察儀表板", layout="wide", page_icon="📊")
 st.title("📊 台股觀察儀表板")
 if db.db_enabled():
     st.caption("🗄 資料來源：Postgres 資料庫 ✅")
@@ -195,7 +195,9 @@ def render_history(records, show_signal):
     color_cols = [c for c in ("預測方向", "實際方向", "漲跌", "漲跌%")
                   if c in df_tbl.columns]
     styled = df_tbl.style.apply(_redgreen, subset=color_cols)
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    # 高度隨列數自動撐開，避免擠在小捲動框裡（上限避免過長）
+    h = min(len(df_tbl) + 1, 25) * 35 + 3
+    st.dataframe(styled, use_container_width=True, hide_index=True, height=h)
 
     # 檢討（預測失敗的教訓）
     crits = [r for r in ordered if (r.get("review") or {}).get("critique")]
@@ -268,7 +270,8 @@ def render_history_overview(records):
     foot[RATE_COL] = _pct(tot_hits, tot_rev)           # 右下角：整體命中率
     grid.append(foot)
 
-    st.dataframe(pd.DataFrame(grid), hide_index=True, use_container_width=True)
+    # 用 st.table 整張攤開（不是內嵌小捲動框），跟著頁面捲、免拖動
+    st.table(pd.DataFrame(grid).set_index("日期"))
     st.caption(
         "每格＝命中與否＋當日預測方向（✅漲=預測漲且命中、❌跌=預測跌沒中、"
         "🔮=已預測待收盤驗證、—=當天無預測）。最右欄＝當天所有標的命中率、"
