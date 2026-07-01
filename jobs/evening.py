@@ -56,14 +56,16 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
           f"載入紀錄={len(records)} 筆")
 
     # 大盤復盤（驗方向＋無論對錯都檢討）；唯一自動推播的一則。
-    if not idx_df.empty and str(idx_df.index[-1].date()) == date:
-        mrec = get_record(records, date, "大盤")
-        closes = idx_df["Close"]
-        _m_reviewed = bool(mrec and (mrec.get("review") or {}).get("critique"))
-        print(f"[evening] 大盤: 有預測={bool(mrec and mrec.get('prediction'))} "
-              f"已檢討={_m_reviewed}")
-        if (mrec and mrec.get("prediction") and not _m_reviewed
-                and len(closes) >= 2):
+    # waiting 只收「有今日預測、還沒復盤、但當日資料未到」的項目——
+    # 沒預測(不用結算)或已復盤(已完成)一律不列入，避免誤報。
+    mrec = get_record(records, date, "大盤")
+    m_pred = bool(mrec and mrec.get("prediction"))
+    m_reviewed = bool(mrec and (mrec.get("review") or {}).get("critique"))
+    data_ready = (not idx_df.empty) and str(idx_df.index[-1].date()) == date
+    print(f"[evening] 大盤: 有預測={m_pred} 已檢討={m_reviewed} 資料到齊={data_ready}")
+    if m_pred and not m_reviewed:
+        closes = idx_df["Close"] if not idx_df.empty else []
+        if data_ready and len(closes) >= 2:
             judged = judge_market(mrec["prediction"], closes.iloc[-1], closes.iloc[-2])
             jm = make_market_review(mrec["prediction"], judged,
                                     today_bar=_today_bar(idx_df), llm=llm)
@@ -75,26 +77,19 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
             save_history(records, HISTORY_PATH)   # 先存 DB 再推播，網頁才不會落後於推播
             mkt_recs = [r for r in records if r.get("stock") == "大盤"]
             tg.send(format_market_review(date, jm, hit_rate(mkt_recs)))
-    elif not idx_df.empty:
-        waiting.append("大盤")
-    else:                                  # 連指數資料都抓不到 → 也要告知，不可靜默
-        waiting.append("大盤（收盤資料尚未取得）")
+        else:
+            waiting.append("大盤")        # 有預測待結算、但當日資料未到
 
     for name, cfg in stocks.items():
-        df = fetch(cfg["code"], today=today)
-        if df.empty:
-            waiting.append(name)           # 抓不到當日資料 → 也列入待結算，不靜默
-            continue
-        # 當日收盤(日 K)是否已發布？沒有就先不結算，留待 18:00 再跑。
-        if str(df.index[-1].date()) != date:
-            waiting.append(name)
-            continue
         rec = get_record(records, date, cfg["code"])
         if rec is None or not rec.get("prediction"):
-            print(f"[evening] {name}: 找不到 {date} 預測，略過")
-            continue                      # 沒有對應預測就略過，不推播
-        if (rec.get("review") or {}).get("critique"):   # 已有檢討才略過
+            continue                      # 沒有今日預測 → 不用結算、不列待辦
+        if (rec.get("review") or {}).get("critique"):   # 已有檢討 → 已完成，略過
             print(f"[evening] {name}: 已有檢討，略過")
+            continue
+        df = fetch(cfg["code"], today=today)
+        if df.empty or str(df.index[-1].date()) != date:
+            waiting.append(name)          # 有預測待結算、但當日資料未到
             continue
 
         indicators = compute_indicators(df, cfg.get("supports", {}))
@@ -124,8 +119,9 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
         tg.send(_stock_review_digest(stock_summ, date))
     if waiting:
         tg.send(
-            "⏳ 今日收盤資料尚未到齊（" + "、".join(waiting) +
-            "），暫時無法結算；等資料發布後會自動再復盤（今天 18:00 前那班）。")
+            "⏳ 今日收盤資料尚未到齊：" + "、".join(waiting) +
+            "。資料到齊後會自動補做（今天 15:20、18:00 各一班）；"
+            "若兩班都過了仍未到，多半是當下抓不到資料，可稍後用 /復盤 手動補。")
     return produced
 
 
