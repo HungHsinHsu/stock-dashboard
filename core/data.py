@@ -1,6 +1,7 @@
 import time
 import pandas as pd
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
@@ -294,24 +295,38 @@ def parse_twse_json(j):
     return rows
 
 
-def fetch_daily(code, months=6, today=None):
-    """抓最近 months 個月日線；回 DataFrame(index=Date, 含 MA20)；抓不到回空。"""
+def _fetch_stock_month(code, d):
+    """抓某代號某月的日線，回 list[dict]；失敗回 []。"""
+    ym = d.strftime("%Y%m01")
+    url = (
+        "https://www.twse.com.tw/exchangeReport/STOCK_DAY"
+        f"?response=json&date={ym}&stockNo={code}"
+    )
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        return parse_twse_json(r.json())
+    except Exception:
+        return []
+
+
+def fetch_daily(code, months=6, today=None, workers=6):
+    """抓最近 months 個月日線；回 DataFrame(index=Date, 含 MA20)；抓不到回空。
+
+    各月為獨立請求，預設用小型執行緒池平行抓，首次載入由數十秒縮到數秒；
+    workers<=1 則退回循序（含 TWSE_DELAY 間隔）以維持保守行為。
+    """
     today = today or datetime.today()
+    dates = [today - relativedelta(months=i) for i in range(months)]
     frames = []
-    for i in range(months):
-        if i:
-            time.sleep(TWSE_DELAY)
-        d = today - relativedelta(months=i)
-        ym = d.strftime("%Y%m01")
-        url = (
-            "https://www.twse.com.tw/exchangeReport/STOCK_DAY"
-            f"?response=json&date={ym}&stockNo={code}"
-        )
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=10)
-            frames.extend(parse_twse_json(r.json()))
-        except Exception:
-            continue
+    if workers and workers > 1 and months > 1:
+        with ThreadPoolExecutor(max_workers=min(workers, months)) as ex:
+            for fr in ex.map(lambda d: _fetch_stock_month(code, d), dates):
+                frames.extend(fr)
+    else:
+        for i, d in enumerate(dates):
+            if i:
+                time.sleep(TWSE_DELAY)
+            frames.extend(_fetch_stock_month(code, d))
     if not frames:
         return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume", "MA20"])
     df = (
@@ -347,24 +362,37 @@ def parse_index_json(j):
     return rows
 
 
-def fetch_index(months=6, today=None):
-    """抓加權指數近 months 個月日線；回 DataFrame(含 MA20)；抓不到回空(帶 schema)。"""
+def _fetch_index_month(d):
+    """抓加權指數某月日線，回 list[dict]；失敗回 []。"""
+    ym = d.strftime("%Y%m01")
+    url = (
+        "https://www.twse.com.tw/indicesReport/MI_5MINS_HIST"
+        f"?response=json&date={ym}"
+    )
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        return parse_index_json(r.json())
+    except Exception:
+        return []
+
+
+def fetch_index(months=6, today=None, workers=6):
+    """抓加權指數近 months 個月日線；回 DataFrame(含 MA20)；抓不到回空(帶 schema)。
+
+    與 fetch_daily 相同：各月獨立請求，預設平行抓以加快載入。
+    """
     today = today or datetime.today()
+    dates = [today - relativedelta(months=i) for i in range(months)]
     frames = []
-    for i in range(months):
-        if i:
-            time.sleep(TWSE_DELAY)
-        d = today - relativedelta(months=i)
-        ym = d.strftime("%Y%m01")
-        url = (
-            "https://www.twse.com.tw/indicesReport/MI_5MINS_HIST"
-            f"?response=json&date={ym}"
-        )
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=10)
-            frames.extend(parse_index_json(r.json()))
-        except Exception:
-            continue
+    if workers and workers > 1 and months > 1:
+        with ThreadPoolExecutor(max_workers=min(workers, months)) as ex:
+            for fr in ex.map(_fetch_index_month, dates):
+                frames.extend(fr)
+    else:
+        for i, d in enumerate(dates):
+            if i:
+                time.sleep(TWSE_DELAY)
+            frames.extend(_fetch_index_month(d))
     if not frames:
         return pd.DataFrame(columns=["Open", "High", "Low", "Close", "MA20"])
     df = (

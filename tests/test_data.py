@@ -176,3 +176,27 @@ def test_resolve_stocks_etf_by_code(monkeypatch):
     monkeypatch.setattr(data, "fetch_stock_name", lambda c, today=None: "元大台灣50")
     out = data.resolve_stocks("0050", listing={})
     assert out == [("0050", "元大台灣50")]
+
+
+def test_fetch_daily_parallel_matches_sequential(monkeypatch):
+    import pandas as pd
+    import core.data as data
+
+    def make_resp(url):
+        if "202605" in url:  # 5 月
+            row = ["115/05/30", "1,000", "0", "10.0", "11.0", "9.0", "10.5", "+0.1", "5"]
+        else:                # 6 月
+            row = ["115/06/27", "2,000", "0", "20.0", "21.0", "19.0", "20.5", "+0.1", "5"]
+
+        class _R:
+            def json(self):
+                return {"stat": "OK", "data": [row]}
+        return _R()
+
+    monkeypatch.setattr(data, "TWSE_DELAY", 0)
+    monkeypatch.setattr(data.requests, "get", lambda url, **k: make_resp(url))
+    par = data.fetch_daily("2330", months=2, today=pd.Timestamp("2026-06-15"), workers=6)
+    seq = data.fetch_daily("2330", months=2, today=pd.Timestamp("2026-06-15"), workers=1)
+    assert len(par) == 2
+    assert list(par.index) == list(seq.index)            # 平行與循序結果一致
+    assert list(par["Close"]) == [10.5, 20.5]            # 依日期由舊到新排序
