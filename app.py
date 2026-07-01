@@ -1,4 +1,5 @@
 import os
+import time
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -16,6 +17,7 @@ from core.watchlist import effective_stocks
 from core.market import market_summary
 from core.store import load_history
 from core.review import hit_rate
+from core.auth import hash_password, verify_password
 from core import db
 
 st.set_page_config(page_title="台股觀察儀表板", layout="wide", page_icon="📊")
@@ -56,6 +58,123 @@ _migrate_once()
 @st.cache_data(ttl=120)
 def load_records():
     return load_history()
+
+
+# ─────────────── 帳號登入 ＋ chatbox（側邊）───────────────
+def _secret(key):
+    try:
+        return st.secrets.get(key)
+    except Exception:
+        return None
+
+
+def _login(username, password):
+    """回 {'name','role'} 或 None。admin 由 secrets 認定，一般使用者查 DB。"""
+    admin_user, admin_pw = _secret("ADMIN_USER"), _secret("ADMIN_PASSWORD")
+    if admin_user and username == admin_user and password == admin_pw:
+        return {"name": username, "role": "admin"}
+    if db.db_enabled():
+        try:
+            u = db.get_user(username)
+        except Exception:
+            u = None
+        if u and verify_password(password, u["pw_hash"]):
+            return {"name": u["username"], "role": u["role"]}
+    return None
+
+
+def _web_ask(prompt, timeout_s=100):
+    """把訊息排進 DB 佇列，等機器人處理完的回覆（最多約 timeout_s 秒）。"""
+    if not db.db_enabled():
+        return "⚠️ 未連上資料庫，chatbox 無法使用（請先設定 DATABASE_URL）。"
+    try:
+        cid = db.enqueue_chat(prompt, source="web")
+    except Exception as e:
+        return f"⚠️ 送出失敗：{e}"
+    with st.spinner("助理思考中…（最多約 1 分鐘）"):
+        for _ in range(max(1, timeout_s // 2)):
+            time.sleep(2)
+            try:
+                r = db.get_chat_reply(cid)
+            except Exception:
+                r = None
+            if r is not None:
+                return r
+    return "⏳ 這次等太久了（機器人可能正在重啟或忙碌），請稍後再試。"
+
+
+def _render_admin_panel():
+    with st.expander("👤 使用者管理（僅管理者）", expanded=False):
+        if not db.db_enabled():
+            st.warning("未連上資料庫，無法管理使用者。")
+            return
+        with st.form("add_user", clear_on_submit=True):
+            nu = st.text_input("新使用者帳號")
+            npw = st.text_input("初始密碼", type="password")
+            if st.form_submit_button("➕ 新增使用者"):
+                if not nu.strip() or not npw:
+                    st.error("帳號與密碼都要填。")
+                elif nu.strip() == (_secret("ADMIN_USER") or ""):
+                    st.error("此帳號保留給管理者。")
+                else:
+                    db.create_user(nu.strip(), hash_password(npw), role="user")
+                    st.success(f"已新增使用者：{nu.strip()}")
+                    st.rerun()
+        users = db.list_users()
+        if users:
+            st.caption("目前使用者：")
+            for u in users:
+                c1, c2 = st.columns([3, 1])
+                c1.write(f"・{u['username']}")
+                if c2.button("刪除", key=f"del_{u['username']}"):
+                    db.delete_user(u["username"])
+                    st.rerun()
+
+
+def _render_chatbox():
+    st.markdown("### 💬 對話")
+    if not db.db_enabled():
+        st.warning("未連上資料庫，chatbox 無法使用。")
+        return
+    for m in st.session_state.get("chat_hist", []):
+        st.chat_message(m["role"]).write(m["text"])
+    prompt = st.chat_input("問問題或打指令，例：/預測 2330")
+    if prompt:
+        st.session_state.setdefault("chat_hist", []).append(
+            {"role": "user", "text": prompt})
+        reply = _web_ask(prompt)
+        st.session_state.chat_hist.append({"role": "assistant", "text": reply})
+        st.rerun()
+
+
+def render_account_sidebar():
+    with st.sidebar:
+        st.markdown("## 🔐 助理登入")
+        user = st.session_state.get("auth_user")
+        if not user:
+            with st.form("login", clear_on_submit=False):
+                u = st.text_input("帳號")
+                p = st.text_input("密碼", type="password")
+                if st.form_submit_button("登入"):
+                    acct = _login(u.strip(), p)
+                    if acct:
+                        st.session_state.auth_user = acct
+                        st.rerun()
+                    else:
+                        st.error("帳號或密碼錯誤")
+            st.caption("需要帳號請找管理者開通。")
+            return
+        role_txt = "管理者" if user["role"] == "admin" else "使用者"
+        st.success(f"已登入：{user['name']}（{role_txt}）")
+        if st.button("登出"):
+            del st.session_state["auth_user"]
+            st.rerun()
+        if user["role"] == "admin":
+            _render_admin_panel()
+        _render_chatbox()
+
+
+render_account_sidebar()
 
 
 _TF = {"日": None, "週": "W", "月": "ME"}

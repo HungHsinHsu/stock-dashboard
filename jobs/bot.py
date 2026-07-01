@@ -417,6 +417,46 @@ def handle(text):
     return _answer_question(text)
 
 
+def process_web_message(text):
+    """處理來自網頁 chatbox（或 LINE）的訊息：重用 handle()，回最終回覆字串。
+
+    handle() 內部有些指令會用 tg.send 發『⏳ 計算中』等中間提示；網頁端改用
+    轉圈圈提示，這裡把 tg 暫時換成 no-op，避免那些中間訊息外洩到 Telegram。
+    """
+    global tg
+    saved = tg
+
+    class _Null:
+        @staticmethod
+        def send(_t):
+            return True
+
+    tg = _Null
+    try:
+        return handle(text) or ""
+    except Exception as e:            # 單則失敗不影響機器人存活
+        return f"⚠️ 處理失敗：{e}"
+    finally:
+        tg = saved
+
+
+def drain_web_queue():
+    """處理網頁 chatbox 佇列裡所有待辦，把回覆寫回 DB。"""
+    if not db.db_enabled():
+        return
+    try:
+        pending = db.pending_chats()
+    except Exception as e:
+        print("chat_queue 讀取失敗：", e)
+        return
+    for item in pending:
+        reply = process_web_message(item.get("text", ""))
+        try:
+            db.complete_chat(item["id"], reply)
+        except Exception as e:
+            print("chat_queue 回寫失敗：", e)
+
+
 def _process(updates, chat_id):
     """處理一批 updates，回 (new_offset, handled_count)。"""
     offset, handled = 0, 0
@@ -497,14 +537,17 @@ def run(loop=False):
     print(f"long-poll start, offset={offset}")
     _notify_started()          # 上線後主動報「重啟完成」
     while time.monotonic() < deadline:
+        drain_web_queue()      # 先處理網頁 chatbox 的待辦
         try:
-            updates = get_updates(token, offset, long_poll=25)
+            # 長輪詢縮到 15 秒，讓網頁 chatbox 的訊息較快被處理
+            updates = get_updates(token, offset, long_poll=15)
         except Exception as e:
             print("getUpdates 失敗，稍後重試：", e)
             time.sleep(5)
             continue
+        drain_web_queue()      # 輪詢回來後再處理一次，降低網頁延遲
         if not updates:
-            continue  # 長輪詢已阻塞約 25 秒，直接再聽
+            continue  # 長輪詢已阻塞約 15 秒，直接再聽
         new_off, handled = _process(updates, chat_id)
         offset = max(offset, new_off)
         _save_offset(offset)

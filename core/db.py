@@ -39,6 +39,20 @@ def _ensure_schema(cur):
         code text PRIMARY KEY, data jsonb)""")
     cur.execute("""CREATE TABLE IF NOT EXISTS app_state(
         key text PRIMARY KEY, value jsonb)""")
+    # 網頁 chatbox（及未來 LINE）→ 機器人代跑 的訊息佇列
+    cur.execute("""CREATE TABLE IF NOT EXISTS chat_queue(
+        id bigserial PRIMARY KEY,
+        source text,
+        text text,
+        reply text,
+        status text DEFAULT 'pending',
+        ts timestamptz DEFAULT now())""")
+    # chatbox 使用者（admin 由 secrets 認定；此表存 admin 新增的一般使用者）
+    cur.execute("""CREATE TABLE IF NOT EXISTS users(
+        username text PRIMARY KEY,
+        pw_hash text,
+        role text DEFAULT 'user',
+        created text)""")
 
 
 def _run(fn):
@@ -156,6 +170,81 @@ def set_state(key, value):
             """INSERT INTO app_state(key, value) VALUES(%s, %s::jsonb)
                ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value""",
             (key, _dumps(value)))
+    _run(q)
+
+
+# ── chat_queue（網頁 chatbox / LINE → 機器人代跑）────────────────
+def enqueue_chat(text, source="web"):
+    """把一則使用者訊息排進佇列，回 id（供之後輪詢回覆）。"""
+    def q(cur):
+        cur.execute(
+            "INSERT INTO chat_queue(source, text, status) "
+            "VALUES(%s, %s, 'pending') RETURNING id", (source, text))
+        return cur.fetchone()[0]
+    return _run(q)
+
+
+def get_chat_reply(cid):
+    """已處理完回回覆字串，尚未處理回 None。"""
+    def q(cur):
+        cur.execute(
+            "SELECT reply FROM chat_queue WHERE id=%s AND status='done'", (cid,))
+        row = cur.fetchone()
+        return row[0] if row else None
+    return _run(q)
+
+
+def pending_chats(limit=5):
+    """取尚未處理的訊息（機器人端）。"""
+    def q(cur):
+        cur.execute(
+            "SELECT id, source, text FROM chat_queue WHERE status='pending' "
+            "ORDER BY id LIMIT %s", (limit,))
+        return [{"id": i, "source": s, "text": t} for i, s, t in cur.fetchall()]
+    return _run(q)
+
+
+def complete_chat(cid, reply):
+    """機器人處理完，回寫回覆並標記 done；順手清掉一天前的舊紀錄。"""
+    def q(cur):
+        cur.execute("UPDATE chat_queue SET reply=%s, status='done' WHERE id=%s",
+                    (reply, cid))
+        cur.execute("DELETE FROM chat_queue WHERE ts < now() - interval '1 day'")
+    _run(q)
+
+
+# ── users（chatbox 使用者管理）──────────────────────────────────
+def create_user(username, pw_hash, role="user", created=None):
+    def q(cur):
+        cur.execute(
+            """INSERT INTO users(username, pw_hash, role, created)
+               VALUES(%s, %s, %s, %s)
+               ON CONFLICT(username) DO UPDATE SET
+                 pw_hash=EXCLUDED.pw_hash, role=EXCLUDED.role""",
+            (username, pw_hash, role, created))
+    _run(q)
+
+
+def get_user(username):
+    def q(cur):
+        cur.execute(
+            "SELECT username, pw_hash, role FROM users WHERE username=%s",
+            (username,))
+        row = cur.fetchone()
+        return {"username": row[0], "pw_hash": row[1], "role": row[2]} if row else None
+    return _run(q)
+
+
+def list_users():
+    def q(cur):
+        cur.execute("SELECT username, role, created FROM users ORDER BY username")
+        return [{"username": u, "role": r, "created": c} for u, r, c in cur.fetchall()]
+    return _run(q)
+
+
+def delete_user(username):
+    def q(cur):
+        cur.execute("DELETE FROM users WHERE username=%s", (username,))
     _run(q)
 
 

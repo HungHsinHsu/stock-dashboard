@@ -217,3 +217,19 @@ def test_slash_typo_still_reports_unknown(monkeypatch):
 
 def test_forecast_in_help():
     assert "/forecast" in bot.HELP
+
+
+def test_process_web_message_suppresses_acks(monkeypatch):
+    recorder = []
+    fake_tg = type("T", (), {"send": staticmethod(lambda t: recorder.append(t) or True)})
+    monkeypatch.setattr(bot, "tg", fake_tg)
+
+    def fake_handle(text):
+        bot.tg.send("⏳ 計算中")          # 中間提示，網頁端不該收到
+        return f"回覆:{text}"
+
+    monkeypatch.setattr(bot, "handle", fake_handle)
+    out = bot.process_web_message("/預測 2330")
+    assert out == "回覆:/預測 2330"
+    assert recorder == []                 # ack 被攔掉、沒外洩 Telegram
+    assert bot.tg is fake_tg              # 處理後還原
