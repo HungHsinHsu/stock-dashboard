@@ -109,75 +109,85 @@ def _web_ask(prompt, who="admin", timeout_s=100):
 
 
 def _render_admin_panel():
-    with st.expander("👤 使用者管理（僅管理者）", expanded=False):
-        if not db.db_enabled():
-            st.warning("未連上資料庫，無法管理使用者。")
-            return
-        with st.form("add_user", clear_on_submit=True):
-            nu = st.text_input("新使用者帳號")
-            npw = st.text_input("初始密碼", type="password")
-            if st.form_submit_button("➕ 新增使用者"):
-                if not nu.strip() or not npw:
-                    st.error("帳號與密碼都要填。")
-                elif nu.strip() == (_secret("ADMIN_USER") or ""):
-                    st.error("此帳號保留給管理者。")
-                else:
-                    db.create_user(nu.strip(), hash_password(npw), role="user")
-                    st.success(f"已新增使用者：{nu.strip()}")
-                    st.rerun()
-        users = db.list_users()
-        if users:
-            st.caption("目前使用者：")
-            for u in users:
-                c1, c2 = st.columns([3, 1])
-                c1.write(f"・{u['username']}")
-                if c2.button("刪除", key=f"del_{u['username']}"):
-                    db.delete_user(u["username"])
-                    st.rerun()
-
-
-def _render_chatbox():
-    st.markdown("### 💬 對話")
+    """使用者管理內容（不含 expander；由呼叫端收合）。"""
     if not db.db_enabled():
-        st.warning("未連上資料庫，chatbox 無法使用。")
+        st.warning("未連上資料庫，無法管理使用者。")
         return
+    st.markdown("**👤 使用者管理**")
+    with st.form("add_user", clear_on_submit=True):
+        nu = st.text_input("新使用者帳號")
+        npw = st.text_input("初始密碼", type="password")
+        if st.form_submit_button("➕ 新增使用者"):
+            if not nu.strip() or not npw:
+                st.error("帳號與密碼都要填。")
+            elif nu.strip() == (_secret("ADMIN_USER") or ""):
+                st.error("此帳號保留給管理者。")
+            else:
+                db.create_user(nu.strip(), hash_password(npw), role="user")
+                st.success(f"已新增使用者：{nu.strip()}")
+                st.rerun()
+    users = db.list_users()
+    if users:
+        st.caption("目前使用者：")
+        for u in users:
+            c1, c2 = st.columns([3, 1])
+            c1.write(f"・{u['username']}")
+            if c2.button("刪除", key=f"del_{u['username']}"):
+                db.delete_user(u["username"])
+                st.rerun()
+
+
+def render_chat_page():
+    """主畫面的『💬 助理』：訊息在固定高度捲動框、輸入框釘在最底（正常聊天體驗）。"""
+    st.markdown("### 💬 助理")
+    user = st.session_state.get("auth_user")
+    if not user:
+        st.info("請先在左側側邊欄登入，才能使用助理。")
+        return
+    if not db.db_enabled():
+        st.warning("未連上資料庫，助理無法使用（請先設定 DATABASE_URL）。")
+        return
+    st.caption("可打指令（/預測 2330、/復盤、/list…）或直接問股票問題。")
+    box = st.container(height=460)                 # 固定高度、自己捲動
     for m in st.session_state.get("chat_hist", []):
-        st.chat_message(m["role"]).write(m["text"])
-    prompt = st.chat_input("問問題或打指令，例：/預測 2330")
+        box.chat_message(m["role"]).write(m["text"])
+    prompt = st.chat_input("輸入訊息…")             # 釘在畫面最底
     if prompt:
         st.session_state.setdefault("chat_hist", []).append(
             {"role": "user", "text": prompt})
+        box.chat_message("user").write(prompt)
         reply = _web_ask(prompt, who=_dash_owner())
         st.session_state.chat_hist.append({"role": "assistant", "text": reply})
         st.rerun()
 
 
 def render_account_sidebar():
+    """側邊只放精簡登入；管理面板與入口收進『⚙️ 管理』收合區，不佔版面。"""
     with st.sidebar:
-        st.markdown("## 🔐 助理登入")
         user = st.session_state.get("auth_user")
         if not user:
+            st.markdown("#### 🔐 登入")
             with st.form("login", clear_on_submit=False):
                 u = st.text_input("帳號")
                 p = st.text_input("密碼", type="password")
-                if st.form_submit_button("登入"):
+                if st.form_submit_button("登入", use_container_width=True):
                     acct = _login(u.strip(), p)
                     if acct:
                         st.session_state.auth_user = acct
                         st.rerun()
                     else:
                         st.error("帳號或密碼錯誤")
-            st.caption("需要帳號請找管理者開通。")
+            st.caption("登入後到主畫面『💬 助理』。需要帳號找管理者。")
             return
         role_txt = "管理者" if user["role"] == "admin" else "使用者"
-        st.success(f"已登入：{user['name']}（{role_txt}）")
-        if st.button("登出"):
+        st.caption(f"👤 {user['name']}（{role_txt}）")
+        if st.button("登出", use_container_width=True):
             del st.session_state["auth_user"]
             st.rerun()
         if user["role"] == "admin":
-            _render_admin_panel()
-            _render_admin_links()
-        _render_chatbox()
+            with st.expander("⚙️ 管理", expanded=False):
+                _render_admin_panel()
+                _render_admin_links()
 
 
 def _supabase_ref(database_url):
@@ -466,7 +476,7 @@ def render_history_overview(records, owner="admin"):
 
 # 深連結：?code=2344 → 直接開個股頁、選好該股
 _qp_code = st.query_params.get("code")
-_page = st.radio("頁面", ["🌐 大盤", "📈 個股", "📅 預測歷史"],
+_page = st.radio("頁面", ["🌐 大盤", "📈 個股", "📅 預測歷史", "💬 助理"],
                  index=(1 if _qp_code else 0),
                  horizontal=True, label_visibility="collapsed")
 
@@ -528,6 +538,10 @@ if _page == "🌐 大盤":
 elif _page == "📅 預測歷史":
     st.markdown("### 📅 預測歷史總覽")
     render_history_overview(load_records(), _dash_owner())
+
+# ──────────────────────────── 助理 chatbox 頁 ────────────────────────
+elif _page == "💬 助理":
+    render_chat_page()
 
 # ──────────────────────────── 個股頁 ────────────────────────────
 else:
