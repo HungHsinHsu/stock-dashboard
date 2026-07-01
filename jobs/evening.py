@@ -71,6 +71,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
             produced.append(mrec)
             if not jm.get("success"):     # 教訓只收『預測錯』的（避免重蹈）
                 add_lesson("大盤", date, jm.get("critique"))
+            save_history(records, HISTORY_PATH)   # 先存 DB 再推播，網頁才不會落後於推播
             mkt_recs = [r for r in records if r.get("stock") == "大盤"]
             tg.send(format_market_review(date, jm, hit_rate(mkt_recs)))
     elif not idx_df.empty:
