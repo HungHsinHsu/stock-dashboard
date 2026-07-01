@@ -205,8 +205,12 @@ def render_history(records, show_signal):
                 st.markdown(_md_bullets(rv["critique"]))
 
 
+def _pct(hits, n):
+    return f"{hits / n * 100:.0f}% ({hits}/{n})" if n else "—"
+
+
 def render_history_overview(records):
-    """預測歷史總覽：各標的命中率 ＋ 每日命中矩陣（大盤與各股一次看）。"""
+    """預測歷史總覽：日期×標的的命中矩陣，最右欄＝當日命中率、最底列＝累積命中率。"""
     if not records:
         st.info("尚無任何預測紀錄。開盤預測與收盤復盤會自動累積在這裡。")
         return
@@ -214,48 +218,55 @@ def render_history_overview(records):
     code2name = {cfg["code"]: name for name, cfg in stocks.items()}
     code2name["大盤"] = "🌐 大盤"
     targets = ["大盤"] + [cfg["code"] for cfg in stocks.values()]
+    RATE_COL = "📊 當日命中率"
 
-    st.markdown("#### 各標的方向命中率")
-    stat_rows = []
-    for t in targets:
-        recs_t = [r for r in records if r.get("stock") == t]
-        reviewed = [r for r in recs_t if (r.get("review") or {}).get("results")]
-        hits = sum(1 for r in reviewed
-                   if ((r["review"]["results"]) or {}).get("direction"))
-        rate = hit_rate(recs_t)
-        stat_rows.append({
-            "標的": code2name.get(t, t),
-            "命中率": f"{rate * 100:.0f}%" if rate is not None else "—",
-            "命中/已復盤": f"{hits}/{len(reviewed)}" if reviewed else "0/0",
-            "預測筆數": len([r for r in recs_t if r.get("prediction")]),
-        })
-    st.dataframe(pd.DataFrame(stat_rows), hide_index=True,
-                 use_container_width=True)
+    by = {(r["date"], r.get("stock")): r
+          for r in records if r.get("prediction")}
+    dates = sorted({d for (d, _) in by}, reverse=True)
 
-    st.markdown("#### 每日命中情況（✅命中／❌未中／🔮待驗）")
-
-    def _cell(r):
-        p = r.get("prediction") or {}
-        d = p.get("direction", "") or ""
+    def hit_of(r):
+        """命中回 True、未中 False、尚未復盤回 None。"""
         rv = r.get("review") or {}
         res = rv.get("results") or {}
         if not rv or "direction" not in res:
-            return f"🔮{d}" if d else "—"
-        return ("✅" if res.get("direction") else "❌") + d
+            return None
+        return bool(res.get("direction"))
 
-    lut = {(r["date"], r.get("stock")): _cell(r)
-           for r in records if r.get("prediction")}
-    dates = sorted({r["date"] for r in records if r.get("prediction")},
-                   reverse=True)
+    def cell(r):
+        if r is None:
+            return "—"
+        d = (r.get("prediction") or {}).get("direction", "") or ""
+        h = hit_of(r)
+        return f"🔮{d}" if h is None else ("✅" if h else "❌") + d
+
     grid = []
-    for dt in dates:
-        row = {"日期": dt}
+    for dt in dates:                                   # 每一天一列
+        row, day_hits, day_rev = {"日期": dt}, 0, 0
         for t in targets:
-            row[code2name.get(t, t)] = lut.get((dt, t), "—")
+            r = by.get((dt, t))
+            row[code2name.get(t, t)] = cell(r)
+            h = hit_of(r) if r is not None else None
+            if h is not None:
+                day_rev += 1
+                day_hits += 1 if h else 0
+        row[RATE_COL] = _pct(day_hits, day_rev)        # 最右：當日命中率
         grid.append(row)
+
+    foot, tot_hits, tot_rev = {"日期": "📊 累積命中率"}, 0, 0
+    for t in targets:                                  # 最底列：各標的累積命中率
+        hs = [hit_of(by[(d, t)]) for d in dates if (d, t) in by]
+        hs = [x for x in hs if x is not None]
+        foot[code2name.get(t, t)] = _pct(sum(1 for x in hs if x), len(hs))
+        tot_hits += sum(1 for x in hs if x)
+        tot_rev += len(hs)
+    foot[RATE_COL] = _pct(tot_hits, tot_rev)           # 右下角：整體命中率
+    grid.append(foot)
+
     st.dataframe(pd.DataFrame(grid), hide_index=True, use_container_width=True)
-    st.caption("每格顯示『命中與否＋當日預測方向』，例：✅漲＝預測漲且命中、❌跌＝預測跌但沒中。"
-               "詳細檢討到大盤頁或個股頁看。")
+    st.caption(
+        "每格＝命中與否＋當日預測方向（✅漲=預測漲且命中、❌跌=預測跌沒中、"
+        "🔮=已預測待收盤驗證、—=當天無預測）。最右欄＝當天所有標的命中率、"
+        "最底列＝各標的累積命中率，右下角＝整體命中率。詳細檢討到大盤頁/個股頁看。")
 
 
 # 深連結：?code=2344 → 直接開個股頁、選好該股
