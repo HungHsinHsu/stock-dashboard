@@ -137,21 +137,17 @@ def _render_admin_panel():
                 st.rerun()
 
 
-def render_chat_page():
-    """主畫面的『💬 助理』：訊息在固定高度捲動框、輸入框釘在最底（正常聊天體驗）。"""
-    st.markdown("### 💬 助理")
-    user = st.session_state.get("auth_user")
-    if not user:
-        st.info("請先在左側側邊欄登入，才能使用助理。")
-        return
+def _render_chatbox_sidebar():
+    """側邊 chatbox：訊息在固定高度捲動框（框內自己滾，不會把輸入框往下擠），
+    這樣可以一邊看主畫面其他頁、一邊聊。"""
+    st.markdown("#### 💬 助理")
     if not db.db_enabled():
-        st.warning("未連上資料庫，助理無法使用（請先設定 DATABASE_URL）。")
+        st.caption("未連上資料庫，助理無法使用（請先設定 DATABASE_URL）。")
         return
-    st.caption("可打指令（/預測 2330、/復盤、/list…）或直接問股票問題。")
-    box = st.container(height=460)                 # 固定高度、自己捲動
+    box = st.container(height=340)                 # 固定高度、框內捲動
     for m in st.session_state.get("chat_hist", []):
         box.chat_message(m["role"]).write(m["text"])
-    prompt = st.chat_input("輸入訊息…")             # 釘在畫面最底
+    prompt = st.chat_input("輸入訊息…")
     if prompt:
         st.session_state.setdefault("chat_hist", []).append(
             {"role": "user", "text": prompt})
@@ -177,7 +173,7 @@ def render_account_sidebar():
                         st.rerun()
                     else:
                         st.error("帳號或密碼錯誤")
-            st.caption("登入後到主畫面『💬 助理』。需要帳號找管理者。")
+            st.caption("登入後這裡會出現『💬 助理』聊天框。需要帳號找管理者。")
             return
         role_txt = "管理者" if user["role"] == "admin" else "使用者"
         st.caption(f"👤 {user['name']}（{role_txt}）")
@@ -188,6 +184,7 @@ def render_account_sidebar():
             with st.expander("⚙️ 管理", expanded=False):
                 _render_admin_panel()
                 _render_admin_links()
+        _render_chatbox_sidebar()
 
 
 def _supabase_ref(database_url):
@@ -476,7 +473,7 @@ def render_history_overview(records, owner="admin"):
 
 # 深連結：?code=2344 → 直接開個股頁、選好該股
 _qp_code = st.query_params.get("code")
-_page = st.radio("頁面", ["🌐 大盤", "📈 個股", "📅 預測歷史", "💬 助理"],
+_page = st.radio("頁面", ["🌐 大盤", "📈 個股", "📅 預測歷史"],
                  index=(1 if _qp_code else 0),
                  horizontal=True, label_visibility="collapsed")
 
@@ -538,10 +535,6 @@ if _page == "🌐 大盤":
 elif _page == "📅 預測歷史":
     st.markdown("### 📅 預測歷史總覽")
     render_history_overview(load_records(), _dash_owner())
-
-# ──────────────────────────── 助理 chatbox 頁 ────────────────────────
-elif _page == "💬 助理":
-    render_chat_page()
 
 # ──────────────────────────── 個股頁 ────────────────────────────
 else:
