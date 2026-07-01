@@ -205,9 +205,62 @@ def render_history(records, show_signal):
                 st.markdown(_md_bullets(rv["critique"]))
 
 
+def render_history_overview(records):
+    """預測歷史總覽：各標的命中率 ＋ 每日命中矩陣（大盤與各股一次看）。"""
+    if not records:
+        st.info("尚無任何預測紀錄。開盤預測與收盤復盤會自動累積在這裡。")
+        return
+    stocks = effective_stocks()
+    code2name = {cfg["code"]: name for name, cfg in stocks.items()}
+    code2name["大盤"] = "🌐 大盤"
+    targets = ["大盤"] + [cfg["code"] for cfg in stocks.values()]
+
+    st.markdown("#### 各標的方向命中率")
+    stat_rows = []
+    for t in targets:
+        recs_t = [r for r in records if r.get("stock") == t]
+        reviewed = [r for r in recs_t if (r.get("review") or {}).get("results")]
+        hits = sum(1 for r in reviewed
+                   if ((r["review"]["results"]) or {}).get("direction"))
+        rate = hit_rate(recs_t)
+        stat_rows.append({
+            "標的": code2name.get(t, t),
+            "命中率": f"{rate * 100:.0f}%" if rate is not None else "—",
+            "命中/已復盤": f"{hits}/{len(reviewed)}" if reviewed else "0/0",
+            "預測筆數": len([r for r in recs_t if r.get("prediction")]),
+        })
+    st.dataframe(pd.DataFrame(stat_rows), hide_index=True,
+                 use_container_width=True)
+
+    st.markdown("#### 每日命中情況（✅命中／❌未中／🔮待驗）")
+
+    def _cell(r):
+        p = r.get("prediction") or {}
+        d = p.get("direction", "") or ""
+        rv = r.get("review") or {}
+        res = rv.get("results") or {}
+        if not rv or "direction" not in res:
+            return f"🔮{d}" if d else "—"
+        return ("✅" if res.get("direction") else "❌") + d
+
+    lut = {(r["date"], r.get("stock")): _cell(r)
+           for r in records if r.get("prediction")}
+    dates = sorted({r["date"] for r in records if r.get("prediction")},
+                   reverse=True)
+    grid = []
+    for dt in dates:
+        row = {"日期": dt}
+        for t in targets:
+            row[code2name.get(t, t)] = lut.get((dt, t), "—")
+        grid.append(row)
+    st.dataframe(pd.DataFrame(grid), hide_index=True, use_container_width=True)
+    st.caption("每格顯示『命中與否＋當日預測方向』，例：✅漲＝預測漲且命中、❌跌＝預測跌但沒中。"
+               "詳細檢討到大盤頁或個股頁看。")
+
+
 # 深連結：?code=2344 → 直接開個股頁、選好該股
 _qp_code = st.query_params.get("code")
-_page = st.radio("頁面", ["🌐 大盤", "📈 個股"],
+_page = st.radio("頁面", ["🌐 大盤", "📈 個股", "📅 預測歷史"],
                  index=(1 if _qp_code else 0),
                  horizontal=True, label_visibility="collapsed")
 
@@ -264,6 +317,11 @@ if _page == "🌐 大盤":
         render_history(mrecs, show_signal=False)
     else:
         st.info("尚無大盤預測紀錄。")
+
+# ──────────────────────────── 預測歷史頁 ────────────────────────────
+elif _page == "📅 預測歷史":
+    st.markdown("### 📅 預測歷史總覽")
+    render_history_overview(load_records())
 
 # ──────────────────────────── 個股頁 ────────────────────────────
 else:
