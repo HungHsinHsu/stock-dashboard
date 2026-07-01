@@ -228,13 +228,15 @@ def render_history_overview(records):
     targets = ["大盤"] + [cfg["code"] for cfg in stocks.values()]
     RATE_COL = "📊 當日命中率"
 
+    import datetime as _dt
+
     by = {(r["date"], r.get("stock")): r
           for r in records if r.get("prediction")}
-    dates = sorted({d for (d, _) in by}, reverse=True)
+    all_dates = sorted({d for (d, _) in by}, reverse=True)  # 新→舊，全部歷史
 
     def hit_of(r):
         """命中回 True、未中 False、尚未復盤回 None。"""
-        rv = r.get("review") or {}
+        rv = (r or {}).get("review") or {}
         res = rv.get("results") or {}
         if not rv or "direction" not in res:
             return None
@@ -247,8 +249,37 @@ def render_history_overview(records):
         h = hit_of(r)
         return f"🔮{d}" if h is None else ("✅" if h else "❌") + d
 
+    # 底列：各標的累積命中率——一律用「全部歷史」計算，不受下方顯示範圍影響
+    foot, tot_hits, tot_rev = {"日期": "📊 累積命中率"}, 0, 0
+    for t in targets:
+        hs = [hit_of(by[(d, t)]) for d in all_dates if (d, t) in by]
+        hs = [x for x in hs if x is not None]
+        foot[code2name.get(t, t)] = _pct(sum(1 for x in hs if x), len(hs))
+        tot_hits += sum(1 for x in hs if x)
+        tot_rev += len(hs)
+    foot[RATE_COL] = _pct(tot_hits, tot_rev)
+
+    # 顯示範圍控制（日期會越來越多 → 預設只顯示最近 10 天，可切換或挑區間）
+    mode = st.radio("顯示範圍", ["最近10天", "最近30天", "全部", "自訂區間"],
+                    horizontal=True, key="hist_range")
+    if mode == "最近10天":
+        show_dates = all_dates[:10]
+    elif mode == "最近30天":
+        show_dates = all_dates[:30]
+    elif mode == "全部":
+        show_dates = all_dates
+    else:
+        dmin = _dt.date.fromisoformat(all_dates[-1])
+        dmax = _dt.date.fromisoformat(all_dates[0])
+        d_start = _dt.date.fromisoformat(all_dates[min(len(all_dates) - 1, 9)])
+        rng = st.date_input("挑選日期區間", value=(d_start, dmax),
+                            min_value=dmin, max_value=dmax, key="hist_daterange")
+        s, e = rng if isinstance(rng, (list, tuple)) and len(rng) == 2 else (rng, rng)
+        show_dates = [d for d in all_dates
+                      if s <= _dt.date.fromisoformat(d) <= e]
+
     grid = []
-    for dt in dates:                                   # 每一天一列
+    for dt in show_dates:                              # 每一天一列（只顯示選定範圍）
         row, day_hits, day_rev = {"日期": dt}, 0, 0
         for t in targets:
             r = by.get((dt, t))
@@ -260,22 +291,21 @@ def render_history_overview(records):
         row[RATE_COL] = _pct(day_hits, day_rev)        # 最右：當日命中率
         grid.append(row)
 
-    foot, tot_hits, tot_rev = {"日期": "📊 累積命中率"}, 0, 0
-    for t in targets:                                  # 最底列：各標的累積命中率
-        hs = [hit_of(by[(d, t)]) for d in dates if (d, t) in by]
-        hs = [x for x in hs if x is not None]
-        foot[code2name.get(t, t)] = _pct(sum(1 for x in hs if x), len(hs))
-        tot_hits += sum(1 for x in hs if x)
-        tot_rev += len(hs)
-    foot[RATE_COL] = _pct(tot_hits, tot_rev)           # 右下角：整體命中率
-    grid.append(foot)
+    omitted = len(all_dates) - len(show_dates)
+    if omitted > 0:                                    # 被收合的較早日期 → …帶過
+        ell = {"日期": f"⋯ 更早還有 {omitted} 天（改上方範圍查看）"}
+        for t in targets:
+            ell[code2name.get(t, t)] = "⋯"
+        ell[RATE_COL] = "⋯"
+        grid.append(ell)
 
-    # 用 st.table 整張攤開（不是內嵌小捲動框），跟著頁面捲、免拖動
+    grid.append(foot)                                  # 累積列永遠在最底
     st.table(pd.DataFrame(grid).set_index("日期"))
     st.caption(
         "每格＝命中與否＋當日預測方向（✅漲=預測漲且命中、❌跌=預測跌沒中、"
-        "🔮=已預測待收盤驗證、—=當天無預測）。最右欄＝當天所有標的命中率、"
-        "最底列＝各標的累積命中率，右下角＝整體命中率。詳細檢討到大盤頁/個股頁看。")
+        "🔮=已預測待收盤驗證、—=當天無預測）。最右欄＝當天所有標的命中率；"
+        "最底列＝各標的累積命中率、右下角＝整體命中率——皆以『全部歷史』計算，"
+        "不受上方顯示範圍影響。詳細檢討到大盤頁/個股頁看。")
 
 
 # 深連結：?code=2344 → 直接開個股頁、選好該股
