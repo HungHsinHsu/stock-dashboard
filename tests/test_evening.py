@@ -101,6 +101,20 @@ def test_evening_waits_when_today_data_missing(tmp_path, monkeypatch):
     assert any("18:00" in s for s in sends)
 
 
+def test_evening_notifies_when_data_unavailable(tmp_path, monkeypatch):
+    hp = str(tmp_path / "h.json")
+    _seed(hp, [_stock_rec()])
+    sends, lessons = _patch(monkeypatch, hp)
+    empty = pd.DataFrame()
+    out = evening.run(
+        today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
+        fetch=lambda code, today=None: empty,        # 個股資料抓不到
+        fetch_idx=lambda today=None: empty,          # 連指數也抓不到
+        stocks={"華邦電 (2344)": {"code": "2344"}})
+    assert out == []
+    assert sends and any("尚未" in s for s in sends)   # 資料抓不到也一定通知、不靜默
+
+
 def test_evening_skips_when_critique_exists(tmp_path, monkeypatch):
     hp = str(tmp_path / "h.json")
     # 已有檢討的紀錄才會被略過（避免重複/覆蓋既有檢討）

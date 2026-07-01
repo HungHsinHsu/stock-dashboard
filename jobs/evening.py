@@ -75,10 +75,13 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
             tg.send(format_market_review(date, jm, hit_rate(mkt_recs)))
     elif not idx_df.empty:
         waiting.append("大盤")
+    else:                                  # 連指數資料都抓不到 → 也要告知，不可靜默
+        waiting.append("大盤（收盤資料尚未取得）")
 
     for name, cfg in stocks.items():
         df = fetch(cfg["code"], today=today)
         if df.empty:
+            waiting.append(name)           # 抓不到當日資料 → 也列入待結算，不靜默
             continue
         # 當日收盤(日 K)是否已發布？沒有就先不結算，留待 18:00 再跑。
         if str(df.index[-1].date()) != date:
@@ -119,8 +122,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
         tg.send(_stock_review_digest(stock_summ, date))
     if waiting:
         tg.send(
-            "⏳ 今日收盤資料尚未發布（" + "、".join(waiting) +
-            "），暫時無法結算。18:00 會自動再復盤一次。")
+            "⏳ 今日收盤資料尚未到齊（" + "、".join(waiting) +
+            "），暫時無法結算；等資料發布後會自動再復盤（今天 18:00 前那班）。")
     return produced
 
 
