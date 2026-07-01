@@ -142,3 +142,37 @@ def test_fetch_taifex_prefers_night_session(monkeypatch):
     monkeypatch.setattr(data.requests, "get", fake_get)
     assert data.fetch_taifex() == 1.23           # 用夜盤，不退到一般盤
     assert calls and calls[0].endswith("FutAH")  # 夜盤優先
+
+
+def test_fetch_stock_name_etf_falls_back_to_prev_month(monkeypatch):
+    import pandas as pd
+    import core.data as data
+
+    calls = []
+
+    class _R:
+        def __init__(self, title):
+            self._t = title
+
+        def json(self):
+            return {"title": self._t}
+
+    def fake_get(url, **kw):
+        calls.append(url)
+        # 當月(第一次)盤前無資料 → 空標題；往前一個月才有 0050 名稱
+        if len(calls) == 1:
+            return _R("")
+        return _R("115年06月 0050 元大台灣50 各日成交資訊")
+
+    monkeypatch.setattr(data.requests, "get", fake_get)
+    name = data.fetch_stock_name("0050", today=pd.Timestamp("2026-07-01"))
+    assert name == "元大台灣50"
+    assert len(calls) >= 2   # 當月抓不到有往前找
+
+
+def test_resolve_stocks_etf_by_code(monkeypatch):
+    import core.data as data
+    # 全市場清單(STOCK_DAY_ALL)不含 ETF → 靠 fetch_stock_name 解析代號
+    monkeypatch.setattr(data, "fetch_stock_name", lambda c, today=None: "元大台灣50")
+    out = data.resolve_stocks("0050", listing={})
+    assert out == [("0050", "元大台灣50")]

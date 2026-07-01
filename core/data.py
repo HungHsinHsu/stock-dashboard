@@ -27,23 +27,29 @@ STOCKS = {
 
 
 def fetch_stock_name(code, today=None):
-    """用代號查中文股名（例 2330 -> 台積電）；查不到回 None。"""
+    """用代號查中文股名（例 2330 -> 台積電、0050 -> 元大台灣50）；查不到回 None。
+
+    STOCK_DAY 個股/ETF 皆可查；但當月月初盤前可能還沒有資料，
+    故往前找最多 3 個月，直到某月標題含有股名。ETF 也走這條路解析。
+    """
     today = today or datetime.today()
-    ym = today.strftime("%Y%m01")
-    url = (
-        "https://www.twse.com.tw/exchangeReport/STOCK_DAY"
-        f"?response=json&date={ym}&stockNo={code}"
-    )
-    try:
-        title = requests.get(url, headers=HEADERS, timeout=10).json().get("title", "")
-    except Exception:
-        return None
-    # 例： "115年06月 2330 台積電 各日成交資訊"
-    parts = title.split()
-    if code in parts:
-        i = parts.index(code)
-        if i + 1 < len(parts):
-            return parts[i + 1]
+    for i in range(3):
+        d = today - relativedelta(months=i)
+        ym = d.strftime("%Y%m01")
+        url = (
+            "https://www.twse.com.tw/exchangeReport/STOCK_DAY"
+            f"?response=json&date={ym}&stockNo={code}"
+        )
+        try:
+            title = requests.get(url, headers=HEADERS, timeout=10).json().get("title", "")
+        except Exception:
+            continue
+        # 例： "115年06月 2330 台積電 各日成交資訊"
+        parts = title.split()
+        if code in parts:
+            j = parts.index(code)
+            if j + 1 < len(parts):
+                return parts[j + 1]
     return None
 
 
