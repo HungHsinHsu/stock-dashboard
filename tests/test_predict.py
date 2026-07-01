@@ -179,6 +179,35 @@ def test_morning_does_not_overwrite_existing_prediction(tmp_path, monkeypatch):
     assert rec["prediction"]["reason"] == "ORIGINAL"   # 原始預測未被竄改
 
 
+def test_morning_backup_rerun_is_silent(tmp_path, monkeypatch):
+    import json
+    hp = str(tmp_path / "h.json")
+    # 今日大盤與個股都已預測過（主班次已跑）→ 備援重跑應完全靜默、不誤報缺漏
+    seed = [
+        {"date": "2026-06-30", "stock": "大盤",
+         "prediction": {"direction": "漲", "confidence": "中", "drivers": [],
+                        "reason": "x"}, "review": None},
+        {"date": "2026-06-30", "stock": "1111",
+         "prediction": {"signal": "觀望", "direction": "漲", "reason": "x"},
+         "review": None},
+    ]
+    with open(hp, "w", encoding="utf-8") as f:
+        json.dump(seed, f, ensure_ascii=False)
+    monkeypatch.setattr(morning, "HISTORY_PATH", hp)
+    sends = []
+    monkeypatch.setattr(morning, "tg", type("T", (), {
+        "send": staticmethod(lambda text: sends.append(text) or True)}))
+    out = morning.run(
+        today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
+        fetch=lambda code, today=None: _df_with_ma20(),
+        fetch_idx=lambda today=None: _idx_df(),
+        stocks={"A (1111)": {"code": "1111"}},
+        **_NO_LEAD,
+    )
+    assert out == []                 # 沒有新預測
+    assert sends == []               # 且完全不發訊息（不誤報缺漏）
+
+
 def test_morning_run_empty_data_notifies(tmp_path, monkeypatch):
     monkeypatch.setattr(morning, "HISTORY_PATH", str(tmp_path / "h.json"))
     sends = []

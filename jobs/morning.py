@@ -35,6 +35,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
     print("美股隔夜:", us, "| 台指期(夜盤):", taifex)
     records = load_history(HISTORY_PATH)
     produced, skipped, market_done = [], [], False
+    locked_any = False   # 今日已有預測被鎖定（多半是備援班次重跑）→ 靜默不報缺漏
 
     # 大盤(加權指數)開盤預測：以美股隔夜 + 台指期為領先指標、大盤技術面為輔
     # 鐵律：當日大盤預測一旦存在就鎖死，重跑不覆蓋（不可篡改歷史預測）。
@@ -52,6 +53,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         except Exception as e:
             print("大盤預測失敗：", e)
     elif _m_exist and _m_exist.get("prediction"):
+        locked_any = True
         print(f"大盤 {run_date} 已有預測，鎖定不覆蓋")
 
     for name, cfg in stocks.items():
@@ -63,6 +65,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         # 鐵律：同日同股預測一旦存在就鎖死，重跑只補缺、不覆蓋（不可篡改歷史）。
         _exist = get_record(records, date, cfg["code"])
         if _exist and _exist.get("prediction"):
+            locked_any = True
             print(f"  {name}: 已有 {date} 預測，鎖定不覆蓋")
             continue
         indicators = compute_indicators(df, cfg.get("supports", {}))
@@ -95,7 +98,9 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
 
     if produced or market_done:
         save_history(records, HISTORY_PATH)
-    if not produced:
+    # 只有「真的沒資料、且今日尚無任何預測」才報缺漏；
+    # 備援班次重跑(全被鎖定)或大盤已推但個股鎖定，一律不誤報。
+    if not produced and not market_done and not locked_any:
         tg.send("⚠️ 今日資料缺漏，已跳過開盤預測。")
     elif skipped:
         tg.send("⚠️ 今日資料缺漏，已略過：" + "、".join(skipped))
