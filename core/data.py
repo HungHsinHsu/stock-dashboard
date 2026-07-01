@@ -176,14 +176,48 @@ def _foreign_net_from_t86(j, code):
     return 0  # 當日有開市但該股不在三大法人買賣超名單 → 視為外資沒動
 
 
-def fetch_foreign_flow(code, today=None, max_back=8):
-    """近幾個交易日外資對該股買賣超(股數，新到舊)。
+def _t86_col(fields, row, match_all, match_none=()):
+    """依欄名關鍵字取 row 的整數值（股數）；找不到回 None。"""
+    for i, f in enumerate(fields):
+        if all(m in f for m in match_all) and not any(x in f for x in match_none):
+            try:
+                return int(str(row[i]).replace(",", "").strip())
+            except (ValueError, IndexError, TypeError):
+                return None
+    return None
 
-    回 {"net": 最近一日, "sold_streak": 連續賣超天數, "stopped": bool|None,
-        "date": 'YYYY-MM-DD'|None}。stopped=最近一日是否未賣超(>=0)。抓不到回 stopped=None。
+
+def _legal_extra_from_t86(j, code):
+    """取某股 投信/自營商/三大法人合計 買賣超股數（外資另由 _foreign_net_from_t86 取）。
+    回 dict（鍵可能 None）；非 OK/找不到回 {}。"""
+    if not j or j.get("stat") != "OK":
+        return {}
+    fields = j.get("fields") or []
+    for row in j.get("data", []):
+        try:
+            if str(row[0]).strip() != str(code):
+                continue
+        except (IndexError, TypeError):
+            continue
+        return {
+            "trust": _t86_col(fields, row, ["投信", "買賣超"]),
+            # 自營商合計：排除「自行/避險」分項，且排除「外資自營商」
+            "dealer": _t86_col(fields, row, ["自營商", "買賣超"], ["自行", "避險", "外"]),
+            "total": _t86_col(fields, row, ["三大法人", "買賣超"]),
+        }
+    return {}
+
+
+def fetch_foreign_flow(code, today=None, max_back=8):
+    """近幾個交易日法人對該股買賣超(股數，新到舊)。
+
+    回 {"net": 外資最近一日, "sold_streak": 外資連續賣超天數, "stopped": bool|None,
+        "date": 'YYYY-MM-DD'|None,
+        "trust_net": 投信最近一日, "dealer_net": 自營商, "total_net": 三大法人合計}。
+    stopped=外資最近一日是否未賣超(>=0)。抓不到回相關值 None。
     """
     today = today or datetime.today()
-    nets, last_date, dbg = [], None, None
+    nets, last_date, dbg, extra = [], None, None, {}
     d, checked = today, 0
     while len(nets) < 3 and checked < max_back:
         ymd = d.strftime("%Y%m%d")
@@ -205,12 +239,14 @@ def fetch_foreign_flow(code, today=None, max_back=8):
                 nets.append(net)
                 if last_date is None:
                     last_date = d.strftime("%Y-%m-%d")
+                    extra = _legal_extra_from_t86(j, code)   # 同一日抓投信/自營/合計
         checked += 1
         d -= timedelta(days=1)
         time.sleep(TWSE_DELAY)
     if not nets:
-        print(f"外資資料抓不到({code})：{dbg}")
-        return {"net": None, "sold_streak": 0, "stopped": None, "date": None}
+        print(f"法人資料抓不到({code})：{dbg}")
+        return {"net": None, "sold_streak": 0, "stopped": None, "date": None,
+                "trust_net": None, "dealer_net": None, "total_net": None}
     streak = 0
     for n in nets:
         if n < 0:
@@ -218,7 +254,62 @@ def fetch_foreign_flow(code, today=None, max_back=8):
         else:
             break
     return {"net": nets[0], "sold_streak": streak,
-            "stopped": nets[0] >= 0, "date": last_date}
+            "stopped": nets[0] >= 0, "date": last_date,
+            "trust_net": extra.get("trust"), "dealer_net": extra.get("dealer"),
+            "total_net": extra.get("total")}
+
+
+MARGIN_URL = "https://www.twse.com.tw/exchangeReport/MI_MARGN"
+
+
+def _margin_row(j, code):
+    """從 MI_MARGN 找某股 row(list)；相容 tables / 舊 data 格式；找不到回 None。"""
+    blocks = j.get("tables") if isinstance(j.get("tables"), list) else [j]
+    for t in blocks:
+        for row in (t.get("data") or []):
+            try:
+                if str(row[0]).strip() == str(code):
+                    return row
+            except (IndexError, TypeError):
+                continue
+    return None
+
+
+def fetch_margin(code, today=None, max_back=8):
+    """該股最新一日融資融券。回
+    {"margin_bal": 融資今日餘額, "margin_chg": 融資餘額增減(今-昨),
+     "short_bal": 融券今日餘額, "date": 'YYYY-MM-DD'|None}；抓不到各值 None。
+
+    MI_MARGN 個股表欄位固定順序：0代號 1名稱 2融資買進 3融資賣出 4現金償還
+    5融資前日餘額 6融資今日餘額 7融資限額 8融券買進 9融券賣出 10現券償還
+    11融券前日餘額 12融券今日餘額 ...（單位：仟股/張）
+    """
+    def _int(row, i):
+        try:
+            return int(str(row[i]).replace(",", "").strip())
+        except (ValueError, IndexError, TypeError):
+            return None
+
+    today = today or datetime.today()
+    d, checked = today, 0
+    while checked < max_back:
+        ymd = d.strftime("%Y%m%d")
+        url = f"{MARGIN_URL}?response=json&date={ymd}&selectType=ALL"
+        try:
+            j = requests.get(url, headers=HEADERS, timeout=15).json()
+        except Exception:
+            j = {}
+        if j.get("stat") == "OK":
+            row = _margin_row(j, code)
+            if row is not None and len(row) >= 13:
+                bal, prev, short_bal = _int(row, 6), _int(row, 5), _int(row, 12)
+                chg = bal - prev if (bal is not None and prev is not None) else None
+                return {"margin_bal": bal, "margin_chg": chg,
+                        "short_bal": short_bal, "date": d.strftime("%Y-%m-%d")}
+        checked += 1
+        d -= timedelta(days=1)
+        time.sleep(TWSE_DELAY)
+    return {"margin_bal": None, "margin_chg": None, "short_bal": None, "date": None}
 
 
 def fetch_stock_list():

@@ -20,7 +20,8 @@ def _fake_llm(system, user, schema, client=None):
 
 
 _NO_LEAD = {"fetch_us": lambda: {}, "fetch_tf": lambda: None,
-            "fetch_fg": lambda code, today=None: None}
+            "fetch_fg": lambda code, today=None: None,
+            "fetch_mg": lambda code, today=None: None}
 
 
 _ENTRY_IND = {"close": 223, "prev_close": 222, "ma20": 181,
@@ -46,6 +47,30 @@ def test_batches_full_downgrades_entry_to_watch():
                           code="2344", foreign=_FOREIGN_OK, batches=3)
     assert out["signal"] == "觀望"            # 三批已滿不再加碼
     assert "三批已滿" in out["signal_rule_note"]
+
+
+def test_prediction_feeds_and_shows_chips():
+    captured = {}
+
+    def _spy_llm(system, user, schema, client=None):
+        captured["user"] = user
+        return {"signal": "觀望", "direction": "跌", "confidence": "中",
+                "bull_signals": [], "bear_signals": [], "hold_ma20": False,
+                "hold_support1": False, "reason": "x"}
+
+    foreign = {"net": -5000, "sold_streak": 3, "stopped": False, "date": "2026-06-30",
+               "trust_net": 2000, "dealer_net": 500, "total_net": -2500}
+    margin = {"margin_bal": 1200000, "margin_chg": 200000,
+              "short_bal": 280000, "date": "2026-06-30"}
+    out = make_prediction({"close": 200, "ma20": 190}, "台積電 (2330)",
+                          llm=_spy_llm, code="2330", foreign=foreign, margin=margin)
+    # 籌碼面(法人三大＋融資)有進到 LLM 提示
+    assert "投信" in captured["user"] and "三大法人合計" in captured["user"]
+    assert "融資" in captured["user"]
+    assert out["margin"] == margin
+    # 卡片有顯示投信/自營/合計與融資
+    s = format_prediction("台積電 (2330)", "2026-06-30", out)
+    assert "投信" in s and "融資" in s
 
 
 def test_make_prediction_includes_market():

@@ -200,3 +200,61 @@ def test_fetch_daily_parallel_matches_sequential(monkeypatch):
     assert len(par) == 2
     assert list(par.index) == list(seq.index)            # 平行與循序結果一致
     assert list(par["Close"]) == [10.5, 20.5]            # 依日期由舊到新排序
+
+
+def test_legal_extra_from_t86_picks_trust_dealer_total():
+    import core.data as data
+    j = {
+        "stat": "OK",
+        "fields": ["證券代號", "證券名稱",
+                   "外陸資買賣超股數(不含外資自營商)", "外資自營商買賣超股數",
+                   "投信買賣超股數",
+                   "自營商買賣超股數(自行買賣)", "自營商買賣超股數(避險)",
+                   "自營商買賣超股數", "三大法人買賣超股數"],
+        "data": [["2330", "台積電", "10,000", "0", "3,000",
+                  "100", "200", "300", "13,300"]],
+    }
+    out = data._legal_extra_from_t86(j, "2330")
+    assert out["trust"] == 3000
+    assert out["dealer"] == 300          # 自營商合計(排除自行/避險/外資自營商)
+    assert out["total"] == 13300
+
+
+def test_fetch_foreign_flow_includes_legal_persons(monkeypatch):
+    import core.data as data
+    j = {
+        "stat": "OK",
+        "fields": ["證券代號", "證券名稱",
+                   "外陸資買賣超股數(不含外資自營商)", "投信買賣超股數",
+                   "自營商買賣超股數", "三大法人買賣超股數"],
+        "data": [["2330", "台積電", "-5,000", "2,000", "500", "-2,500"]],
+    }
+
+    class _R:
+        status_code = 200
+        text = "ok"
+
+        def json(self):
+            return j
+
+    monkeypatch.setattr(data, "TWSE_DELAY", 0)
+    monkeypatch.setattr(data.requests, "get", lambda *a, **k: _R())
+    out = data.fetch_foreign_flow("2330")
+    assert out["net"] == -5000 and out["stopped"] is False
+    assert out["trust_net"] == 2000 and out["dealer_net"] == 500
+    assert out["total_net"] == -2500
+
+
+def test_fetch_margin_parses_balances(monkeypatch):
+    import core.data as data
+    # MI_MARGN 個股表：...5前日餘額 6今日餘額... 12融券今日餘額
+    row = ["2330", "台積電", "100", "50", "0", "1,000", "1,200", "9999",
+           "10", "5", "0", "300", "280", "9999", "0", ""]
+    j = {"stat": "OK", "tables": [{"fields": [], "data": [row]}]}
+    monkeypatch.setattr(data, "TWSE_DELAY", 0)
+    monkeypatch.setattr(data.requests, "get",
+                        lambda *a, **k: type("R", (), {"json": lambda self: j})())
+    out = data.fetch_margin("2330")
+    assert out["margin_bal"] == 1200
+    assert out["margin_chg"] == 200          # 1200 - 1000
+    assert out["short_bal"] == 280

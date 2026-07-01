@@ -8,6 +8,7 @@ import requests
 from core.data import (
     STOCKS as BASE_STOCKS, resolve_stocks,
     fetch_daily, fetch_index, fetch_us_overnight, fetch_taifex, fetch_foreign_flow,
+    fetch_margin,
 )
 from core.watchlist import add_stock, remove_stock, effective_stocks
 from core.positions import (
@@ -202,10 +203,11 @@ def _forecast_stock(code, name, supports):
     market = market_summary(fetch_index())
     us = fetch_us_overnight()
     foreign = fetch_foreign_flow(code)
+    margin = fetch_margin(code)
     ind = compute_indicators(df, supports or {})
     pred = make_prediction(ind, name, market=market, us_overnight=us, code=code,
                            foreign=foreign, batches=get_batches(code),
-                           lessons=lessons_prompt(load_history(), code))
+                           lessons=lessons_prompt(load_history(), code), margin=margin)
     card = format_prediction(name, str(df.index[-1].date()), pred, forecast=True)
     return "🔮 即時試算\n\n" + card
 

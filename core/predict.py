@@ -55,6 +55,11 @@ _SYSTEM = (
     "科技電子看 Nasdaq、傳產與工業看道瓊、其餘看標普；把對應的美股隔夜訊號"
     "納入今日開盤方向判斷(例如半導體股遇費半大漲偏多、大跌偏空)，並在 bull/bear "
     "訊號中具體點名是哪個美股指數。\n"
+    "另提供【籌碼面】法人三大(外資/投信/自營商/合計)買賣超與融資融券："
+    "外資投信『同買』是較強的偏多籌碼、法人合計方向反映主力態度；"
+    "外資仍連續賣超(未止穩)偏空且依紀律不宜進場承接；"
+    "融資餘額大增代表散戶追高、屬過熱警訊(回檔承接法要避免追高)，"
+    "融券過高則留意軋空。把籌碼面納入多空權衡並在訊號中具體點名。\n"
     "【最重要：嚴禁『大盤/美股漲就預設個股看漲』的 beta 偏誤】"
     "個股當日方向『主要由其自身技術面決定』，大盤與美股只是輔助修正、不是主因。"
     "請務必評估【相對強弱】：若大盤/美股偏多、但本檔自身技術面偏空"
@@ -69,9 +74,32 @@ _SYSTEM = (
 )
 
 
+def _chip_summary(foreign, margin):
+    """把籌碼面(法人三大＋融資融券)整理成人話，餵給 LLM。無資料回提示字。"""
+    def z(shares):
+        return None if shares is None else round(shares / 1000)
+
+    parts = []
+    if foreign:
+        fo = [f"外資{z(foreign.get('net'))}"]
+        for label, key in (("投信", "trust_net"), ("自營商", "dealer_net"),
+                           ("三大法人合計", "total_net")):
+            if foreign.get(key) is not None:
+                fo.append(f"{label}{z(foreign.get(key))}")
+        parts.append("法人買賣超(張，正=買超)：" + "、".join(fo)
+                     + f"；外資連續賣超{foreign.get('sold_streak')}日、"
+                     f"是否止穩(停止倒貨)={foreign.get('stopped')}")
+    if margin and margin.get("margin_chg") is not None:
+        parts.append(
+            f"融資餘額增減{z(margin.get('margin_chg'))}張"
+            "(正=散戶加碼追高，回檔承接法視為過熱警訊)、"
+            f"融券餘額{z(margin.get('short_bal'))}張")
+    return "\n".join(parts) if parts else "（無籌碼資料）"
+
+
 def make_prediction(indicators, stock_name, market=None, us_overnight=None,
                     llm=generate_json, code=None, foreign=None, batches=None,
-                    lessons=""):
+                    lessons="", margin=None):
     # 客觀相對強弱：個股昨日漲跌 vs 大盤昨日漲跌（負=弱於大盤，看跌參考）
     rel_txt = ""
     try:
@@ -90,7 +118,7 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
         f"技術指標(到昨日收盤為止)：\n{json.dumps(indicators, ensure_ascii=False)}\n"
         f"大盤(加權指數)昨收摘要：\n{json.dumps(market, ensure_ascii=False)}{rel_txt}\n"
         f"美股隔夜四大指數漲跌(%)：\n{json.dumps(us_overnight, ensure_ascii=False)}\n"
-        f"外資對本股近期買賣超：\n{json.dumps(foreign, ensure_ascii=False)}"
+        f"籌碼面(法人三大＋融資融券)：\n{_chip_summary(foreign, margin)}"
     )
     if lessons:
         user += f"\n\n{lessons}"
@@ -119,6 +147,7 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
     pred["indicators"] = indicators
     pred["market"] = market
     pred["foreign"] = foreign
+    pred["margin"] = margin
     pred["batches"] = batches
     return pred
 
@@ -172,6 +201,22 @@ def format_prediction(stock_name, date, prediction, forecast=False):
         streak = fo.get("sold_streak") or 0
         streak_txt = f"（連{streak}日賣超）" if streak >= 2 else ""
         lines.append(f"🏦 外資：{state} {abs(zhang):,.0f} 張{streak_txt}")
+        extra = []
+        for label, key in (("投信", "trust_net"), ("自營", "dealer_net"),
+                           ("合計", "total_net")):
+            v = fo.get(key)
+            if v is not None:
+                z = v / 1000.0
+                extra.append(f"{label}{'買' if z >= 0 else '賣'}{abs(z):,.0f}")
+        if extra:
+            lines.append("　┗ " + "、".join(extra) + "（張）")
+    mg = prediction.get("margin") or {}
+    if mg.get("margin_chg") is not None:
+        mc = mg["margin_chg"] / 1000.0
+        seg = f"💳 融資：{'增' if mc >= 0 else '減'} {abs(mc):,.0f} 張"
+        if mg.get("short_bal") is not None:
+            seg += f"｜融券餘 {mg['short_bal'] / 1000.0:,.0f} 張"
+        lines.append(seg)
     mk = prediction.get("market") or {}
     if mk.get("direction"):
         pct = mk.get("pct")
