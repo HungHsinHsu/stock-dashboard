@@ -198,6 +198,12 @@ def test_qa_system_includes_rulebook():
     assert "三批" in bot.QA_SYSTEM and "外資" in bot.QA_SYSTEM
 
 
+def test_qa_system_includes_operations():
+    # 業務邏輯（排程/何時復盤）也灌進去，機器人能答「幾點出報告」
+    assert "07:40" in bot.QA_SYSTEM and "15:20" in bot.QA_SYSTEM
+    assert "18:00" in bot.QA_SYSTEM and "復盤" in bot.QA_SYSTEM
+
+
 def test_slash_typo_still_reports_unknown(monkeypatch):
     # 以「/」開頭但打錯 → 仍回「不認得的指令」，不會誤丟給問答
     assert "不認得的指令" in bot.handle("/blahblah")
