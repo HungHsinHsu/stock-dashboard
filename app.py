@@ -180,13 +180,35 @@ def render_account_sidebar():
         _render_chatbox()
 
 
+def _supabase_ref(database_url):
+    """從 DATABASE_URL 解析 Supabase 專案代號（pooler 帳號 postgres.<ref> 或 host db.<ref>.supabase.co）。"""
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(database_url or "")
+        user = u.username or ""
+        if user.startswith("postgres.") and len(user) > len("postgres."):
+            return user.split(".", 1)[1]
+        host = u.hostname or ""
+        if host.startswith("db.") and host.endswith(".supabase.co"):
+            return host.split(".")[1]
+    except Exception:
+        pass
+    return ""
+
+
 def _render_admin_links():
-    """管理入口：直接連到 DB(Supabase) 與部署(Streamlit) 後台，方便查設定。"""
-    sb = _secret("SUPABASE_URL") or "https://supabase.com/dashboard/projects"
+    """管理入口：直接連到『你這個』DB(Supabase) 與部署(Streamlit) 後台。"""
+    sb = _secret("SUPABASE_URL")
+    if not sb:
+        ref = _supabase_ref(os.environ.get("DATABASE_URL", "")
+                            or (_secret("DATABASE_URL") or ""))
+        sb = (f"https://supabase.com/dashboard/project/{ref}" if ref
+              else "https://supabase.com/dashboard/projects")
     stl = _secret("STREAMLIT_APP_URL") or "https://share.streamlit.io/"
-    st.markdown("#### 🔗 管理入口")
-    st.markdown(f"- [🗄 Supabase 資料庫]({sb})")
+    st.markdown("#### 🔗 管理入口（僅管理者）")
+    st.markdown(f"- [🗄 Supabase 資料庫（本專案）]({sb})")
     st.markdown(f"- [🚀 Streamlit 部署 / Secrets]({stl})")
+    st.caption("點擊直接前往後台，再於該站登入即可。")
 
 
 render_account_sidebar()
