@@ -198,6 +198,12 @@ def test_qa_system_includes_rulebook():
     assert "三批" in bot.QA_SYSTEM and "外資" in bot.QA_SYSTEM
 
 
+def test_qa_system_knows_chip_analysis():
+    # 業務邏輯一改（加籌碼面），機器人知識要同步：知道看哪些籌碼
+    assert "投信" in bot.QA_SYSTEM and "自營商" in bot.QA_SYSTEM
+    assert "三大法人合計" in bot.QA_SYSTEM and "融資融券" in bot.QA_SYSTEM
+
+
 def test_qa_system_includes_operations():
     # 業務邏輯（排程/何時復盤）也灌進去，機器人能答「幾點出報告」
     assert "07:40" in bot.QA_SYSTEM and "15:20" in bot.QA_SYSTEM
