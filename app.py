@@ -12,8 +12,9 @@ try:
 except Exception:
     pass
 
-from core.data import fetch_daily, fetch_index
-from core.rules import is_etf, NEAR_PCT
+from core.data import fetch_daily, fetch_index, fetch_foreign_flow
+from core.indicators import compute_indicators
+from core.rules import is_etf, NEAR_PCT, entry_setup, is_denied, DENYLIST
 from core.watchlist import effective_stocks
 from core.market import market_summary
 from core.store import load_history
@@ -294,9 +295,86 @@ def price_fig(df, supports=None, with_volume=True):
     return fig
 
 
-def render_support_playbook(code, last, ma5, ma20, ma60):
+@st.cache_data(ttl=1800)
+def load_foreign(code):
+    try:
+        return fetch_foreign_flow(code)
+    except Exception:
+        return None
+
+
+def _render_entry_gates(code, df, last, ma5, ma60):
+    """個股進場四關：依現價實時判定，一關一關打勾/打叉，並顯示卡在第幾關。
+    用的是與每日預測同一套規則(core.rules.entry_setup)，所以與訊號一致。"""
+    st.markdown("##### 🚪 進場四關（依現價實時判定，一關一關看）")
+
+    if is_denied(code):
+        st.error(f"🛑 禁區標的（{DENYLIST.get(str(code), '動能股/槓桿')}）：一律避開，"
+                 "不玩回檔承接法。")
+        return
+    if pd.notna(ma60) and last < ma60:
+        st.error("🛑 已跌破支撐3（季線 MA60）＝停損區：不接刀；手上有部位者依紀律全數出場。"
+                 "（四關不用看了，這關就出局）")
+        return
+
+    ind = compute_indicators(df, {})
+    foreign = load_foreign(code)
+    fstopped = foreign.get("stopped") if foreign else None
+    setup = entry_setup(ind, code, fstopped)
+    at_batch, ceiling = setup["at_batch"], setup["ceiling"]
+    vol_ok, hold_ok = setup["vol_ok"], setup["hold_ok"]
+    vr = ind.get("vol_ratio")
+
+    if at_batch:
+        g1 = f"✅ 已到{at_batch}"
+    else:
+        where = "位置偏高、還沒回檔" if (pd.notna(ma5) and last >= ma5) else "在真空帶"
+        g1 = f"❌ 未到任何支撐（{where}）"
+    g2 = "✅ 收盤沒再破底" if hold_ok else "❌ 收盤仍走弱、未站穩"
+    if vr is None:
+        g3 = "❓ 量比資料不足"
+    elif vol_ok:
+        g3 = f"✅ 量縮（量比 {vr}）"
+    else:
+        g3 = f"❌ 未量縮（量比 {vr}，屬放量）"
+    if fstopped is True:
+        g4 = "✅ 外資已停止賣超"
+    elif fstopped is False:
+        g4 = f"❌ 外資仍賣超（連{(foreign or {}).get('sold_streak') or 0}日）"
+    else:
+        g4 = "❓ 外資資料未取得，需自行確認"
+
+    st.table(pd.DataFrame([
+        {"關卡": "① 價格到位（回到支撐±2%）", "現況": g1},
+        {"關卡": "② 收盤站穩（沒再破底）", "現況": g2},
+        {"關卡": "③ 量縮（量比<1＝賣壓衰竭）", "現況": g3},
+        {"關卡": "④ 外資停止賣超", "現況": g4},
+    ]).set_index("關卡"))
+
+    if ceiling == "進場":
+        tail = ("外資資料缺、請自行確認" if fstopped is None
+                else "用盤後定價 14:00–14:30 進場")
+        st.success(f"✅ 四關全過 → 可進「{at_batch or '下一批'}」（{tail}）。")
+    elif ceiling == "避開":
+        st.error(f"🛑 避開：{setup['reason']}")
+    else:
+        fails = []
+        if not at_batch:
+            fails.append("①價格未到支撐")
+        if not hold_ok:
+            fails.append("②收盤未站穩")
+        if not vol_ok:
+            fails.append("③量未縮")
+        if fstopped is False:
+            fails.append("④外資仍賣超")
+        tail = ("卡在：" + "、".join(fails)) if fails else setup["reason"]
+        st.warning(f"⏳ 觀望（先不進場）——{tail}。過關的關卡打勾、沒過的打叉，"
+                   "等全部打勾才是進場點。")
+
+
+def render_support_playbook(code, df, last, ma5, ma20, ma60):
     """『現價位於三段支撐哪裡 → 該做什麼』完整對策，並標出目前位置。
-    個股＝回檔承接法(分三批)；ETF＝趨勢框架。排版：先一個醒目結論，再列完整對照表。"""
+    個股＝回檔承接法(分三批)＋進場四關即時判定；ETF＝趨勢框架。"""
     def near(v):
         return bool(pd.notna(v) and v and abs(last - v) / v * 100 <= NEAR_PCT)
 
@@ -311,11 +389,11 @@ def render_support_playbook(code, last, ma5, ma20, ma60):
     st.markdown("#### 📐 現價位置對策（每種可能都列出）")
     st.caption("支撐1＝短期均線 MA5、支撐2＝月線 MA20、支撐3＝季線 MA60"
                "（價位見上表）；以下位置一律用支撐1／2／3 說明。")
+
     if not is_etf(code):
-        st.warning(
-            "⚠️ 這是「位置對應的紀律地圖」，**不是叫你現在買賣**。到支撐只是進場四條件的"
-            "第①個；還要 ②收盤站穩 ③量縮 ④外資停止賣超，**四個全成立才真的進場**，"
-            "缺一就只是觀望。今天的實際買賣訊號請以預測卡／機器人為準。")
+        # 先給即時「四關」判定，再附完整位置對照表
+        _render_entry_gates(code, df, last, ma5, ma60)
+        st.markdown("###### 📋 位置對照（每種可能都列出，供參考）")
 
     if is_etf(code):
         below60 = bool(pd.notna(ma60) and last < ma60)
@@ -678,7 +756,7 @@ else:
         else:
             st.caption("資料期間不足，尚無法計算均線支撐。")
 
-        render_support_playbook(cfg["code"], last, _ma5, _ma20v, _ma60)
+        render_support_playbook(cfg["code"], df, last, _ma5, _ma20v, _ma60)
         st.caption("資料來源：台灣證交所 TWSE（盤後）。進場判斷仍須看收盤確認，本工具僅供觀察。")
 
     st.divider()
