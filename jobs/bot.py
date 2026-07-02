@@ -302,16 +302,24 @@ def _scan_candidates_digest(top=120, limit=12):
             return (f"⚠️ 清單抓到 {len(uni)} 檔，但個股歷史 0 檔抓成功——多半是 TWSE 限流／"
                     "擋住連續請求。稍等 1–2 分鐘再試一次 /選股。")
         return (f"⚠️ 抓到 {len(uni)} 檔、成功讀取 {stats['ok']} 檔，但都不符合。稍後再試。")
-    lines = [
-        f"🔎 選股掃描（回檔承接法・前 {top} 大成交股，相對最好的前 {len(cands)} 名）",
-        "📏 評選標準（分數高→前）：訊號 進場>觀望>避開　＞　回檔到支撐附近"
-        "　＞　收盤站穩　＞　量縮(賣壓衰竭)　＞　離均線越近；禁區/槓桿股不列。", ""]
-    for x in cands:
+    def _ln(x):
         nm = name.get(x["code"], x["code"])
         where = x.get("at_batch") or x["kind"]
         trend = x.get("trend", "")
         trend_txt = f"〔{trend}〕" if trend else ""
-        lines.append(f"・[{x['signal']}] {nm} ({x['code']}){trend_txt}：{where}｜{x['reason']}")
+        return f"・[{x['signal']}] {nm} ({x['code']}){trend_txt}：{where}｜{x['reason']}"
+
+    stocks = [x for x in cands if x.get("kind") != "ETF"]
+    etfs = [x for x in cands if x.get("kind") == "ETF"]
+    lines = [
+        f"🔎 選股掃描（回檔承接法・前 {top} 大成交股，相對最好的前 {len(cands)} 名）",
+        "📏 評選標準（分數高→前）：訊號 進場>觀望>避開　＞　回檔到支撐附近"
+        "　＞　收盤站穩　＞　量縮(賣壓衰竭)　＞　離均線越近；禁區/槓桿股不列。", "",
+        "📈 個股（主）："]
+    lines += [_ln(x) for x in stocks] or ["・（今日沒有合適個股）"]
+    if etfs:
+        lines += ["", "📦 ETF（趨勢參考，走另一套框架，非個股承接法）："]
+        lines += [_ln(x) for x in etfs]
     lines += ["", "（進場＝四關到位可接；觀望＝趨勢沒破、等回檔或確認；避開＝已跌破季線，墊底參考）",
               "※ 已逐檔補查外資、資料不齊者已排除，訊號含外資；要追蹤用 /add 代號",
               f"🔗 {DASHBOARD_URL}"]
