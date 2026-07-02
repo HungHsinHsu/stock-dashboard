@@ -97,16 +97,11 @@ def _pct_to_ma20(close, ma20):
 
 
 def entry_setup(ind, code=None, foreign_stopped=None):
-    """判斷『回檔承接法』的進場資格（中間版：分級進場，不必四關全過）。
-    回 dict：{ceiling, at_batch, vol_ok, hold_ok, reason, tier}。
+    """判斷『回檔承接法』的進場資格。回 dict：
+       {ceiling, at_batch, vol_ok, hold_ok, reason}。ceiling = 紀律允許的最高訊號。
 
-    紀律：
-    - ① 價格到位（到支撐 ±2%）＝必要門檻，沒到不談。
-    - ② 收盤站穩（收盤沒再破底）＝必要（防接刀），還在破底一律觀望。
-    - ④ 外資『明確賣超』＝否決（不跟法人對做），夾回觀望。
-    - ①②過、外資非明確賣超後，用 ③量縮＋④外資停手『計分』定強度：
-      兩項全過＝標準進場（強）；過一項＝標準；都沒過＝半批試單（小量）。
-    foreign_stopped：True=已停手、False=仍賣超、None=無資料（中性、不加分也不否決）。
+    foreign_stopped：外資是否停止倒貨(進場 AND 第四條)。True=已停手、False=仍賣超、
+    None=無資料。為 False 時即使技術面到位也夾回觀望；None 時放行但於 note 提醒人工確認。
     """
     close = ind.get("close")
     ma20 = ind.get("ma20")
@@ -119,18 +114,17 @@ def entry_setup(ind, code=None, foreign_stopped=None):
     vol_ok = vr is not None and vr < VOL_SHRINK            # 量縮
     hold_ok = prev is None or (close is not None and close >= prev)  # 止穩(收盤沒再破底)
 
-    def result(ceiling, at_batch, reason, tier=None):
+    def result(ceiling, at_batch, reason):
         return {"ceiling": ceiling, "at_batch": at_batch, "vol_ok": vol_ok,
-                "hold_ok": hold_ok, "reason": reason, "tier": tier or ceiling}
+                "hold_ok": hold_ok, "reason": reason}
 
     # 禁區
     if is_denied(code):
-        return result("避開", None, f"禁區：{DENYLIST[str(code)]}", "避開：禁區")
+        return result("避開", None, f"禁區：{DENYLIST[str(code)]}")
 
     # 停損：收盤跌破長期均線(支撐3)
     if d3 is not None and d3 < 0:
-        return result("避開", None, "收盤跌破支撐3(長期均線)＝停損區，全數出場",
-                      "避開：跌破支撐3停損")
+        return result("避開", None, "收盤跌破支撐3(長期均線)＝停損區，全數出場")
 
     def near(dpct):
         return dpct is not None and -NEAR_PCT <= dpct <= NEAR_PCT
@@ -143,46 +137,35 @@ def entry_setup(ind, code=None, foreign_stopped=None):
     elif near(d3):
         at_batch = "支撐3(第三批)"
 
-    # 情境二：帶量站回上方均線（優先於分批承接判定；帶量而非量縮）
-    just_reclaimed = d2 is not None and 0 <= d2 <= NEAR_PCT
-    if (just_reclaimed and vr is not None and vr > VOL_EXPAND and hold_ok
-            and ind.get("ma_align") != "空頭排列"):
+    # 技術面是否符合進場情境
+    qualified, base_reason = False, ""
+    if at_batch and hold_ok and vol_ok:                  # 情境一：往下接
+        qualified = True
+        base_reason = f"回檔到{at_batch}、收盤止穩且量縮，符合往下接情境"
+    else:
+        just_reclaimed = d2 is not None and 0 <= d2 <= NEAR_PCT
+        if (just_reclaimed and vr is not None and vr > VOL_EXPAND and hold_ok
+                and ind.get("ma_align") != "空頭排列"):  # 情境二：往上站
+            qualified, at_batch = True, "站回均線"
+            base_reason = "帶量站回上方均線且收盤站穩，符合往上站情境"
+
+    if qualified:
+        # 進場 AND 第四條：外資停止倒貨
         if foreign_stopped is False:
-            return result("觀望", "站回均線",
-                          "帶量站回上方均線，但外資仍在賣超→等外資停手", "觀望：外資仍賣超")
-        return result("進場", "站回均線",
-                      "帶量站回上方均線且收盤站穩，符合往上站情境", "進場：站回均線")
+            return result("觀望", at_batch, base_reason + "，但外資仍在賣超→等外資停手")
+        if foreign_stopped is None:
+            return result("進場", at_batch, base_reason + "；外資買賣超資料缺漏，請自行確認")
+        return result("進場", at_batch, base_reason + "，且外資已停止倒貨")
 
-    # ① 價格到位（必要）
-    if not at_batch:
-        return result("觀望", None, "未到任一支撐(真空帶/位置偏高)，不是進場點",
-                      "觀望：未到支撐")
-    # ② 收盤站穩（必要，防接刀）
-    if not hold_ok:
-        return result("觀望", at_batch,
-                      f"已到{at_batch}，但收盤仍在破底、未站穩→先等站穩（不接刀）",
-                      "觀望：未站穩")
-    # ④ 外資『明確賣超』→ 否決（不跟法人對做）
-    if foreign_stopped is False:
-        return result("觀望", at_batch,
-                      f"已到{at_batch}、收盤也站穩，但外資仍在賣超→等外資停手再接",
-                      "觀望：外資仍賣超")
-
-    # ①② 已過、外資非明確賣超 → 用 ③量縮＋④外資停手 計分定強度
-    base = f"回檔到{at_batch}、收盤站穩"
-    score = (1 if vol_ok else 0) + (1 if foreign_stopped is True else 0)
-    if score == 2:
-        return result("進場", at_batch,
-                      base + "、量縮，且外資已停止倒貨→標準進場（訊號較強）",
-                      "進場：標準（量縮＋外資停手）")
-    if score == 1:
-        which = "量縮" if vol_ok else "外資已停止倒貨"
-        return result("進場", at_batch,
-                      base + f"、{which}（另一項未確認）→進場（標準偏中）",
-                      f"進場：標準（{which}）")
-    return result("進場", at_batch,
-                  base + "，但量未縮、外資未確認→半批試單（小量，等量縮/外資停手再加碼）",
-                  "進場：半批試單（確認不足）")
+    # 其餘：真空帶/未到價/未止穩/放量殺 → 等
+    if at_batch and not (hold_ok and vol_ok):
+        miss = []
+        if not hold_ok:
+            miss.append("尚未收盤止穩")
+        if not vol_ok:
+            miss.append("量未縮")
+        return result("觀望", at_batch, f"已到{at_batch}，但{'、'.join(miss)}，等收盤確認")
+    return result("觀望", None, "未到任一支撐(真空帶/位置偏高)，不是進場點")
 
 
 def signal_ceiling(ind, code=None, foreign_stopped=None):
@@ -203,9 +186,7 @@ def constrain_signal(pred, ind, code=None, foreign_stopped=None):
     elif final == "進場":
         if etf:                                   # ETF 順勢，不談外資/三批
             note = setup["reason"]
-        elif foreign_stopped is None:
-            # 外資資料缺 → 放行但提醒人工確認
-            note = f"{setup['reason']}；⚠️外資是否停止倒貨請自行確認，並用盤後定價(14:00–14:30)進場"
         else:
-            note = f"{setup['reason']}；用盤後定價(14:00–14:30)進場"
+            # 合格進場：附帶「外資倒貨」這條本檔無法驗證、需人工確認
+            note = f"{setup['reason']}；⚠️外資是否停止倒貨請自行確認，並用盤後定價(14:00–14:30)進場"
     return final, note
