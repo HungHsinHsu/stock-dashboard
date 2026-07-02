@@ -290,7 +290,7 @@ def _scan_candidates_digest(top=120, limit=12):
     stats = {"ok": 0}
 
     def _f(c):
-        df = fetch_daily(c, months=3, workers=2)
+        df = fetch_daily(c, months=5, workers=2)
         if df is not None and not getattr(df, "empty", True):
             stats["ok"] += 1
         return df
@@ -671,7 +671,7 @@ def _notify_started():
 # ── 常駐排程備援：GitHub cron 常延遲/漏班，機器人自己在時間到時補跑 ──
 # 各班留 GRACE 分鐘讓 GitHub 先跑；GitHub 已做過(冪等檢查)就略過，避免重覆。
 _SCHED_SLOTS = [("morning", 7, 40), ("morning", 8, 10),
-                ("evening", 15, 20), ("evening", 18, 0)]
+                ("evening", 15, 20), ("screen", 15, 35), ("evening", 18, 0)]
 _SCHED_GRACE_MIN = 10
 _sched_done = set()          # 記憶體備援（無 DB 時用）
 
@@ -701,8 +701,14 @@ def _mark_slot(key):
 
 
 def _already_produced(job, date):
-    """GitHub 那班是否已做過（避免重覆）：morning 看今日大盤是否已有預測、
-    evening 看大盤是否已復盤。已做過就不重跑。"""
+    """GitHub 那班是否已做過（避免重覆）：morning 看今日大盤預測、evening 看大盤復盤、
+    screen 看今日選股結果是否已存。已做過就不重跑。"""
+    if job == "screen":
+        try:
+            s = db.get_state("screen:latest") or {}
+        except Exception:
+            return False
+        return s.get("date") == date
     try:
         m = get_record(load_history(), date, "大盤")
     except Exception:
@@ -738,6 +744,9 @@ def _run_scheduled_jobs():
             if job == "morning":
                 from jobs import morning
                 morning.run()
+            elif job == "screen":
+                from jobs import screen
+                screen.run()
             else:
                 from jobs import evening
                 evening.run()

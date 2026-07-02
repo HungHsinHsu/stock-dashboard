@@ -674,7 +674,7 @@ def _run_screen(top):
     stats = {"ok": 0}
 
     def _f(c):
-        df = fetch_daily(c, months=3, workers=2)
+        df = fetch_daily(c, months=5, workers=2)
         if df is not None and not getattr(df, "empty", True):
             stats["ok"] += 1
         return df
@@ -683,57 +683,78 @@ def _run_screen(top):
     return names, cands, len(uni), stats["ok"]
 
 
-def render_screener_page():
-    st.markdown("### 🔎 選股掃描（回檔承接法）")
-    st.caption("依我們的選股規則掃『當日成交額前 N 大』的股票，挑出**現在正處在承接點**"
-               "（訊號＝進場）的候選，不用只盯舊清單。純技術規則；外資這關掃描階段沒逐檔查，"
-               "進場前請用個股頁或機器人 /預測 代號 再確認一次。")
-    top = st.slider("掃描範圍（當日成交額前 N 大）", 50, 300, 150, step=50)
-    if st.button("🚀 開始掃描", type="primary"):
-        with st.spinner("掃描中…（第一次約 30–60 秒，之後有快取）"):
-            st.session_state["scan_result"] = _run_screen(top)
-    res = st.session_state.get("scan_result")
-    if not res:
-        st.info("按上面「開始掃描」，這裡就會列出目前的承接點候選。")
-        return
-    names, cands, uni_n, fetched_n = res
-    if not cands:
-        if uni_n == 0:
-            st.error("抓不到市場清單（TWSE STOCK_DAY_ALL 沒回應）。稍後再按一次。")
-        elif fetched_n == 0:
-            st.error(f"清單有抓到 {uni_n} 檔，但**個股歷史 0 檔抓成功**——多半是 TWSE 對本站"
-                     "連續請求限流／擋住了。請稍等 1–2 分鐘再按一次，或把範圍調更小。")
-        else:
-            st.warning(f"抓到清單 {uni_n} 檔、成功讀取 {fetched_n} 檔歷史，但都不符合。稍後再試。")
-        return
-    st.caption(f"（診斷：掃 {uni_n} 檔、成功讀取 {fetched_n} 檔歷史）")
+def _render_scan_result(names, cands, date_label):
     owner = _dash_owner()
-    tracked = set(effective_stocks(owner).keys())
-    st.markdown(f"**相對最好的前 {len(cands)} 名**"
-                "（🟢進場＝到位可接、🟡觀望＝趨勢沒破仍在等、🔴避開＝已跌破季線/趨勢偏弱）")
+    tracked_codes = {c.get("code") for c in effective_stocks(owner).values()}
+    st.markdown(f"**{date_label}・相對最好的前 {len(cands)} 名**")
     st.caption(
-        "📏 評選標準（分數高者排前）：① 訊號 進場＞觀望＞避開　② 是否回檔到支撐附近"
-        "　③ 收盤站穩　④ 量縮（賣壓衰竭）　⑤ 離均線越近越優先。禁區/槓桿股不列。"
-        "外資這關掃描階段沒逐檔查，進場前請再確認。")
-    for x in cands:
+        "🟢進場＝到位可接、🟡觀望＝趨勢沒破仍在等、🔴避開＝已跌破季線/趨勢偏弱（相對最不弱、墊底參考）。"
+        "📏 排序：訊號 進場＞觀望＞避開 ＞ 回檔到支撐 ＞ 收盤站穩 ＞ 量縮 ＞ 離均線近。"
+        "外資這關沒逐檔查，進場前用個股頁或 /預測 代號 再確認。")
+
+    def _badge(s):
+        return ("🟢" if s in ("進場", "順勢偏多")
+                else "🔴" if s in ("避開", "明顯轉空避開") else "🟡")
+
+    code_of = {}
+    rows = []
+    for i, x in enumerate(cands, 1):
         code = x["code"]
         disp = f"{names.get(code, code)} ({code})"
-        if x["signal"] in ("進場", "順勢偏多"):
-            badge = "🟢"
-        elif x["signal"] in ("避開", "明顯轉空避開"):
-            badge = "🔴"
-        else:
-            badge = "🟡"
-        c1, c2 = st.columns([4, 1])
-        c1.markdown(f"{badge} **[{x['signal']}] {disp}**　·　{x.get('at_batch') or x['kind']}"
-                    f"  \n{x['reason']}")
-        if disp in tracked or code in {c.get('code') for c in
-                                       effective_stocks(owner).values()}:
-            c2.caption("✅ 已追蹤")
-        elif c2.button("➕ 追蹤", key=f"scan_add_{code}"):
-            add_stock(code, name=disp, owner=owner)
-            st.success(f"已加入追蹤：{disp}")
+        code_of[disp] = code
+        rows.append({"#": i, "訊號": f"{_badge(x['signal'])} {x['signal']}",
+                     "標的": disp, "位置": x.get("at_batch") or x.get("kind", ""),
+                     "為什麼（理由）": x.get("reason", ""),
+                     "追蹤": "✅" if code in tracked_codes else ""})
+    st.table(pd.DataFrame(rows).set_index("#"))
+
+    addable = [d for d, c in code_of.items() if c not in tracked_codes]
+    if addable:
+        pick = st.multiselect("加入追蹤（可多選）", addable, key=f"scanpick_{date_label}")
+        if st.button("➕ 加入所選到追蹤清單", key=f"scanadd_{date_label}") and pick:
+            for disp in pick:
+                add_stock(code_of[disp], name=disp, owner=owner)
+            st.success(f"已加入 {len(pick)} 檔追蹤")
             st.rerun()
+
+
+def render_screener_page():
+    st.markdown("### 🔎 選股掃描（回檔承接法）")
+    st.caption("每天**收盤後（約 15:35）自動掃前 150 大成交股**、挑出承接點候選、推到 Telegram "
+               "並存在這裡；不用手動即時掃（那樣容易被 TWSE 限流）。")
+    stored = None
+    if db.db_enabled():
+        try:
+            stored = db.get_state("screen:latest")
+        except Exception:
+            stored = None
+    if stored and stored.get("cands"):
+        _render_scan_result(stored.get("names", {}), stored["cands"],
+                            f"收盤後選股 · {stored.get('date', '')}")
+    elif stored:
+        st.info(f"最近一次掃描（{stored.get('date')}）沒有合適候選"
+                f"（清單 {stored.get('uni_n')} 檔、成功讀取 {stored.get('fetched_n')} 檔）。")
+    else:
+        st.info("還沒有收盤後選股結果——今天收盤後（約 15:35）會自動產生並推到 Telegram。")
+
+    with st.expander("⚙️ 手動即時重掃（較慢、可能被 TWSE 限流）", expanded=False):
+        top = st.slider("範圍（當日成交額前 N 大）", 30, 150, 100, step=10)
+        if st.button("🚀 立即重掃"):
+            with st.spinner("即時掃描中…（約 30–90 秒）"):
+                st.session_state["scan_result"] = _run_screen(top)
+        res = st.session_state.get("scan_result")
+        if res:
+            names, cands, uni_n, fetched_n = res
+            if cands:
+                st.caption(f"（診斷：掃 {uni_n} 檔、成功讀取 {fetched_n} 檔歷史）")
+                _render_scan_result(names, cands, "即時掃描")
+            elif uni_n == 0:
+                st.error("抓不到市場清單（TWSE 沒回應）。稍後再試。")
+            elif fetched_n == 0:
+                st.error(f"清單有 {uni_n} 檔，但個股歷史 0 檔抓成功——多半被 TWSE 限流。"
+                         "稍等 1–2 分鐘或把範圍調更小再試。")
+            else:
+                st.warning(f"掃 {uni_n} 檔、成功讀取 {fetched_n} 檔，但都不符合。")
 
 
 # 深連結：?code=2344 → 直接開個股頁、選好該股
