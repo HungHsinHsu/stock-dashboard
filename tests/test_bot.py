@@ -295,6 +295,7 @@ def test_scan_command_lists_candidates(monkeypatch):
     out = bot.handle("/選股")
     assert "台積電" in out and "2330" in out and "回檔到支撐2" in out
     assert "觀望" in out            # 有標訊號
+    assert "評選標準" in out         # 有寫出為什麼列這些、怎麼排
 
 
 def test_scan_command_handles_empty_universe(monkeypatch):

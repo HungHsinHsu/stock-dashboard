@@ -291,7 +291,10 @@ def _scan_candidates_digest(top=150, limit=12):
                   fetch=lambda c: fetch_daily(c, months=3), limit=limit)
     if not cands:
         return ("⚠️ 這次抓不到足夠資料掃描（TWSE 可能暫時忙碌或限流）。稍後再試一次 /選股。")
-    lines = [f"🔎 選股掃描（回檔承接法・前 {top} 大成交股，相對最好的前 {len(cands)} 名）", ""]
+    lines = [
+        f"🔎 選股掃描（回檔承接法・前 {top} 大成交股，相對最好的前 {len(cands)} 名）",
+        "📏 評選標準（分數高→前）：訊號 進場>觀望>避開　＞　回檔到支撐附近"
+        "　＞　收盤站穩　＞　量縮(賣壓衰竭)　＞　離均線越近；禁區/槓桿股不列。", ""]
     for x in cands:
         nm = name.get(x["code"], x["code"])
         where = x.get("at_batch") or x["kind"]

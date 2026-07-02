@@ -694,6 +694,10 @@ def render_screener_page():
     tracked = set(effective_stocks(owner).keys())
     st.markdown(f"**相對最好的前 {len(cands)} 名**"
                 "（🟢進場＝到位可接、🟡觀望＝趨勢沒破仍在等、🔴避開＝已跌破季線/趨勢偏弱）")
+    st.caption(
+        "📏 評選標準（分數高者排前）：① 訊號 進場＞觀望＞避開　② 是否回檔到支撐附近"
+        "　③ 收盤站穩　④ 量縮（賣壓衰竭）　⑤ 離均線越近越優先。禁區/槓桿股不列。"
+        "外資這關掃描階段沒逐檔查，進場前請再確認。")
     for x in cands:
         code = x["code"]
         disp = f"{names.get(code, code)} ({code})"
