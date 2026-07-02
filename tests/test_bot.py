@@ -210,6 +210,13 @@ def test_qa_system_includes_operations():
     assert "18:00" in bot.QA_SYSTEM and "復盤" in bot.QA_SYSTEM
 
 
+def test_qa_system_knows_recent_fixes():
+    # 這輪修的原因與作法也要讓機器人懂，使用者直接問就能得到解釋
+    assert "新鮮度" in bot.QA_SYSTEM and "台指期" in bot.QA_SYSTEM  # 台指期不看過時夜盤
+    assert "AI 試算失敗" in bot.QA_SYSTEM and "00830" in bot.QA_SYSTEM  # 非抓不到資料
+    assert "/開盤" in bot.QA_SYSTEM                                    # 可手動補開盤預測
+
+
 def test_slash_typo_still_reports_unknown(monkeypatch):
     # 以「/」開頭但打錯 → 仍回「不認得的指令」，不會誤丟給問答
     assert "不認得的指令" in bot.handle("/blahblah")
