@@ -12,11 +12,14 @@ try:
 except Exception:
     pass
 
-from core.data import fetch_daily, fetch_index, fetch_foreign_flow, fetch_top_turnover
+from core.data import (
+    fetch_daily, fetch_index, fetch_foreign_flow, fetch_top_turnover,
+    resolve_stocks, STOCKS as BASE_STOCKS,
+)
 from core.indicators import compute_indicators
 from core.rules import is_etf, NEAR_PCT, entry_setup, is_denied, DENYLIST
 from core.screener import scan as _scan
-from core.watchlist import effective_stocks, add_stock
+from core.watchlist import effective_stocks, add_stock, remove_stock
 from core.market import market_summary
 from core.store import load_history
 from core.review import hit_rate
@@ -701,16 +704,17 @@ def _render_scan_result(names, cands, date_label):
         return ("🟢" if s in ("進場", "順勢偏多")
                 else "🔴" if s in ("避開", "明顯轉空避開") else "🟡")
 
-    st.caption("👉 在最左欄勾選要追蹤的（表單內連續勾都不會重載），勾完按下方「加入勾選」一次送出。")
+    st.caption("👉 最左欄勾選要追蹤的（已打勾＝已在清單；連續勾不會重載），勾完按下方「加入勾選」一次送出。"
+               "要移除追蹤請到「⭐ 管理追蹤」頁。")
     rows = []
     for x in cands:
         code = x["code"]
         disp = f"{names.get(code, code)} ({code})"
         tracked = code in tracked_codes
-        rows.append({"追蹤": False, "訊號": f"{_badge(x['signal'])} {x['signal']}",
+        rows.append({"追蹤": tracked,          # 已在清單者預設打勾（一眼看出）
+                     "訊號": f"{_badge(x['signal'])} {x['signal']}",
                      "標的": disp, "位置": x.get("at_batch") or x.get("kind", ""),
                      "為什麼（理由）": x.get("reason", ""),
-                     "已在清單": "✅" if tracked else "",
                      "_code": code, "_disp": disp})
     df = pd.DataFrame(rows)
     editor_key = f"scan_editor_{date_label}"
@@ -722,32 +726,25 @@ def _render_scan_result(names, cands, date_label):
                 "追蹤": st.column_config.CheckboxColumn("追蹤?", help="勾選要加入追蹤的"),
                 "_code": None, "_disp": None,
             },
-            disabled=["訊號", "標的", "位置", "為什麼（理由）", "已在清單"])
+            disabled=["訊號", "標的", "位置", "為什麼（理由）"])
         submitted = st.form_submit_button("➕ 加入勾選的到追蹤清單", type="primary")
     if submitted:
-        # 從 data_editor 的實際編輯狀態讀勾選列（比回傳值可靠，尤其在 form 內）
+        # 讀實際編輯狀態；只加「新勾選、且原本不在清單」的（已打勾的追蹤股不會重複加）
         edited_rows = st.session_state.get(editor_key, {}).get("edited_rows", {})
-        checked = [int(i) for i, ch in edited_rows.items() if ch.get("追蹤")]
-        to_add, already = [], []
-        for i in checked:
-            code, disp = rows[i]["_code"], rows[i]["_disp"]
-            (already if code in tracked_codes else to_add).append((code, disp))
+        to_add = [(rows[int(i)]["_code"], rows[int(i)]["_disp"])
+                  for i, ch in edited_rows.items()
+                  if ch.get("追蹤") and rows[int(i)]["_code"] not in tracked_codes]
         for code, disp in to_add:
             add_stock(code, name=disp, owner=owner)
         if to_add:
-            msg = f"✅ 已加入追蹤：" + "、".join(d for _, d in to_add)
-            if already:
-                msg += f"（另 {len(already)} 檔本來就在清單，略過）"
-            st.success(msg)
+            st.success("✅ 已加入追蹤：" + "、".join(d for _, d in to_add))
             st.rerun()
-        elif already:
-            st.info(f"勾選的 {len(already)} 檔都已在追蹤清單了。")
         else:
-            st.info("這次沒有勾選任何標的。")
+            st.info("這次沒有新增（沒勾新的、或勾到的已在清單）。")
 
 
 def render_screener_page():
-    st.markdown("### 🔎 選股掃描（回檔承接法）")
+    st.markdown("### 🔎 每日推薦（回檔承接法選股）")
     st.caption("每天**收盤後（約 15:35）自動掃前 150 大成交股**、挑出承接點候選、推到 Telegram "
                "並存在這裡；不用手動即時掃（那樣容易被 TWSE 限流）。")
     stored = None
@@ -785,9 +782,74 @@ def render_screener_page():
                 st.warning(f"掃 {uni_n} 檔、成功讀取 {fetched_n} 檔，但都不符合。")
 
 
+def render_manage_watchlist():
+    st.markdown("### ⭐ 管理追蹤個股")
+    owner = _dash_owner()
+    base_codes = {c["code"] for c in BASE_STOCKS.values()}
+
+    # 搜尋加入（代號或中文名）
+    st.markdown("#### ➕ 搜尋加入")
+    q = st.text_input("輸入股票代號或中文名稱", key="wl_search",
+                      placeholder="例如 2330 或 台積電")
+    if q.strip():
+        matches = resolve_stocks(q.strip())
+        if not matches:
+            st.caption("找不到，請確認代號或中文名稱（限上市）。")
+        else:
+            tracked_now = {c.get("code") for c in effective_stocks(owner).values()}
+            for code, name in matches[:12]:
+                disp = f"{name} ({code})" if name else f"({code})"
+                c1, c2 = st.columns([4, 1])
+                c1.write(disp)
+                if code in tracked_now:
+                    c2.caption("✅ 已追蹤")
+                elif c2.button("➕ 加入", key=f"wladd_{code}"):
+                    add_stock(code, name=disp, owner=owner)
+                    st.success(f"已加入 {disp}")
+                    st.rerun()
+
+    st.divider()
+    st.markdown("#### 📋 目前追蹤清單（點欄位標題可排序；勾選後移除）")
+    stocks = effective_stocks(owner)
+    rows = [{"移除": False, "代號": cfg["code"], "名稱": name,
+             "類型": "預設(不可移除)" if cfg["code"] in base_codes else "自訂",
+             "_code": cfg["code"]}
+            for name, cfg in stocks.items()]
+    if not rows:
+        st.info("清單是空的，用上面搜尋加入。")
+        return
+    df = pd.DataFrame(rows)
+    with st.form("wl_manage_form", border=False):
+        st.data_editor(
+            df, hide_index=True, use_container_width=True, key="wl_editor",
+            column_config={"移除": st.column_config.CheckboxColumn("移除?"),
+                           "_code": None},
+            disabled=["代號", "名稱", "類型"])
+        submitted = st.form_submit_button("🗑 移除勾選的", type="primary")
+    if submitted:
+        edited = st.session_state.get("wl_editor", {}).get("edited_rows", {})
+        removed, skipped = [], []
+        for i, ch in edited.items():
+            if not ch.get("移除"):
+                continue
+            code = rows[int(i)]["_code"]
+            if code in base_codes:
+                skipped.append(code)
+            elif remove_stock(code, owner):
+                removed.append(code)
+        if removed:
+            st.success("已移除：" + "、".join(removed))
+            st.rerun()
+        elif skipped:
+            st.info("勾到的是預設股，不可移除。")
+        else:
+            st.info("沒有勾選要移除的。")
+
+
 # 深連結：?code=2344 → 直接開個股頁、選好該股
 _qp_code = st.query_params.get("code")
-_page = st.radio("頁面", ["🌐 大盤", "📈 個股", "📅 預測歷史", "🔎 選股"],
+_page = st.radio("頁面",
+                 ["🌐 大盤", "📈 個股", "📅 預測歷史", "🔎 每日推薦", "⭐ 管理追蹤"],
                  index=(1 if _qp_code else 0),
                  horizontal=True, label_visibility="collapsed")
 
@@ -852,9 +914,13 @@ elif _page == "📅 預測歷史":
     st.markdown("### 📅 預測歷史總覽")
     render_history_overview(load_records(), _dash_owner())
 
-# ──────────────────────────── 選股掃描頁 ────────────────────────────
-elif _page == "🔎 選股":
+# ──────────────────────────── 每日推薦頁 ────────────────────────────
+elif _page == "🔎 每日推薦":
     render_screener_page()
+
+# ──────────────────────────── 管理追蹤頁 ────────────────────────────
+elif _page == "⭐ 管理追蹤":
+    render_manage_watchlist()
 
 # ──────────────────────────── 個股頁 ────────────────────────────
 else:
