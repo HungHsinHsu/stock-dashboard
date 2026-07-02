@@ -72,6 +72,8 @@ def test_stock_review_saved_but_not_pushed(tmp_path, monkeypatch):
     assert not any("對錯一覽" in s for s in sends)            # 不逐檔推完整卡片
     assert any("個股收盤復盤出爐" in s for s in sends)         # 但會發一則精簡總表
     assert any("2344" in s for s in sends)                   # 總表含該股
+    # 總表同時寫出「預測方向 → 實際方向」，不必自己回推
+    assert any("預測漲" in s and "實際漲" in s for s in sends)
 
 
 def test_market_miss_pushes_critique_and_records_lesson(tmp_path, monkeypatch):

@@ -15,11 +15,13 @@ from datetime import datetime
 
 
 def _stock_review_digest(items, date):
-    """把個股復盤壓成一則精簡總表（避免逐檔卡片洗版）。items=[(name, review)]。"""
+    """把個股復盤壓成一則精簡總表（避免逐檔卡片洗版）。items=[(name, pred_dir, review)]。
+    預測方向與實際方向都寫出來，不必自己回推。"""
     lines = [f"📋 個股收盤復盤出爐（{date}）", ""]
-    for name, rv in items:
+    for name, pred_dir, rv in items:
         hit = "命中 ✅" if rv.get("success") else "未中 ❌"
-        lines.append(f"🔍 {name}：{hit}（實際{rv.get('direction_actual', '—')}）")
+        lines.append(
+            f"🔍 {name}：預測{pred_dir or '—'} → 實際{rv.get('direction_actual', '—')}　{hit}")
     lines += ["", "詳細檢討看網頁，或用 /復盤 代號", f"🔗 {DASHBOARD_URL}"]
     return "\n".join(lines)
 
@@ -110,7 +112,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
         print(f"[evening] {name}: 復盤完成 命中={review['results'].get('direction')}")
         # 個股復盤不逐檔推卡片，改為結束後發一則精簡總表
         produced.append(rec)
-        stock_summ.append((name, review))
+        stock_summ.append((name, rec["prediction"].get("direction"), review))
 
     print(f"[evening] produced={len(produced)} waiting={waiting}")
     if produced:
