@@ -13,6 +13,7 @@ except Exception:
     pass
 
 from core.data import fetch_daily, fetch_index
+from core.rules import is_etf, NEAR_PCT
 from core.watchlist import effective_stocks
 from core.market import market_summary
 from core.store import load_history
@@ -293,6 +294,82 @@ def price_fig(df, supports=None, with_volume=True):
     return fig
 
 
+def render_support_playbook(code, last, ma5, ma20, ma60):
+    """『現價位於三段支撐哪裡 → 該做什麼』完整對策，並標出目前位置。
+    個股＝回檔承接法(分三批)；ETF＝趨勢框架。排版：先一個醒目結論，再列完整對照表。"""
+    def near(v):
+        return bool(pd.notna(v) and v and abs(last - v) / v * 100 <= NEAR_PCT)
+
+    def align():
+        if pd.notna(ma5) and pd.notna(ma20) and pd.notna(ma60):
+            if ma5 > ma20 > ma60:
+                return "多頭排列"
+            if ma5 < ma20 < ma60:
+                return "空頭排列"
+        return "糾結"
+
+    st.markdown("#### 📐 現價位置對策（每種可能都列出）")
+
+    if is_etf(code):
+        below60 = bool(pd.notna(ma60) and last < ma60)
+        al = align()
+        if al == "空頭排列" and below60:
+            cur = "down"
+        elif al == "多頭排列" or (pd.notna(ma60) and last >= ma60):
+            cur = "up"
+        else:
+            cur = "weak"
+        scen = [
+            ("up", "站上季線／多頭排列",
+             "順勢偏多：可順勢續抱或定期定額。ETF 跟著追蹤指數走，不必抓短。"),
+            ("weak", "均線糾結／跌破季線但未空頭排列",
+             "趨勢轉弱觀望：等站回季線、方向轉明朗再說。"),
+            ("down", "空頭排列且跌破季線（MA60）",
+             "明顯轉空避開：不接刀，趨勢沒回穩不進場。"),
+        ]
+        tone = {"up": st.success, "weak": st.warning, "down": st.error}
+    else:
+        if pd.notna(ma60) and last < ma60:
+            cur = "stop"
+        elif near(ma5):
+            cur = "b1"
+        elif near(ma20):
+            cur = "b2"
+        elif near(ma60):
+            cur = "b3"
+        elif pd.notna(ma5) and last >= ma5:
+            cur = "high"
+        else:
+            cur = "vac"
+        scen = [
+            ("high", "在支撐1之上（位置偏高、還沒回檔）",
+             "觀望：不追高，等回檔到均線支撐。錯過無傷。"),
+            ("b1", "回到支撐1（MA5 短期均線）附近",
+             "第一批候選：收盤站穩＋量縮＋外資沒在賣超 → 進 1/3。"),
+            ("vac", "兩條支撐之間的真空帶",
+             "等：不上不下不進場，等跌到下一段支撐、或帶量站回上一條均線。"),
+            ("b2", "回到支撐2（MA20 月線）附近",
+             "第二批候選：同樣四條件成立 → 進 2/3。"),
+            ("b3", "回到支撐3（MA60 季線）附近",
+             "第三批候選（最後一批）：四條件成立 → 進 3/3。"),
+            ("stop", "收盤跌破支撐3（季線）",
+             "停損區：三批全數認賠出場，不接刀。"),
+        ]
+        tone = {"high": st.warning, "vac": st.warning, "b1": st.success,
+                "b2": st.success, "b3": st.success, "stop": st.error}
+
+    cur_label, cur_action = next(((lb, ac) for k, lb, ac in scen if k == cur),
+                                 ("", ""))
+    if cur_label:
+        tone.get(cur, st.info)(f"👉 **目前位置：{cur_label}**\n\n對策：{cur_action}")
+
+    # 完整對照：每種可能一列，目前位置標 👉（排版清楚、不擠成一坨）
+    rows = [{"位置": ("👉 " if k == cur else "") + lb, "該做什麼": ac}
+            for k, lb, ac in scen]
+    st.table(pd.DataFrame(rows).set_index("位置"))
+    st.caption("進場一律看『收盤』確認、不看盤中；均線每天移動，位置每天重算。")
+
+
 from core.textclean import humanize as _humanize
 
 
@@ -571,14 +648,18 @@ else:
             price_fig(resample_ohlc(df, rule), supports=cfg.get("supports", {})),
             use_container_width=True, config=_CHART_CFG)
 
-        # 三段支撐＝三條均線，隨收盤每日移動；直接列出今日價位與現價相對位置
+        # 三段支撐＝三條均線，隨收盤每日移動；列出今日價位與現價相對位置
         st.markdown("#### 📉 三段支撐（均線，每日更新）")
         _cl = df["Close"]
+
+        def _ma(p):
+            return _cl.rolling(p).mean().iloc[-1] if len(_cl) >= p else float("nan")
+
+        _ma5, _ma20v, _ma60 = _ma(5), _ma(20), _ma(60)
         _ma_rows = []
-        for _lab, _p in (("支撐1 短期均線 (MA5)", 5),
-                         ("支撐2 中期均線 (MA20／月線)", 20),
-                         ("支撐3 長期均線 (MA60／季線)", 60)):
-            _v = _cl.rolling(_p).mean().iloc[-1] if len(_cl) >= _p else float("nan")
+        for _lab, _v in (("支撐1 短期均線 (MA5)", _ma5),
+                         ("支撐2 中期均線 (MA20／月線)", _ma20v),
+                         ("支撐3 長期均線 (MA60／季線)", _ma60)):
             if pd.notna(_v):
                 _d = (last - _v) / _v * 100 if _v else 0.0
                 _pos = "🔺 站上" if last >= _v else "🔻 跌破"
@@ -586,10 +667,11 @@ else:
                                  "現價相對": f"{_pos}（{_d:+.1f}%）"})
         if _ma_rows:
             st.table(pd.DataFrame(_ma_rows).set_index("支撐"))
-            st.caption(f"現價 {last:.2f}。均線每天隨最新收盤重算，故支撐位每日更新；"
-                       "回檔承接法在支撐附近『收盤止穩＋量縮』才分批接，跌破長期均線(季線)為停損區。")
+            st.caption(f"現價 {last:.2f}。均線每天隨最新收盤重算，故支撐位每日更新。")
         else:
             st.caption("資料期間不足，尚無法計算均線支撐。")
+
+        render_support_playbook(cfg["code"], last, _ma5, _ma20v, _ma60)
 
         s = cfg.get("supports", {})
         s1 = s.get("支撐1 (短期)")
