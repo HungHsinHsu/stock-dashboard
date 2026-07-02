@@ -56,10 +56,14 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
                  limit=limit, pause=pause) if uni else []
     result = {"date": date, "top": top, "uni_n": len(uni),
               "fetched_n": got["ok"], "names": names, "cands": cands}
-    try:
-        db.set_state(STATE_KEY, result)          # 存起來供網頁/機器人直接讀
-    except Exception as e:
-        print("存選股結果失敗：", e)
+    # 只有真的抓到市場清單才覆寫；TWSE 沒回應(清單=0)時保留上一份好結果，不要洗成空的。
+    if uni:
+        try:
+            db.set_state(STATE_KEY, result)      # 存起來供網頁/機器人直接讀
+        except Exception as e:
+            print("存選股結果失敗：", e)
+    else:
+        print("[screen] 清單抓不到(TWSE 沒回應)，保留上一份選股結果，不覆寫。")
     print(f"[screen] date={date} 清單={len(uni)} 讀取成功={got['ok']} 候選={len(cands)}")
     for x in cands:
         print(f"[screen] {names.get(x['code'], x['code'])} ({x['code']}) "
