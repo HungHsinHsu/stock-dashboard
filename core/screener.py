@@ -29,6 +29,16 @@ def _label(ceiling, etf):
     return ETF_SIGNAL_LABEL.get(ceiling, ceiling) if etf else ceiling
 
 
+def _trend_label(ind):
+    """波段體質：均線排列(多頭/空頭/糾結) ＋ 是否站上季線(MA60)。
+    多頭排列·站上季線＝體質好的回檔；空頭排列·季線下＝多半是反彈，別當波段。"""
+    align = ind.get("ma_align") or "均線糾結"
+    close, ma60 = ind.get("close"), ind.get("ma60")
+    if close and ma60:
+        return f"{align}·{'站上季線' if close >= ma60 else '季線下'}"
+    return align
+
+
 def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0):
     """對 codes 逐檔套規則、評分排序，回前 limit 名候選(list[dict]，含 signal 標籤)。
 
@@ -68,6 +78,7 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0):
             "signal": _label(ceil, etf), "at_batch": setup.get("at_batch"),
             "reason": setup.get("reason"), "close": ind.get("close"),
             "vol_ratio": ind.get("vol_ratio"), "score": round(score, 1),
+            "trend": _trend_label(ind),
         }
         prelim.append((item, ind, code, etf, ceil))
     prelim.sort(key=lambda t: (-t[0]["score"],

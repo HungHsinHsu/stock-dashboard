@@ -709,10 +709,12 @@ def _render_scan_result(names, cands, date_label):
     st.caption("👉 勾選要追蹤的（**已追蹤者已鎖定打勾、不可取消**；表單內連續勾不會重載）；"
                "勾完按下方一次加入。要移除追蹤請到「⭐ 管理追蹤」頁。")
     # 逐列 checkbox：已追蹤者 disabled+打勾（灰色鎖定），其餘可勾。放在 form 內不會逐次 rerun。
+    st.caption("『波段體質』欄：**多頭排列·站上季線**＝上升趨勢中的回檔(較好的波段承接)；"
+               "**空頭排列·季線下**＝多半只是反彈，別當波段。")
     with st.form(f"scanform_{date_label}", border=False):
-        widths = [1.3, 1.3, 2.2, 4]
+        widths = [1.3, 1.2, 2, 2.4, 3.2]
         h = st.columns(widths)
-        for col, txt in zip(h, ("追蹤", "訊號", "標的", "位置／理由")):
+        for col, txt in zip(h, ("追蹤", "訊號", "標的", "波段體質", "位置／理由")):
             col.caption(txt)
         checks = []
         for x in cands:
@@ -727,7 +729,8 @@ def _render_scan_result(names, cands, date_label):
                               label_visibility="visible" if tracked else "collapsed")
             c[1].markdown(f"{_badge(x['signal'])} {x['signal']}")
             c[2].markdown(f"**{disp}**")
-            c[3].markdown(f"{x.get('at_batch') or x.get('kind', '')}｜{x.get('reason', '')}")
+            c[3].markdown(x.get("trend", "—"))
+            c[4].markdown(f"{x.get('at_batch') or x.get('kind', '')}｜{x.get('reason', '')}")
             checks.append((code, disp, tracked, v))
         submitted = st.form_submit_button("➕ 加入勾選的到追蹤清單", type="primary")
     if submitted:

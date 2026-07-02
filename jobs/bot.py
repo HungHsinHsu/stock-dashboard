@@ -309,7 +309,9 @@ def _scan_candidates_digest(top=120, limit=12):
     for x in cands:
         nm = name.get(x["code"], x["code"])
         where = x.get("at_batch") or x["kind"]
-        lines.append(f"・[{x['signal']}] {nm} ({x['code']})：{where}｜{x['reason']}")
+        trend = x.get("trend", "")
+        trend_txt = f"〔{trend}〕" if trend else ""
+        lines.append(f"・[{x['signal']}] {nm} ({x['code']}){trend_txt}：{where}｜{x['reason']}")
     lines += ["", "（進場＝四關到位可接；觀望＝趨勢沒破、等回檔或確認；避開＝已跌破季線，墊底參考）",
               "※ 已逐檔補查外資、資料不齊者已排除，訊號含外資；要追蹤用 /add 代號",
               f"🔗 {DASHBOARD_URL}"]

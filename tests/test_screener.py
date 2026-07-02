@@ -44,6 +44,13 @@ def test_scan_ranks_entry_first_broken_last_but_still_listed():
     assert out[codes.index("9999")]["signal"] == "避開"
 
 
+def test_scan_reports_trend():
+    # 每個候選都帶『波段體質』(均線排列＋是否站上季線)
+    out = scan(["2330"], fetch=lambda c: _pullback_hold_shrink(),
+               foreign_lookup=lambda c: {"stopped": True})
+    assert out and "排列" in out[0]["trend"] and "季線" in out[0]["trend"]
+
+
 def test_scan_excludes_denylist():
     # 禁區股(群創 3481)本來就不玩 → 不列
     out = scan(["3481"], fetch=lambda c: _pullback_hold_shrink())
