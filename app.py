@@ -383,9 +383,10 @@ def _render_entry_gates(code, df, last, ma5, ma60):
     ]).set_index("關卡"))
 
     if ceiling == "進場":
-        tail = ("外資資料缺、請自行確認" if fstopped is None
-                else "用盤後定價 14:00–14:30 進場")
-        st.success(f"✅ 四關全過 → 可進「{at_batch or '下一批'}」（{tail}）。")
+        st.success(f"✅ 四關全過 → 承接點候選「{at_batch or '下一批'}」。")
+        st.caption("⏱ 這是依『當日收盤』算的（外資等資料收盤後才齊），"
+                   "當日盤後定價(14:00–14:30)通常已過趕不上；請當**隔日承接清單**，"
+                   "隔天在該支撐價附近確認站穩再接（要用盤後定價就用隔日那班）。")
     elif ceiling == "避開":
         st.error(f"🛑 避開：{setup['reason']}")
     else:
