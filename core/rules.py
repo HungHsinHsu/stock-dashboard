@@ -28,6 +28,53 @@ DENYLIST = {
     "00631L": "正2（槓桿耗損、不碰）",
 }
 
+# ETF 追蹤標的（判方向時的主要驅動；沒列到的預設看台股大盤）
+ETF_UNDERLYING = {
+    "0050": "台股大盤（加權指數）",
+    "006208": "台股大盤（加權指數）",
+    "0056": "台股大盤（高股息）",
+    "00878": "台股大盤（高股息）",
+    "00830": "美國費城半導體指數（SOX 費半）",
+    "00891": "美國費城半導體指數（SOX 費半）",
+    "00881": "台股半導體類股",
+}
+
+# ETF 走趨勢框架，訊號沿用同一組欄位但改成趨勢語意（顯示時翻成人話）
+ETF_SIGNAL_LABEL = {"進場": "順勢偏多", "觀望": "趨勢轉弱觀望", "避開": "明顯轉空避開"}
+
+
+def is_etf(code):
+    """台股 ETF 代號以 00 開頭（0050、00830、006208…）；個股（2330…）為 False。"""
+    return str(code or "").strip().startswith("00")
+
+
+def is_leveraged_etf(code):
+    """槓桿/反向 ETF（代號結尾 L 或 R，如 00631L 正2、00632R 反1）。"""
+    c = str(code or "").strip().upper()
+    return c.startswith("00") and (c.endswith("L") or c.endswith("R"))
+
+
+def etf_setup(ind, code=None):
+    """ETF 用『趨勢框架』決定訊號上限（不套個股籌碼/禁區/三批停損）：
+    多頭順勢=進場、趨勢糾結/轉弱=觀望、空頭排列且跌破季線=避開（不接刀）。
+    回傳與 entry_setup 相同 key 的 dict，供 constrain_signal 共用。"""
+    if is_leveraged_etf(code):
+        return {"ceiling": "避開", "at_batch": None, "vol_ok": None,
+                "hold_ok": None, "reason": "槓桿/反向 ETF，不做波段承接，避開"}
+    close, ma20, ma60 = ind.get("close"), ind.get("ma20"), ind.get("ma60")
+    align = ind.get("ma_align")
+    below60 = ma60 is not None and close is not None and close < ma60
+    above60 = ma60 is not None and close is not None and close >= ma60
+    above20 = ma20 is not None and close is not None and close >= ma20
+    if align == "空頭排列" and below60:
+        return {"ceiling": "避開", "at_batch": None, "vol_ok": None, "hold_ok": None,
+                "reason": "空頭排列且跌破季線(MA60)，趨勢明顯轉空→不順勢承接、避免接刀"}
+    if align == "多頭排列" or (above60 and above20):
+        return {"ceiling": "進場", "at_batch": None, "vol_ok": None, "hold_ok": None,
+                "reason": "站上季線/多頭排列，順勢偏多（可順勢或定期定額）"}
+    return {"ceiling": "觀望", "at_batch": None, "vol_ok": None, "hold_ok": None,
+            "reason": "趨勢糾結/轉弱，等站回均線或回穩再順勢"}
+
 NEAR_PCT = 2.0     # 收盤距某支撐 ±2% 內算「到價」
 VOL_SHRINK = 1.0   # 量比 < 此值算「量縮」（vs 20 日均量）
 VOL_EXPAND = 1.2   # 量比 > 此值算「帶量」
@@ -126,15 +173,20 @@ def signal_ceiling(ind, code=None, foreign_stopped=None):
 
 
 def constrain_signal(pred, ind, code=None, foreign_stopped=None):
-    """把 LLM 的 signal 夾進紀律允許範圍。回 (final_signal, note|None)。"""
+    """把 LLM 的 signal 夾進紀律允許範圍。回 (final_signal, note|None)。
+    ETF 走趨勢框架(etf_setup)，個股走回檔承接法(entry_setup)。"""
     llm_sig = pred.get("signal", "觀望")
-    setup = entry_setup(ind, code, foreign_stopped)
+    etf = is_etf(code)
+    setup = etf_setup(ind, code) if etf else entry_setup(ind, code, foreign_stopped)
     ceil = setup["ceiling"]
     final = llm_sig if _rank(llm_sig) <= _rank(ceil) else ceil
     note = None
     if final != llm_sig:
         note = f"{setup['reason']}（紀律上限：{ceil}）"
     elif final == "進場":
-        # 合格進場：附帶「外資倒貨」這條本檔無法驗證、需人工確認
-        note = f"{setup['reason']}；⚠️外資是否停止倒貨請自行確認，並用盤後定價(14:00–14:30)進場"
+        if etf:                                   # ETF 順勢，不談外資/三批
+            note = setup["reason"]
+        else:
+            # 合格進場：附帶「外資倒貨」這條本檔無法驗證、需人工確認
+            note = f"{setup['reason']}；⚠️外資是否停止倒貨請自行確認，並用盤後定價(14:00–14:30)進場"
     return final, note

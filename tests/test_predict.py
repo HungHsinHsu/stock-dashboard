@@ -73,6 +73,44 @@ def test_prediction_feeds_and_shows_chips():
     assert "投信" in s and "融資" in s
 
 
+def test_etf_uses_trend_framework_not_stock_chips():
+    # ETF(00830) 走趨勢框架：用 ETF 系統提示、不餵個股籌碼、不套三批
+    seen = {}
+
+    def _etf_llm(system, user, schema, client=None):
+        seen["system"], seen["user"] = system, user
+        return {"signal": "避開", "direction": "跌", "confidence": "高",
+                "bull_signals": [], "bear_signals": ["跌破季線"],
+                "hold_ma20": False, "hold_support1": False, "reason": "費半崩跌"}
+
+    ind = {"close": 50, "prev_close": 51, "ma20": 55, "ma60": 60,
+           "ma_align": "空頭排列", "vol_ratio": 1.5}
+    out = make_prediction(ind, "國泰費城半導體 (00830)", llm=_etf_llm, code="00830",
+                          foreign={"net": -1_000_000, "stopped": False},
+                          margin={"margin_chg": 5000}, batches=2)
+    assert "ETF" in seen["system"] and "籌碼面" not in seen["user"]  # 走 ETF 提示、不帶籌碼
+    assert out["is_etf"] is True
+    assert out["batches"] is None and out["foreign"] is None       # 不套三批、不看個股籌碼
+    s = format_prediction("國泰費城半導體 (00830)", "2026-07-02", out)
+    assert "明顯轉空避開" in s                # 訊號翻成趨勢語意
+    assert "追蹤標的" in s and "費半" in s
+    assert "外資" not in s and "3 批" not in s  # 不顯示個股籌碼/批數
+
+
+def test_etf_uptrend_labels_follow_trend():
+    # 多頭排列 ETF → 順勢偏多
+    def _up_llm(system, user, schema, client=None):
+        return {"signal": "進場", "direction": "漲", "confidence": "中",
+                "bull_signals": [], "bear_signals": [], "hold_ma20": True,
+                "hold_support1": False, "reason": "站上均線"}
+
+    ind = {"close": 60, "prev_close": 59, "ma20": 58, "ma60": 55,
+           "ma_align": "多頭排列", "vol_ratio": 0.9}
+    out = make_prediction(ind, "元大台灣50 (0050)", llm=_up_llm, code="0050")
+    s = format_prediction("元大台灣50 (0050)", "2026-07-02", out)
+    assert "順勢偏多" in s and "大盤" in s
+
+
 def test_make_prediction_includes_market():
     ind = {"close": 203.0, "ma20": 186.5}
     market = {"direction": "跌", "pct": -0.7, "above_ma20": False}

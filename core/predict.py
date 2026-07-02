@@ -2,7 +2,7 @@ import json
 import re
 from core.llm import generate_json
 from core.config import DASHBOARD_URL
-from core.rules import constrain_signal
+from core.rules import constrain_signal, is_etf, ETF_UNDERLYING, ETF_SIGNAL_LABEL
 from core.textclean import humanize
 
 
@@ -74,6 +74,21 @@ _SYSTEM = (
 )
 
 
+_ETF_SYSTEM = (
+    "你是台股 ETF 趨勢分析師。此標的是 ETF、不是個股——"
+    "『不看個股籌碼(外資/投信/融資融券)、不套用個股的三批承接/停損與禁區規則』。\n"
+    "請用【趨勢框架】預測此 ETF『今日相對昨收的方向(漲或跌)』：\n"
+    "・主要驅動＝它追蹤的標的：{underlying}。半導體 ETF 看費半(SOX)、"
+    "台股大盤型看加權指數；美股隔夜與大盤方向是主因。\n"
+    "・輔以 ETF 自身均線趨勢(MA5/MA20/MA60、多頭/空頭排列、是否站上季線)、"
+    "MACD、KD、量價。\n"
+    "signal 沿用同組欄位但語意是趨勢：多頭順勢→進場、趨勢糾結/轉弱→觀望、"
+    "空頭排列且跌破季線(明顯轉空)→避開(不接刀)；實際會被規則再夾一次。\n"
+    "hold_ma20/hold_support1 就照技術面(站穩MA20否/此ETF無自訂支撐可填 false)。\n"
+    "bull_signals/bear_signals/reason 一律自然中文，禁止出現程式變數/欄位名。"
+)
+
+
 def _chip_summary(foreign, margin):
     """把籌碼面(法人三大＋融資融券)整理成人話，餵給 LLM。無資料回提示字。"""
     def z(shares):
@@ -113,22 +128,36 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
                        f"相對 {rel:+.2f}% → {tag}")
     except Exception:
         pass
-    user = (
-        f"股票：{stock_name}\n"
-        f"技術指標(到昨日收盤為止)：\n{json.dumps(indicators, ensure_ascii=False)}\n"
-        f"大盤(加權指數)昨收摘要：\n{json.dumps(market, ensure_ascii=False)}{rel_txt}\n"
-        f"美股隔夜四大指數漲跌(%)：\n{json.dumps(us_overnight, ensure_ascii=False)}\n"
-        f"籌碼面(法人三大＋融資融券)：\n{_chip_summary(foreign, margin)}"
-    )
+    etf = is_etf(code)
+    underlying = ETF_UNDERLYING.get(str(code), "台股大盤（加權指數）")
+    if etf:
+        # ETF 走趨勢框架：不看個股籌碼，主要看追蹤標的與自身均線趨勢。
+        foreign = margin = None
+        system = _ETF_SYSTEM.format(underlying=underlying)
+        user = (
+            f"ETF：{stock_name}（追蹤標的：{underlying}）\n"
+            f"技術指標(到昨日收盤為止)：\n{json.dumps(indicators, ensure_ascii=False)}\n"
+            f"大盤(加權指數)昨收摘要：\n{json.dumps(market, ensure_ascii=False)}\n"
+            f"美股隔夜四大指數漲跌(%)：\n{json.dumps(us_overnight, ensure_ascii=False)}"
+        )
+    else:
+        system = _SYSTEM
+        user = (
+            f"股票：{stock_name}\n"
+            f"技術指標(到昨日收盤為止)：\n{json.dumps(indicators, ensure_ascii=False)}\n"
+            f"大盤(加權指數)昨收摘要：\n{json.dumps(market, ensure_ascii=False)}{rel_txt}\n"
+            f"美股隔夜四大指數漲跌(%)：\n{json.dumps(us_overnight, ensure_ascii=False)}\n"
+            f"籌碼面(法人三大＋融資融券)：\n{_chip_summary(foreign, margin)}"
+        )
     if lessons:
         user += f"\n\n{lessons}"
-    pred = llm(_SYSTEM, user, PREDICTION_SCHEMA)
+    pred = llm(system, user, PREDICTION_SCHEMA)
     # 進場與否：規則為主、LLM 受限。把 LLM 的 signal 夾進紀律允許範圍。
     foreign_stopped = foreign.get("stopped") if foreign else None
     final_signal, rule_note = constrain_signal(pred, indicators, code,
                                                foreign_stopped)
-    # 分批部位：依已進批數調整(三批已滿不加碼；停損且有部位提示全數出場)
-    if batches is not None:
+    # 分批部位：ETF 不適用三批承接，略過；個股依已進批數調整。
+    if batches is not None and not etf:
         if final_signal == "進場":
             if batches >= 3:
                 final_signal = "觀望"
@@ -148,7 +177,10 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
     pred["market"] = market
     pred["foreign"] = foreign
     pred["margin"] = margin
-    pred["batches"] = batches
+    pred["batches"] = None if etf else batches
+    pred["is_etf"] = etf
+    if etf:
+        pred["underlying"] = underlying
     return pred
 
 
@@ -169,13 +201,19 @@ def format_prediction(stock_name, date, prediction, forecast=False):
     head = "下一交易日開盤前預測" if forecast else "開盤前預測"
     date_line = (f"🗓 依 {date} 收盤試算　→　預測下一個交易日"
                  if forecast else f"🗓 {date}")
+    etf = prediction.get("is_etf")
+    sig = prediction["signal"]
+    sig_txt = ETF_SIGNAL_LABEL.get(sig, sig) if etf else sig
     lines = [
         f"📈 {stock_name}｜{head}",
         date_line,
         "",
-        f"🚦 訊號：{prediction['signal']}",
+        f"🚦 訊號：{sig_txt}",
         f"🧭 方向：預期{prediction['direction']}{conf_txt}",
     ]
+    if etf:
+        lines.append(f"🎯 追蹤標的：{prediction.get('underlying', '台股大盤')}"
+                     "（ETF 走趨勢框架，不看個股籌碼/三批）")
     bt = prediction.get("batches")
     if isinstance(bt, int):
         lines.append(f"📦 部位：{bt}/3 批")

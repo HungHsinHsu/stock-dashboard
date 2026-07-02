@@ -198,6 +198,12 @@ def test_qa_system_includes_rulebook():
     assert "三批" in bot.QA_SYSTEM and "外資" in bot.QA_SYSTEM
 
 
+def test_qa_system_knows_etf_trend_framework():
+    # ETF 走趨勢框架、跟個股不同套，機器人要能解釋
+    assert "趨勢框架" in bot.QA_SYSTEM and "ETF" in bot.QA_SYSTEM
+    assert "順勢偏多" in bot.QA_SYSTEM and "追蹤" in bot.QA_SYSTEM
+
+
 def test_qa_system_knows_chip_analysis():
     # 業務邏輯一改（加籌碼面），機器人知識要同步：知道看哪些籌碼
     assert "投信" in bot.QA_SYSTEM and "自營商" in bot.QA_SYSTEM
