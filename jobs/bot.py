@@ -29,7 +29,7 @@ from core.strategy import RULEBOOK, OPERATIONS
 from core.config import DASHBOARD_URL
 from core import db
 import core.telegram as tg
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 STATE_PATH = "bot_state.json"
 
@@ -621,6 +621,83 @@ def _notify_started():
         print("開機通知失敗：", e)
 
 
+# ── 常駐排程備援：GitHub cron 常延遲/漏班，機器人自己在時間到時補跑 ──
+# 各班留 GRACE 分鐘讓 GitHub 先跑；GitHub 已做過(冪等檢查)就略過，避免重覆。
+_SCHED_SLOTS = [("morning", 7, 40), ("morning", 8, 10),
+                ("evening", 15, 20), ("evening", 18, 0)]
+_SCHED_GRACE_MIN = 10
+_sched_done = set()          # 記憶體備援（無 DB 時用）
+
+
+def _tw_now():
+    return datetime.now(timezone.utc) + timedelta(hours=8)   # 台灣 UTC+8
+
+
+def _slot_done(key):
+    if key in _sched_done:
+        return True
+    if db.db_enabled():
+        try:
+            return bool(db.get_state(key))
+        except Exception:
+            return False
+    return False
+
+
+def _mark_slot(key):
+    _sched_done.add(key)
+    if db.db_enabled():
+        try:
+            db.set_state(key, True)
+        except Exception:
+            pass
+
+
+def _already_produced(job, date):
+    """GitHub 那班是否已做過（避免重覆）：morning 看今日大盤是否已有預測、
+    evening 看大盤是否已復盤。已做過就不重跑。"""
+    try:
+        m = get_record(load_history(), date, "大盤")
+    except Exception:
+        return False
+    if not m:
+        return False
+    if job == "morning":
+        return bool(m.get("prediction"))
+    return bool((m.get("review") or {}).get("critique"))
+
+
+def _run_scheduled_jobs():
+    """機器人常駐備援排程：時間到（過 GRACE 分鐘）就自己補跑，冪等、只在 GitHub 沒做時才動。"""
+    now = _tw_now()
+    if now.weekday() >= 5:                    # 週六日不跑
+        return
+    today = now.date().isoformat()
+    now_min = now.hour * 60 + now.minute
+    for job, hh, mm in _SCHED_SLOTS:
+        if now_min < hh * 60 + mm + _SCHED_GRACE_MIN:
+            continue                          # 還沒到（或還在讓 GitHub 先跑的緩衝內）
+        if job == "morning" and now_min > 10 * 60:
+            continue                          # 過了早上 10:00 就別再補「開盤」預測
+        key = f"sched_done:{job}:{hh:02d}{mm:02d}:{today}"
+        if _slot_done(key):
+            continue                          # 今天這個時段已處理過
+        _mark_slot(key)                       # 先標記，避免重試風暴
+        if _already_produced(job, today):
+            print(f"[sched] {job} {hh:02d}:{mm:02d} GitHub 已做過，略過")
+            continue
+        try:
+            print(f"[sched] GitHub 沒準時發車，機器人備援補跑 {job}（{hh:02d}:{mm:02d} 班）")
+            if job == "morning":
+                from jobs import morning
+                morning.run()
+            else:
+                from jobs import evening
+                evening.run()
+        except Exception as e:
+            print(f"[sched] {job} 補跑失敗：", e)
+
+
 def run(loop=False):
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
@@ -644,6 +721,10 @@ def run(loop=False):
     print(f"long-poll start, offset={offset}")
     _notify_started()          # 上線後主動報「重啟完成」
     while time.monotonic() < deadline:
+        try:
+            _run_scheduled_jobs()   # 常駐備援：GitHub 排程誤點時自己補跑預測/復盤
+        except Exception as e:
+            print("排程備援檢查失敗：", e)
         drain_web_queue()      # 先處理網頁 chatbox 的待辦
         try:
             # 長輪詢縮到 15 秒，讓網頁 chatbox 的訊息較快被處理

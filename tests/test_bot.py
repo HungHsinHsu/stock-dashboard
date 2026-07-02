@@ -186,6 +186,62 @@ def test_startup_notice_sent(monkeypatch):
     assert "預測" not in sends[0] or "股票問題" in sends[0]  # 不是股票預測內容
 
 
+from datetime import datetime, timezone, timedelta
+
+
+def _tw(h, m, day=2):     # 2026-07-02 是週四（交易日）
+    return datetime(2026, 7, day, h, m, tzinfo=timezone(timedelta(hours=8)))
+
+
+def _wire_sched(monkeypatch, calls):
+    import jobs.evening as evening
+    import jobs.morning as morning
+    monkeypatch.setattr(bot, "_sched_done", set())
+    monkeypatch.setattr(bot.db, "db_enabled", lambda: False)   # 用記憶體標記
+    monkeypatch.setattr(bot, "load_history", lambda: [])       # 無紀錄→GitHub 尚未做
+    monkeypatch.setattr(evening, "run", lambda *a, **k: calls.append("evening"))
+    monkeypatch.setattr(morning, "run", lambda *a, **k: calls.append("morning"))
+
+
+def test_scheduler_backs_up_evening_when_due(monkeypatch):
+    # 15:35（過了 15:20+緩衝）且 GitHub 還沒做 → 機器人補跑 evening
+    calls = []
+    _wire_sched(monkeypatch, calls)
+    monkeypatch.setattr(bot, "_tw_now", lambda: _tw(15, 35))
+    bot._run_scheduled_jobs()
+    assert "evening" in calls and "morning" not in calls   # 只補復盤，不在午後補開盤
+
+
+def test_scheduler_skips_when_github_already_did_it(monkeypatch):
+    # 大盤今天已復盤 → 機器人不重覆跑
+    calls = []
+    _wire_sched(monkeypatch, calls)
+    monkeypatch.setattr(bot, "load_history", lambda: [
+        {"date": "2026-07-02", "stock": "大盤",
+         "prediction": {"direction": "跌"}, "review": {"critique": "已檢討"}}])
+    monkeypatch.setattr(bot, "_tw_now", lambda: _tw(15, 35))
+    bot._run_scheduled_jobs()
+    assert calls == []
+
+
+def test_scheduler_waits_during_grace(monkeypatch):
+    # 15:25 還在 15:20+10 緩衝內（讓 GitHub 先跑）→ 先不動
+    calls = []
+    _wire_sched(monkeypatch, calls)
+    monkeypatch.setattr(bot, "_tw_now", lambda: _tw(15, 25))
+    bot._run_scheduled_jobs()
+    assert calls == []
+
+
+def test_scheduler_idle_on_weekend(monkeypatch):
+    # 週六（2026-07-04）不跑
+    calls = []
+    _wire_sched(monkeypatch, calls)
+    monkeypatch.setattr(bot, "_tw_now", lambda: _tw(15, 35, day=4))
+    bot._run_scheduled_jobs()
+    assert calls == []
+
+
 def test_qa_system_restricts_to_stocks():
     # 嚴格婉拒非台股主題的規則有寫進系統提示
     assert "只負責台股討論" in bot.QA_SYSTEM
@@ -214,6 +270,11 @@ def test_qa_system_includes_operations():
     # 業務邏輯（排程/何時復盤）也灌進去，機器人能答「幾點出報告」
     assert "07:40" in bot.QA_SYSTEM and "15:20" in bot.QA_SYSTEM
     assert "18:00" in bot.QA_SYSTEM and "復盤" in bot.QA_SYSTEM
+
+
+def test_qa_system_knows_bot_backup_scheduler():
+    # 雙保險排程（GitHub 誤點時機器人自己補跑）也要寫進知識，機器人能解釋
+    assert "雙保險" in bot.QA_SYSTEM and "補跑" in bot.QA_SYSTEM
 
 
 def test_qa_system_knows_recent_fixes():
