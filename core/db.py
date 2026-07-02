@@ -196,6 +196,25 @@ def migrate_owner_data():
         oldp = load_positions()         # 舊 positions 表
         if oldp:
             set_state("pos:admin", oldp)
+    migrate_seed_default_watchlist()
+
+
+# 過去寫死在程式的預設種子股（現已改為可自由增刪）；一次性種進 admin 清單。
+_DEFAULT_SEED = {"2344": {"name": "華邦電 (2344)"}}
+
+
+def migrate_seed_default_watchlist():
+    """把舊的『程式預設股』一次性種進 admin 清單，之後使用者可自由增刪。
+    用旗標確保只種一次——就算之後被移除，也不會再被種回來。"""
+    if not db_enabled():
+        return
+    if get_state("seed:base_done"):
+        return
+    wl = get_state("wl:admin", {}) or {}
+    for code, info in _DEFAULT_SEED.items():
+        wl.setdefault(code, info)
+    set_state("wl:admin", wl)
+    set_state("seed:base_done", True)
 
 
 # ── chat_queue（網頁 chatbox / LINE → 機器人代跑）────────────────

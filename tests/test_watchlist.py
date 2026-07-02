@@ -26,17 +26,18 @@ def test_remove(tmp_path):
     assert load_watchlist(path=p) == {}
 
 
-def test_effective_merges_base_and_watchlist(tmp_path):
+def test_effective_is_just_watchlist_now(tmp_path):
+    # 不再有寫死預設股；有效清單＝使用者自己的 watchlist
     p = str(tmp_path / "wl.json")
     add_stock("2330", name="台積電 (2330)", path=p)
     eff = effective_stocks(path=p)
-    assert "華邦電 (2344)" in eff          # 預設
-    assert eff["台積電 (2330)"]["code"] == "2330"  # 新增
+    assert eff["台積電 (2330)"]["code"] == "2330"
+    assert "華邦電 (2344)" not in eff          # 不再強制預設
 
 
 def test_bot_help_and_list():
     assert "/add" in bot.handle("/help")
-    assert "華邦電 (2344)" in bot.handle("/list")
+    assert "追蹤清單" in bot.handle("/list")   # 內容依使用者清單而定，不再寫死預設
 
 
 def test_bot_add_no_arg():

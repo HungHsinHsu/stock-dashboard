@@ -6,7 +6,7 @@ import time
 import requests
 
 from core.data import (
-    STOCKS as BASE_STOCKS, resolve_stocks,
+    resolve_stocks,
     fetch_daily, fetch_index, fetch_us_overnight, fetch_taifex_detail,
     fetch_foreign_flow, fetch_margin, fetch_top_turnover,
 )
@@ -487,8 +487,6 @@ def _dispatch(text):
             code = matches[0][0]
         if remove_stock(code, _owner()):
             return f"🗑 已移除 {code}"
-        if code in {c["code"] for c in BASE_STOCKS.values()}:
-            return f"{code} 是預設股票，無法用指令移除。"
         return f"清單中找不到 {code}。"
     if cmd in ("enter", "進場", "buy", "in", "買進"):
         if not args:

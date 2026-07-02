@@ -22,9 +22,9 @@ def test_parse_twse_json_not_ok():
     assert parse_twse_json({"stat": "OK"}) == []
 
 
-def test_stocks_shape():
-    assert "華邦電 (2344)" in STOCKS
-    assert STOCKS["華邦電 (2344)"]["code"] == "2344"
+def test_stocks_has_no_hardcoded_defaults():
+    # 不再寫死任何預設股；清單一律由使用者管理（種子股改由 db 一次性種進 admin）
+    assert STOCKS == {}
 
 
 def test_yahoo_change_parses(monkeypatch):
