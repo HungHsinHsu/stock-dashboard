@@ -290,14 +290,13 @@ def _scan_candidates_digest(top=150, limit=12):
     cands = _scan([c for c, _ in uni],
                   fetch=lambda c: fetch_daily(c, months=3), limit=limit)
     if not cands:
-        return (f"🔎 掃前 {top} 大成交股，目前連『趨勢沒破』的觀察標的都很少"
-                "（整體偏弱，多半都跌破季線了）。稍後或明天再掃看看。")
+        return ("⚠️ 這次抓不到足夠資料掃描（TWSE 可能暫時忙碌或限流）。稍後再試一次 /選股。")
     lines = [f"🔎 選股掃描（回檔承接法・前 {top} 大成交股，相對最好的前 {len(cands)} 名）", ""]
     for x in cands:
         nm = name.get(x["code"], x["code"])
         where = x.get("at_batch") or x["kind"]
         lines.append(f"・[{x['signal']}] {nm} ({x['code']})：{where}｜{x['reason']}")
-    lines += ["", "（進場＝現在到位可接；觀望＝趨勢沒破、還在等回檔或確認）",
+    lines += ["", "（進場＝到位可接；觀望＝趨勢沒破、等回檔或確認；避開＝已跌破季線/趨勢偏弱，墊底參考）",
               "外資這關掃描階段沒逐檔查，進場前用 /預測 代號 再確認；要追蹤用 /add 代號",
               f"🔗 {DASHBOARD_URL}"]
     return "\n".join(lines)

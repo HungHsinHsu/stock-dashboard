@@ -33,12 +33,20 @@ def _vacuum_uptrend():
     return _df(closes)
 
 
-def test_scan_picks_entry_and_skips_broken_trend():
+def test_scan_ranks_entry_first_broken_last_but_still_listed():
     data = {"2330": _pullback_hold_shrink(), "9999": _still_falling()}
-    out = scan(["2330", "9999"], fetch=lambda c: data.get(c))
+    out = scan(["9999", "2330"], fetch=lambda c: data.get(c))
     codes = [x["code"] for x in out]
-    assert "2330" in codes            # 承接點候選有被挑出
-    assert "9999" not in codes        # 跌破長均線(趨勢破/停損)不入選
+    assert codes[0] == "2330" and out[0]["signal"] == "進場"   # 進場排最前
+    # 跌破季線的也『仍列出』(在後面)、標避開，不再一片空白
+    assert "9999" in codes
+    assert out[codes.index("9999")]["signal"] == "避開"
+
+
+def test_scan_excludes_denylist():
+    # 禁區股(群創 3481)本來就不玩 → 不列
+    out = scan(["3481"], fetch=lambda c: _pullback_hold_shrink())
+    assert out == []
 
 
 def test_scan_still_lists_watch_when_no_entry():

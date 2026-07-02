@@ -6,9 +6,13 @@
 因為那些不是值得觀察承接的標的。篩選是純規則、不花 AI。
 """
 from core.indicators import compute_indicators
-from core.rules import entry_setup, etf_setup, is_etf, ETF_SIGNAL_LABEL
+from core.rules import (
+    entry_setup, etf_setup, is_etf, is_denied, is_leveraged_etf, ETF_SIGNAL_LABEL,
+)
 
-_SIGNAL_BASE = {"進場": 1000, "觀望": 500}   # 「避開」不列（趨勢破/停損/禁區）
+# 一律排名列出：進場最優、觀望次之、避開(跌破季線/趨勢偏弱)墊底但仍列出。
+# 只有禁區/槓桿股永遠不列（本來就不玩）。
+_SIGNAL_BASE = {"進場": 1000, "觀望": 500, "避開": 100}
 
 
 def _min_dist_pct(ind):
@@ -33,6 +37,8 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10):
     """
     scored = []
     for code in codes:
+        if is_denied(code) or is_leveraged_etf(code):
+            continue                          # 禁區/槓桿股：本來就不玩，不列
         try:
             df = fetch(code)
         except Exception:
@@ -53,9 +59,7 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10):
                     fstopped = None
             setup = entry_setup(ind, code, fstopped)
         ceil = setup.get("ceiling")
-        if ceil not in _SIGNAL_BASE:          # 避開（趨勢破/停損/禁區）→ 不列
-            continue
-        score = _SIGNAL_BASE[ceil]
+        score = _SIGNAL_BASE.get(ceil, 100)
         if setup.get("at_batch"):
             score += 120                      # 已到某支撐附近（接近買點）
         if setup.get("hold_ok"):
