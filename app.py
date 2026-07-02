@@ -708,7 +708,8 @@ def _render_scan_result(names, cands, date_label):
                "勾完按下方一次加入。要移除追蹤請到「⭐ 管理追蹤」頁。")
     # 逐列 checkbox：已追蹤者 disabled+打勾（灰色鎖定），其餘可勾。放在 form 內不會逐次 rerun。
     with st.form(f"scanform_{date_label}", border=False):
-        h = st.columns([0.8, 1.3, 2.2, 4])
+        widths = [1.3, 1.3, 2.2, 4]
+        h = st.columns(widths)
         for col, txt in zip(h, ("追蹤", "訊號", "標的", "位置／理由")):
             col.caption(txt)
         checks = []
@@ -716,10 +717,12 @@ def _render_scan_result(names, cands, date_label):
             code = x["code"]
             disp = f"{names.get(code, code)} ({code})"
             tracked = code in tracked_codes
-            c = st.columns([0.8, 1.3, 2.2, 4])
-            v = c[0].checkbox("追蹤", value=tracked, disabled=tracked,
+            c = st.columns(widths)
+            # 已追蹤：灰色鎖定打勾，且標籤顯示「已追蹤」；未追蹤：可勾、標籤隱藏
+            v = c[0].checkbox("已追蹤" if tracked else "追蹤",
+                              value=tracked, disabled=tracked,
                               key=f"chk_{date_label}_{code}",
-                              label_visibility="collapsed")
+                              label_visibility="visible" if tracked else "collapsed")
             c[1].markdown(f"{_badge(x['signal'])} {x['signal']}")
             c[2].markdown(f"**{disp}**")
             c[3].markdown(f"{x.get('at_batch') or x.get('kind', '')}｜{x.get('reason', '')}")
