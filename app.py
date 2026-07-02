@@ -53,6 +53,7 @@ def _migrate_once():
     try:
         from core import db
         db.migrate_from_json()      # DB 啟用且為空時匯入舊 JSON；無 DB 則 no-op
+        db.migrate_owner_data()     # 併：把種子股(華邦電)一次性種進 admin 清單
     except Exception as e:
         print("migrate skipped:", e)
     return True
