@@ -815,11 +815,11 @@ def render_manage_watchlist():
     df = pd.DataFrame(rows)
     with st.form("wl_manage_form", border=False):
         st.data_editor(
-            df, hide_index=True, use_container_width=True, key="wl_editor",
+            df, hide_index=True, use_container_width=False, key="wl_editor",
             column_config={
                 "移除": st.column_config.CheckboxColumn("移除", width="small"),
                 "代號": st.column_config.TextColumn("代號", width="small"),
-                "名稱": st.column_config.TextColumn("名稱", width="large"),
+                "名稱": st.column_config.TextColumn("名稱", width="medium"),
                 "_code": None},
             disabled=["代號", "名稱"])
         submitted = st.form_submit_button("🗑 移除勾選的", type="primary")
