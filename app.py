@@ -697,26 +697,34 @@ def _render_scan_result(names, cands, date_label):
         return ("🟢" if s in ("進場", "順勢偏多")
                 else "🔴" if s in ("避開", "明顯轉空避開") else "🟡")
 
-    code_of = {}
+    st.caption("👉 在最左欄勾選要追蹤的（可一次勾多檔），勾完按下方「加入勾選」即可。")
     rows = []
-    for i, x in enumerate(cands, 1):
+    for x in cands:
         code = x["code"]
         disp = f"{names.get(code, code)} ({code})"
-        code_of[disp] = code
-        rows.append({"#": i, "訊號": f"{_badge(x['signal'])} {x['signal']}",
+        tracked = code in tracked_codes
+        rows.append({"追蹤": False, "訊號": f"{_badge(x['signal'])} {x['signal']}",
                      "標的": disp, "位置": x.get("at_batch") or x.get("kind", ""),
                      "為什麼（理由）": x.get("reason", ""),
-                     "追蹤": "✅" if code in tracked_codes else ""})
-    st.table(pd.DataFrame(rows).set_index("#"))
-
-    addable = [d for d, c in code_of.items() if c not in tracked_codes]
-    if addable:
-        pick = st.multiselect("加入追蹤（可多選）", addable, key=f"scanpick_{date_label}")
-        if st.button("➕ 加入所選到追蹤清單", key=f"scanadd_{date_label}") and pick:
-            for disp in pick:
-                add_stock(code_of[disp], name=disp, owner=owner)
-            st.success(f"已加入 {len(pick)} 檔追蹤")
-            st.rerun()
+                     "已在清單": "✅" if tracked else "",
+                     "_code": code, "_disp": disp})
+    df = pd.DataFrame(rows)
+    edited = st.data_editor(
+        df, hide_index=True, use_container_width=True,
+        key=f"scan_editor_{date_label}",
+        column_config={
+            "追蹤": st.column_config.CheckboxColumn("追蹤?", help="勾選要加入追蹤的"),
+            "_code": None, "_disp": None,
+        },
+        disabled=["訊號", "標的", "位置", "為什麼（理由）", "已在清單"])
+    to_add = [(r["_code"], r["_disp"]) for _, r in edited.iterrows()
+              if r["追蹤"] and r["_code"] not in tracked_codes]
+    if st.button(f"➕ 加入勾選的 {len(to_add)} 檔到追蹤清單",
+                 key=f"scanadd_{date_label}", disabled=not to_add):
+        for code, disp in to_add:
+            add_stock(code, name=disp, owner=owner)
+        st.success(f"已加入 {len(to_add)} 檔追蹤")
+        st.rerun()
 
 
 def render_screener_page():
