@@ -704,43 +704,37 @@ def _render_scan_result(names, cands, date_label):
         return ("🟢" if s in ("進場", "順勢偏多")
                 else "🔴" if s in ("避開", "明顯轉空避開") else "🟡")
 
-    st.caption("👉 最左欄勾選要追蹤的（已打勾＝已在清單；連續勾不會重載），勾完按下方「加入勾選」一次送出。"
-               "要移除追蹤請到「⭐ 管理追蹤」頁。")
-    rows = []
-    for x in cands:
-        code = x["code"]
-        disp = f"{names.get(code, code)} ({code})"
-        tracked = code in tracked_codes
-        rows.append({"追蹤": tracked,          # 已在清單者預設打勾（一眼看出）
-                     "訊號": f"{_badge(x['signal'])} {x['signal']}",
-                     "標的": disp, "位置": x.get("at_batch") or x.get("kind", ""),
-                     "為什麼（理由）": x.get("reason", ""),
-                     "_code": code, "_disp": disp})
-    df = pd.DataFrame(rows)
-    editor_key = f"scan_editor_{date_label}"
-    # 用 form 包住：表單內勾選不會逐次 rerun，按送出才一次套用（可連續勾很多檔）
+    st.caption("👉 勾選要追蹤的（**已追蹤者已鎖定打勾、不可取消**；表單內連續勾不會重載）；"
+               "勾完按下方一次加入。要移除追蹤請到「⭐ 管理追蹤」頁。")
+    # 逐列 checkbox：已追蹤者 disabled+打勾（灰色鎖定），其餘可勾。放在 form 內不會逐次 rerun。
     with st.form(f"scanform_{date_label}", border=False):
-        st.data_editor(
-            df, hide_index=True, use_container_width=True, key=editor_key,
-            column_config={
-                "追蹤": st.column_config.CheckboxColumn("追蹤?", help="勾選要加入追蹤的"),
-                "_code": None, "_disp": None,
-            },
-            disabled=["訊號", "標的", "位置", "為什麼（理由）"])
+        h = st.columns([0.8, 1.3, 2.2, 4])
+        for col, txt in zip(h, ("追蹤", "訊號", "標的", "位置／理由")):
+            col.caption(txt)
+        checks = []
+        for x in cands:
+            code = x["code"]
+            disp = f"{names.get(code, code)} ({code})"
+            tracked = code in tracked_codes
+            c = st.columns([0.8, 1.3, 2.2, 4])
+            v = c[0].checkbox("追蹤", value=tracked, disabled=tracked,
+                              key=f"chk_{date_label}_{code}",
+                              label_visibility="collapsed")
+            c[1].markdown(f"{_badge(x['signal'])} {x['signal']}")
+            c[2].markdown(f"**{disp}**")
+            c[3].markdown(f"{x.get('at_batch') or x.get('kind', '')}｜{x.get('reason', '')}")
+            checks.append((code, disp, tracked, v))
         submitted = st.form_submit_button("➕ 加入勾選的到追蹤清單", type="primary")
     if submitted:
-        # 讀實際編輯狀態；只加「新勾選、且原本不在清單」的（已打勾的追蹤股不會重複加）
-        edited_rows = st.session_state.get(editor_key, {}).get("edited_rows", {})
-        to_add = [(rows[int(i)]["_code"], rows[int(i)]["_disp"])
-                  for i, ch in edited_rows.items()
-                  if ch.get("追蹤") and rows[int(i)]["_code"] not in tracked_codes]
+        to_add = [(code, disp) for code, disp, tracked, v in checks
+                  if v and not tracked]              # 灰色(已追蹤)不會做任何事
         for code, disp in to_add:
             add_stock(code, name=disp, owner=owner)
         if to_add:
             st.success("✅ 已加入追蹤：" + "、".join(d for _, d in to_add))
             st.rerun()
         else:
-            st.info("這次沒有新增（沒勾新的、或勾到的已在清單）。")
+            st.info("這次沒有新增（沒勾新的；灰色的本來就在清單）。")
 
 
 def render_screener_page():
