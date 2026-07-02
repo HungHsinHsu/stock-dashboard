@@ -51,6 +51,21 @@ def test_scan_reports_trend():
     assert out and "排列" in out[0]["trend"] and "季線" in out[0]["trend"]
 
 
+def test_scan_stocks_ranked_before_etfs():
+    # 個股優先、ETF 分開放：就算 ETF 是『順勢偏多』(高分)，個股(即使只是觀望)也排在 ETF 前面
+    data = {"0050": _vacuum_uptrend(), "8888": _vacuum_uptrend()}
+    out = scan(["0050", "8888"], fetch=lambda c: data[c])
+    assert [x["kind"] for x in out] == ["個股", "ETF"]   # 個股在前、ETF 收在後
+    assert out[0]["code"] == "8888" and out[1]["code"] == "0050"
+
+
+def test_scan_etf_limit_caps_etf_section():
+    # etf_limit 只截 ETF 段，不影響個股
+    data = {"0050": _vacuum_uptrend(), "0056": _vacuum_uptrend(), "8888": _vacuum_uptrend()}
+    out = scan(["0050", "0056", "8888"], fetch=lambda c: data[c], etf_limit=1)
+    assert [x["kind"] for x in out] == ["個股", "ETF"]   # 兩檔 ETF 被截成 1 檔
+
+
 def test_scan_excludes_denylist():
     # 禁區股(群創 3481)本來就不玩 → 不列
     out = scan(["3481"], fetch=lambda c: _pullback_hold_shrink())

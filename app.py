@@ -711,27 +711,42 @@ def _render_scan_result(names, cands, date_label):
     # 逐列 checkbox：已追蹤者 disabled+打勾（灰色鎖定），其餘可勾。放在 form 內不會逐次 rerun。
     st.caption("『波段體質』欄：**多頭排列·站上季線**＝上升趨勢中的回檔(較好的波段承接)；"
                "**空頭排列·季線下**＝多半只是反彈，別當波段。")
+    stocks = [x for x in cands if x.get("kind") != "ETF"]
+    etfs = [x for x in cands if x.get("kind") == "ETF"]
+    widths = [1.3, 1.2, 2, 2.4, 3.2]
+
     with st.form(f"scanform_{date_label}", border=False):
-        widths = [1.3, 1.2, 2, 2.4, 3.2]
-        h = st.columns(widths)
-        for col, txt in zip(h, ("追蹤", "訊號", "標的", "波段體質", "位置／理由")):
-            col.caption(txt)
         checks = []
-        for x in cands:
-            code = x["code"]
-            disp = f"{names.get(code, code)} ({code})"
-            tracked = code in tracked_codes
-            c = st.columns(widths)
-            # 已追蹤：灰色鎖定打勾，且標籤顯示「已追蹤」；未追蹤：可勾、標籤隱藏
-            v = c[0].checkbox("已追蹤" if tracked else "追蹤",
-                              value=tracked, disabled=tracked,
-                              key=f"chk_{date_label}_{code}",
-                              label_visibility="visible" if tracked else "collapsed")
-            c[1].markdown(f"{_badge(x['signal'])} {x['signal']}")
-            c[2].markdown(f"**{disp}**")
-            c[3].markdown(x.get("trend", "—"))
-            c[4].markdown(f"{x.get('at_batch') or x.get('kind', '')}｜{x.get('reason', '')}")
-            checks.append((code, disp, tracked, v))
+
+        def _rows(items):
+            h = st.columns(widths)
+            for col, txt in zip(h, ("追蹤", "訊號", "標的", "波段體質", "位置／理由")):
+                col.caption(txt)
+            for x in items:
+                code = x["code"]
+                disp = f"{names.get(code, code)} ({code})"
+                tracked = code in tracked_codes
+                c = st.columns(widths)
+                # 已追蹤：灰色鎖定打勾，且標籤顯示「已追蹤」；未追蹤：可勾、標籤隱藏
+                v = c[0].checkbox("已追蹤" if tracked else "追蹤",
+                                  value=tracked, disabled=tracked,
+                                  key=f"chk_{date_label}_{code}",
+                                  label_visibility="visible" if tracked else "collapsed")
+                c[1].markdown(f"{_badge(x['signal'])} {x['signal']}")
+                c[2].markdown(f"**{disp}**")
+                c[3].markdown(x.get("trend", "—"))
+                c[4].markdown(f"{x.get('at_batch') or x.get('kind', '')}｜{x.get('reason', '')}")
+                checks.append((code, disp, tracked, v))
+
+        st.markdown("#### 📈 個股（主）")
+        if stocks:
+            _rows(stocks)
+        else:
+            st.info("今日沒有合適的個股候選（可能都趨勢轉弱或資料不齊）。")
+        if etfs:
+            st.markdown("#### 📦 ETF（趨勢參考）")
+            st.caption("ETF 走的是另一套『趨勢框架』，不是個股回檔承接法；這裡只當大盤／族群趨勢的參考。")
+            _rows(etfs)
         submitted = st.form_submit_button("➕ 加入勾選的到追蹤清單", type="primary")
     if submitted:
         to_add = [(code, disp) for code, disp, tracked, v in checks

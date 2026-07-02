@@ -12,18 +12,27 @@ from datetime import datetime
 STATE_KEY = "screen:latest"
 
 
+def _line(x, names):
+    nm = names.get(x["code"], x["code"])
+    where = x.get("at_batch") or x["kind"]
+    trend = x.get("trend", "")
+    trend_txt = f"〔{trend}〕" if trend else ""
+    return f"・[{x['signal']}] {nm} ({x['code']}){trend_txt}：{where}｜{x['reason']}"
+
+
 def _digest(date, cands, names, top):
+    stocks = [x for x in cands if x.get("kind") != "ETF"]
+    etfs = [x for x in cands if x.get("kind") == "ETF"]
     lines = [
         f"🔎 今日收盤後選股（回檔承接法・前 {top} 大成交股）— {date}",
         "📏 評選：訊號 進場>觀望>避開 ＞ 回檔到支撐 ＞ 收盤站穩 ＞ 量縮 ＞ 離均線近；禁區/槓桿不列。",
         "",
+        "📈 個股（主）：",
     ]
-    for x in cands:
-        nm = names.get(x["code"], x["code"])
-        where = x.get("at_batch") or x["kind"]
-        trend = x.get("trend", "")
-        trend_txt = f"〔{trend}〕" if trend else ""
-        lines.append(f"・[{x['signal']}] {nm} ({x['code']}){trend_txt}：{where}｜{x['reason']}")
+    lines += [_line(x, names) for x in stocks] or ["・（今日沒有合適個股）"]
+    if etfs:
+        lines += ["", "📦 ETF（趨勢參考，走另一套框架，非個股承接法）："]
+        lines += [_line(x, names) for x in etfs]
     lines += ["", "（進場＝四關到位可接；觀望＝趨勢沒破在等；避開＝跌破季線墊底參考）",
               "※ 已逐檔補查外資、資料不齊者已排除，訊號含外資；要追蹤用 /add 代號", f"🔗 {DASHBOARD_URL}"]
     return "\n".join(lines)

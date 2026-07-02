@@ -29,6 +29,21 @@ def _label(ceiling, etf):
     return ETF_SIGNAL_LABEL.get(ceiling, ceiling) if etf else ceiling
 
 
+def _group_first(items, limit, etf_limit):
+    """個股優先、ETF 分開放：個股排前面（各自依分數，就算全觀望也在最上面），
+    ETF 收在後面當『趨勢參考』，不跟個股搶排名、不洗版。"""
+    def _key(x):
+        rank = x.get("_rank", x.get("score", 0))
+        vr = x["vol_ratio"] if x.get("vol_ratio") is not None else 9.9
+        return (-rank, vr)
+    stocks = sorted([x for x in items if x.get("kind") != "ETF"], key=_key)
+    etfs = sorted([x for x in items if x.get("kind") == "ETF"], key=_key)
+    out = stocks[:limit] + etfs[:etf_limit]
+    for it in out:
+        it.pop("_rank", None)
+    return out
+
+
 def _trend_label(ind):
     """波段體質：均線排列(多頭/空頭/糾結) ＋ 是否站上季線(MA60)。
     多頭排列·站上季線＝體質好的回檔；空頭排列·季線下＝多半是反彈，別當波段。"""
@@ -39,7 +54,8 @@ def _trend_label(ind):
     return align
 
 
-def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0):
+def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0,
+         etf_limit=8):
     """對 codes 逐檔套規則、評分排序，回前 limit 名候選(list[dict]，含 signal 標籤)。
 
     fetch(code) -> DataFrame（需足夠歷史算 MA60；不足或抓不到則略過）。
@@ -85,7 +101,7 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0):
                                t[0]["vol_ratio"] if t[0]["vol_ratio"] is not None else 9.9))
 
     if foreign_lookup is None:
-        return [item for item, *_ in prelim[:limit]]
+        return _group_first([item for item, *_ in prelim], limit, etf_limit)
 
     # 外資確認：對排名靠前的候選(多取緩衝)逐檔補查外資。
     # 原則：資料要齊——個股若『查不到外資』就整檔剔除（不推薦資料不全的標的），
@@ -108,10 +124,4 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0):
         item["reason"] = s2["reason"]
         item["_rank"] = _SIGNAL_BASE.get(s2["ceiling"], 100)
         kept.append(item)
-    kept.sort(key=lambda x: (-x["_rank"],
-                             x["vol_ratio"] if x["vol_ratio"] is not None else 9.9))
-    out = []
-    for item in kept[:limit]:
-        item.pop("_rank", None)
-        out.append(item)
-    return out
+    return _group_first(kept, limit, etf_limit)
