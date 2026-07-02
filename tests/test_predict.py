@@ -145,6 +145,37 @@ def test_make_and_format_market_prediction():
     assert "預測開盤方向" in s and "大盤昨收" in s
 
 
+def test_market_drops_taifex_when_conflicts_with_us():
+    # 費半 -6.27% 崩，但台指期顯示 +0.97（過時/雜訊）→ 嚴重背離，台指期應被丟棄不餵給模型
+    seen = {}
+
+    def _spy(system, user, schema, client=None):
+        seen["user"] = user
+        return {"direction": "跌", "confidence": "高", "drivers": [], "reason": "費半崩"}
+
+    out = make_market_prediction(
+        {"ma20": 45000}, {"費半SOX": -6.27, "Nasdaq": -0.66},
+        {"direction": "跌", "pct": -0.5}, taifex_night=0.97,
+        llm=_spy, taifex_asof="2026-07-01")
+    assert "0.97" not in seen["user"]        # 矛盾的台指期不餵進提示
+    assert "背離" in seen["user"]             # 明講背離、不納入
+    assert out["taifex_night"] is None        # 記錄裡也標記為未採用
+
+
+def test_market_keeps_taifex_when_consistent():
+    # 費半與台指期同向（都跌）→ 台指期正常納入
+    seen = {}
+
+    def _spy(system, user, schema, client=None):
+        seen["user"] = user
+        return {"direction": "跌", "confidence": "中", "drivers": [], "reason": "x"}
+
+    make_market_prediction(
+        {"ma20": 45000}, {"費半SOX": -3.0}, {"direction": "跌", "pct": -0.5},
+        taifex_night=-1.2, llm=_spy, taifex_asof="2026-07-01")
+    assert "-1.2" in seen["user"]            # 同向的台指期照常納入
+
+
 def test_format_prediction_forecast_labels_basis_date():
     pred = {
         "signal": "觀望", "direction": "漲", "confidence": "中",

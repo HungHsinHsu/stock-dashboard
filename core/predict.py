@@ -285,23 +285,41 @@ MARKET_PRED_SCHEMA = {
 
 _MARKET_SYSTEM = (
     "你是台股大盤(加權指數)分析師。預測『今日開盤後加權指數相對昨收的方向(漲/跌)』。\n"
-    "最重要的領先指標是【台指期夜盤】(盤後盤 15:00~05:00 已反映美股隔夜，最貼近今日開盤)"
-    "與【美股隔夜】(尤其費城半導體 SOX 對台股電子權值影響大)；"
-    "其次才是大盤自身技術面(均線/MACD/KD/RSI)。\n"
-    "以領先指標為主、技術面為輔，列出 drivers(引用具體數字)，再給 direction 與 confidence。"
-    "台指期夜盤與美股隔夜方向一致時 confidence 可較高；資料缺漏或彼此矛盾則用『低』。\n"
-    "若提供【過去教訓】，參考過去誤判避免重蹈，但仍以當前領先指標與技術面客觀判斷，"
-    "不可因過去錯誤就一律反向。"
+    "【最重要：美股隔夜是已實現的隔夜方向，為主要領先指標】尤其費城半導體 SOX，"
+    "對台股電子權值與台積電影響最大；費半大跌(如 -3% 以上)時，加權指數當日偏空機率很高，"
+    "除非有明確且強力的反向證據，否則不可預測上漲。\n"
+    "【台指期夜盤只是輔助確認】它可能過時或有雜訊。當台指期方向與美股隔夜明顯衝突時，"
+    "一律以美股隔夜為準——切勿因為台指期小漲，就在美股(費半)大跌的夜晚預測大盤上漲。"
+    "(系統偵測到台指期與美股嚴重背離時會直接不提供台指期，此時純以美股隔夜與技術面判斷。)\n"
+    "技術面(均線/MACD/KD/RSI)為最後輔助。列出 drivers(引用具體數字)，再給 direction 與 confidence。"
+    "美股與台指期方向一致時 confidence 可較高；資料缺漏或彼此矛盾則用『低』。\n"
+    "若提供【過去教訓】，參考過去誤判避免重蹈，但仍以當前領先指標客觀判斷，不可因過去錯誤就一律反向。"
 )
+
+
+def _taifex_conflicts_us(taifex_night, us_overnight):
+    """台指期與美股隔夜是否『嚴重背離』：美股(費半)大動作卻和台指期方向相反。
+    是 → 台指期多半過時/雜訊，應丟棄不用（避免誤導，例如費半崩、台指期卻顯示漲）。"""
+    if taifex_night is None:
+        return False
+    sox = (us_overnight or {}).get("費半SOX")
+    if sox is None:
+        return False
+    return (sox <= -2 and taifex_night >= 0) or (sox >= 2 and taifex_night <= 0)
 
 
 def make_market_prediction(index_indicators, us_overnight, market_data,
                            taifex_night=None, llm=generate_json, lessons="",
                            taifex_asof=None):
+    # 台指期與美股嚴重背離（費半大跌卻顯示漲等）→ 台指期多半過時/雜訊，丟棄不用
+    tf_conflict = _taifex_conflicts_us(taifex_night, us_overnight)
+    if tf_conflict:
+        taifex_night, taifex_asof = None, None
     tf_txt = (f"{taifex_night}（{taifex_asof} 那一場）" if taifex_asof
               else json.dumps(taifex_night, ensure_ascii=False))
     if taifex_night is None:
-        tf_txt = "無（抓不到或資料過時，本次不納入判斷）"
+        tf_txt = ("無（台指期與美股隔夜嚴重背離、多半過時，本次不納入；純以美股隔夜與技術面判斷）"
+                  if tf_conflict else "無（抓不到或資料過時，本次不納入判斷）")
     user = (
         f"美股隔夜漲跌(%)：{json.dumps(us_overnight, ensure_ascii=False)}\n"
         f"台指期夜盤漲跌(%)：{tf_txt}\n"
