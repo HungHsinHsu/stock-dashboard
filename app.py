@@ -805,28 +805,32 @@ def render_manage_watchlist():
                     st.rerun()
 
     st.divider()
-    st.markdown("#### 📋 目前追蹤清單（點欄位標題可排序；勾選後移除）")
+    st.markdown("#### 📋 目前追蹤清單（勾選後移除）")
     stocks = effective_stocks(owner)
-    rows = [{"移除": False, "代號": cfg["code"], "名稱": name, "_code": cfg["code"]}
-            for name, cfg in stocks.items()]
-    if not rows:
+    if not stocks:
         st.info("清單是空的，用上面搜尋加入。")
         return
-    df = pd.DataFrame(rows)
+    sort_by = st.radio("排序", ["代號", "名稱"], horizontal=True, key="wl_sort")
+    items = sorted(stocks.items(),
+                   key=(lambda kv: kv[1]["code"]) if sort_by == "代號"
+                   else (lambda kv: kv[0]))
+    # 逐列版面：填滿寬度、勾選欄小、所有列一次顯示不出捲軸
+    ratios = [0.5, 1.2, 5]
     with st.form("wl_manage_form", border=False):
-        st.data_editor(
-            df, hide_index=True, use_container_width=False, key="wl_editor",
-            column_config={
-                "移除": st.column_config.CheckboxColumn("移除", width="small"),
-                "代號": st.column_config.TextColumn("代號", width="small"),
-                "名稱": st.column_config.TextColumn("名稱", width="medium"),
-                "_code": None},
-            disabled=["代號", "名稱"])
+        h = st.columns(ratios)
+        for col, txt in zip(h, ("移除", "代號", "名稱")):
+            col.caption(txt)
+        checks = []
+        for name, cfg in items:
+            code = cfg["code"]
+            c = st.columns(ratios)
+            v = c[0].checkbox("移除", key=f"wlrm_{code}", label_visibility="collapsed")
+            c[1].markdown(f"`{code}`")
+            c[2].markdown(name)
+            checks.append((code, v))
         submitted = st.form_submit_button("🗑 移除勾選的", type="primary")
     if submitted:
-        edited = st.session_state.get("wl_editor", {}).get("edited_rows", {})
-        removed = [rows[int(i)]["_code"] for i, ch in edited.items()
-                   if ch.get("移除") and remove_stock(rows[int(i)]["_code"], owner)]
+        removed = [code for code, v in checks if v and remove_stock(code, owner)]
         if removed:
             st.success("已移除：" + "、".join(removed))
             st.rerun()
