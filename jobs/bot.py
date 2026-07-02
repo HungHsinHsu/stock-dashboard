@@ -315,6 +315,21 @@ def _scan_candidates_digest(top=120, limit=12):
     return "\n".join(lines)
 
 
+def _scan_command():
+    """/選股：優先回『今日收盤後已存的選股清單』（即時、不再打 TWSE）；
+    沒有存檔才即時掃（較慢）。"""
+    try:
+        stored = db.get_state("screen:latest") if db.db_enabled() else None
+    except Exception:
+        stored = None
+    if stored and stored.get("cands"):
+        from jobs.screen import _digest
+        return _digest(stored.get("date", ""), stored["cands"],
+                       stored.get("names", {}), stored.get("top", 150))
+    tg.send("⏳ 尚無今日收盤後清單，改即時掃描（約 1–2 分鐘）…")
+    return _scan_candidates_digest()
+
+
 def _resolve_in_watchlist(query):
     """先在使用者追蹤清單裡解析（即使 TWSE 名單抓不到也能用）。
     回 (code, 顯示名) 或 None。"""
@@ -556,11 +571,10 @@ def _dispatch(text):
         return _run_morning_now(args[0] if args else None)
     # 選股掃描：依回檔承接法規則從全市場找出當下的承接點候選
     if cmd in ("選股", "掃描", "選標的", "找標的", "scan", "screen"):
-        tg.send("⏳ 選股掃描中（掃前 120 大成交股，約 1–2 分鐘）…")
         try:
-            return _scan_candidates_digest()
+            return _scan_command()
         except Exception as e:
-            return f"⚠️ 選股掃描失敗：{e}"
+            return f"⚠️ 選股失敗：{e}"
     # 以「/」開頭卻沒對到任何指令 → 打錯指令
     if text.strip().startswith("/"):
         return "不認得的指令。傳 /help 看用法。"
