@@ -14,7 +14,7 @@ except Exception:
 
 from core.data import (
     fetch_daily, fetch_index, fetch_foreign_flow, fetch_top_turnover,
-    resolve_stocks, STOCKS as BASE_STOCKS,
+    resolve_stocks,
 )
 from core.indicators import compute_indicators
 from core.rules import is_etf, NEAR_PCT, entry_setup, is_denied, DENYLIST
@@ -783,8 +783,6 @@ def render_screener_page():
 def render_manage_watchlist():
     st.markdown("### ⭐ 管理追蹤個股")
     owner = _dash_owner()
-    base_codes = {c["code"] for c in BASE_STOCKS.values()}
-
     # 搜尋加入（代號或中文名）
     st.markdown("#### ➕ 搜尋加入")
     q = st.text_input("輸入股票代號或中文名稱", key="wl_search",
@@ -809,9 +807,7 @@ def render_manage_watchlist():
     st.divider()
     st.markdown("#### 📋 目前追蹤清單（點欄位標題可排序；勾選後移除）")
     stocks = effective_stocks(owner)
-    rows = [{"移除": False, "代號": cfg["code"], "名稱": name,
-             "類型": "預設(不可移除)" if cfg["code"] in base_codes else "自訂",
-             "_code": cfg["code"]}
+    rows = [{"移除": False, "代號": cfg["code"], "名稱": name, "_code": cfg["code"]}
             for name, cfg in stocks.items()]
     if not rows:
         st.info("清單是空的，用上面搜尋加入。")
@@ -820,26 +816,20 @@ def render_manage_watchlist():
     with st.form("wl_manage_form", border=False):
         st.data_editor(
             df, hide_index=True, use_container_width=True, key="wl_editor",
-            column_config={"移除": st.column_config.CheckboxColumn("移除?"),
-                           "_code": None},
-            disabled=["代號", "名稱", "類型"])
+            column_config={
+                "移除": st.column_config.CheckboxColumn("移除", width="small"),
+                "代號": st.column_config.TextColumn("代號", width="small"),
+                "名稱": st.column_config.TextColumn("名稱", width="large"),
+                "_code": None},
+            disabled=["代號", "名稱"])
         submitted = st.form_submit_button("🗑 移除勾選的", type="primary")
     if submitted:
         edited = st.session_state.get("wl_editor", {}).get("edited_rows", {})
-        removed, skipped = [], []
-        for i, ch in edited.items():
-            if not ch.get("移除"):
-                continue
-            code = rows[int(i)]["_code"]
-            if code in base_codes:
-                skipped.append(code)
-            elif remove_stock(code, owner):
-                removed.append(code)
+        removed = [rows[int(i)]["_code"] for i, ch in edited.items()
+                   if ch.get("移除") and remove_stock(rows[int(i)]["_code"], owner)]
         if removed:
             st.success("已移除：" + "、".join(removed))
             st.rerun()
-        elif skipped:
-            st.info("勾到的是預設股，不可移除。")
         else:
             st.info("沒有勾選要移除的。")
 
