@@ -5,6 +5,7 @@
 只有真正『趨勢已破』的（個股跌破季線＝停損、禁區；ETF 明顯轉空避開）才不列，
 因為那些不是值得觀察承接的標的。篩選是純規則、不花 AI。
 """
+import time
 from core.indicators import compute_indicators
 from core.rules import (
     entry_setup, etf_setup, is_etf, is_denied, is_leveraged_etf, ETF_SIGNAL_LABEL,
@@ -28,7 +29,7 @@ def _label(ceiling, etf):
     return ETF_SIGNAL_LABEL.get(ceiling, ceiling) if etf else ceiling
 
 
-def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10):
+def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0):
     """對 codes 逐檔套規則、評分排序，回前 limit 名候選(list[dict]，含 signal 標籤)。
 
     fetch(code) -> DataFrame（需足夠歷史算 MA60；不足或抓不到則略過）。
@@ -39,6 +40,8 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10):
     for code in codes:
         if is_denied(code) or is_leveraged_etf(code):
             continue                          # 禁區/槓桿股：本來就不玩，不列
+        if pause:
+            time.sleep(pause)                 # 節流，降低 TWSE 限流風險
         try:
             df = fetch(code)
         except Exception:

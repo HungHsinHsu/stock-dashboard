@@ -281,16 +281,26 @@ def _run_morning_now(query=None):
             "之後收盤會自動復盤、算進命中率。")
 
 
-def _scan_candidates_digest(top=150, limit=12):
+def _scan_candidates_digest(top=120, limit=12):
     """依回檔承接法規則掃『當日成交額前 top 檔』，挑出現在符合進場的候選。"""
     uni = fetch_top_turnover(top)
     if not uni:
-        return "⚠️ 抓不到市場清單，稍後再試。"
+        return "⚠️ 抓不到市場清單（TWSE 沒回應），稍後再試 /選股。"
     name = {c: nm for c, nm in uni}
-    cands = _scan([c for c, _ in uni],
-                  fetch=lambda c: fetch_daily(c, months=3), limit=limit)
+    stats = {"ok": 0}
+
+    def _f(c):
+        df = fetch_daily(c, months=3, workers=2)
+        if df is not None and not getattr(df, "empty", True):
+            stats["ok"] += 1
+        return df
+
+    cands = _scan([c for c, _ in uni], fetch=_f, limit=limit, pause=0.05)
     if not cands:
-        return ("⚠️ 這次抓不到足夠資料掃描（TWSE 可能暫時忙碌或限流）。稍後再試一次 /選股。")
+        if stats["ok"] == 0:
+            return (f"⚠️ 清單抓到 {len(uni)} 檔，但個股歷史 0 檔抓成功——多半是 TWSE 限流／"
+                    "擋住連續請求。稍等 1–2 分鐘再試一次 /選股。")
+        return (f"⚠️ 抓到 {len(uni)} 檔、成功讀取 {stats['ok']} 檔，但都不符合。稍後再試。")
     lines = [
         f"🔎 選股掃描（回檔承接法・前 {top} 大成交股，相對最好的前 {len(cands)} 名）",
         "📏 評選標準（分數高→前）：訊號 進場>觀望>避開　＞　回檔到支撐附近"
@@ -546,7 +556,7 @@ def _dispatch(text):
         return _run_morning_now(args[0] if args else None)
     # 選股掃描：依回檔承接法規則從全市場找出當下的承接點候選
     if cmd in ("選股", "掃描", "選標的", "找標的", "scan", "screen"):
-        tg.send("⏳ 選股掃描中（掃前 150 大成交股，約 1 分鐘）…")
+        tg.send("⏳ 選股掃描中（掃前 120 大成交股，約 1–2 分鐘）…")
         try:
             return _scan_candidates_digest()
         except Exception as e:

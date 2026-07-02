@@ -663,14 +663,24 @@ def render_history_overview(records, owner="admin"):
         "——皆以『全部歷史』計算，不受上方顯示範圍影響。詳細檢討到大盤頁/個股頁看。")
 
 
-@st.cache_data(ttl=4 * 3600, show_spinner=False)
 def _run_screen(top):
-    """掃當日成交額前 top 檔，套回檔承接法規則挑候選。快取 4 小時（同日重掃即時）。"""
+    """掃當日成交額前 top 檔，套回檔承接法規則挑候選。
+    回 (names, cands, uni_n, fetched_n)；不做結果快取——失敗重按能真的重試。
+    降低併發(workers=2)＋節流，減少被 TWSE 限流；並統計抓成功檔數供診斷。"""
     uni = fetch_top_turnover(top)
     names = {c: nm for c, nm in uni}
-    cands = _scan([c for c, _ in uni],
-                  fetch=lambda c: fetch_daily(c, months=3), limit=20)
-    return names, cands
+    if not uni:
+        return names, [], 0, 0
+    stats = {"ok": 0}
+
+    def _f(c):
+        df = fetch_daily(c, months=3, workers=2)
+        if df is not None and not getattr(df, "empty", True):
+            stats["ok"] += 1
+        return df
+
+    cands = _scan([c for c, _ in uni], fetch=_f, limit=20, pause=0.05)
+    return names, cands, len(uni), stats["ok"]
 
 
 def render_screener_page():
@@ -686,10 +696,17 @@ def render_screener_page():
     if not res:
         st.info("按上面「開始掃描」，這裡就會列出目前的承接點候選。")
         return
-    names, cands = res
+    names, cands, uni_n, fetched_n = res
     if not cands:
-        st.warning("這次抓不到足夠資料掃描（TWSE 可能暫時忙碌/限流）。稍後再按一次「開始掃描」。")
+        if uni_n == 0:
+            st.error("抓不到市場清單（TWSE STOCK_DAY_ALL 沒回應）。稍後再按一次。")
+        elif fetched_n == 0:
+            st.error(f"清單有抓到 {uni_n} 檔，但**個股歷史 0 檔抓成功**——多半是 TWSE 對本站"
+                     "連續請求限流／擋住了。請稍等 1–2 分鐘再按一次，或把範圍調更小。")
+        else:
+            st.warning(f"抓到清單 {uni_n} 檔、成功讀取 {fetched_n} 檔歷史，但都不符合。稍後再試。")
         return
+    st.caption(f"（診斷：掃 {uni_n} 檔、成功讀取 {fetched_n} 檔歷史）")
     owner = _dash_owner()
     tracked = set(effective_stocks(owner).keys())
     st.markdown(f"**相對最好的前 {len(cands)} 名**"

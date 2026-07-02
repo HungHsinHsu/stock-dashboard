@@ -288,7 +288,7 @@ def test_scan_command_lists_candidates(monkeypatch):
     monkeypatch.setattr(bot, "fetch_top_turnover",
                         lambda n=150: [("2330", "台積電"), ("3481", "群創")])
     monkeypatch.setattr(bot, "fetch_daily", lambda c, months=3: "DF")
-    monkeypatch.setattr(bot, "_scan", lambda codes, fetch, limit=12: [
+    monkeypatch.setattr(bot, "_scan", lambda codes, fetch, limit=12, **kw: [
         {"code": "2330", "kind": "個股", "signal": "觀望",
          "at_batch": "支撐2/MA20(第二批)",
          "reason": "回檔到支撐2、收盤止穩且量縮", "vol_ratio": 0.8}])
