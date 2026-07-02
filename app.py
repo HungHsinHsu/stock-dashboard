@@ -697,7 +697,7 @@ def _render_scan_result(names, cands, date_label):
         return ("🟢" if s in ("進場", "順勢偏多")
                 else "🔴" if s in ("避開", "明顯轉空避開") else "🟡")
 
-    st.caption("👉 在最左欄勾選要追蹤的（可一次勾多檔），勾完按下方「加入勾選」即可。")
+    st.caption("👉 在最左欄勾選要追蹤的（表單內連續勾都不會重載），勾完按下方「加入勾選」一次送出。")
     rows = []
     for x in cands:
         code = x["code"]
@@ -709,22 +709,27 @@ def _render_scan_result(names, cands, date_label):
                      "已在清單": "✅" if tracked else "",
                      "_code": code, "_disp": disp})
     df = pd.DataFrame(rows)
-    edited = st.data_editor(
-        df, hide_index=True, use_container_width=True,
-        key=f"scan_editor_{date_label}",
-        column_config={
-            "追蹤": st.column_config.CheckboxColumn("追蹤?", help="勾選要加入追蹤的"),
-            "_code": None, "_disp": None,
-        },
-        disabled=["訊號", "標的", "位置", "為什麼（理由）", "已在清單"])
-    to_add = [(r["_code"], r["_disp"]) for _, r in edited.iterrows()
-              if r["追蹤"] and r["_code"] not in tracked_codes]
-    if st.button(f"➕ 加入勾選的 {len(to_add)} 檔到追蹤清單",
-                 key=f"scanadd_{date_label}", disabled=not to_add):
+    # 用 form 包住：表單內勾選不會逐次 rerun，按送出才一次套用（可連續勾很多檔）
+    with st.form(f"scanform_{date_label}", border=False):
+        edited = st.data_editor(
+            df, hide_index=True, use_container_width=True,
+            key=f"scan_editor_{date_label}",
+            column_config={
+                "追蹤": st.column_config.CheckboxColumn("追蹤?", help="勾選要加入追蹤的"),
+                "_code": None, "_disp": None,
+            },
+            disabled=["訊號", "標的", "位置", "為什麼（理由）", "已在清單"])
+        submitted = st.form_submit_button("➕ 加入勾選的到追蹤清單", type="primary")
+    if submitted:
+        to_add = [(r["_code"], r["_disp"]) for _, r in edited.iterrows()
+                  if r["追蹤"] and r["_code"] not in tracked_codes]
         for code, disp in to_add:
             add_stock(code, name=disp, owner=owner)
-        st.success(f"已加入 {len(to_add)} 檔追蹤")
-        st.rerun()
+        if to_add:
+            st.success(f"已加入 {len(to_add)} 檔追蹤")
+            st.rerun()
+        else:
+            st.info("沒有勾選新的標的（或勾到的已在清單）。")
 
 
 def render_screener_page():
