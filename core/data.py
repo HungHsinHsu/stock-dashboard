@@ -108,8 +108,8 @@ def _pick(row, names):
     return None
 
 
-def _taifex_change(data):
-    """從 TAIFEX 期貨每日行情(list[dict])解析台指期(TX)近月漲跌%；失敗回 None。"""
+def _taifex_pick_row(data):
+    """從 TAIFEX 期貨每日行情挑出台指期(TX)近月(成交量最大)那一列；無則 None。"""
     tx = [
         r for r in data
         if str(_pick(r, ("Contract", "契約", "商品代號", "FUTURES_ID")) or "")
@@ -119,21 +119,54 @@ def _taifex_change(data):
         return None
     # 同商品有多個到期月，取成交量最大者(近月最活躍)
     tx.sort(key=lambda r: _num(_pick(r, ("Volume", "成交量"))) or 0, reverse=True)
-    row = tx[0]
+    return tx[0]
+
+
+def _row_change_pct(row):
+    """從單列取漲跌%：優先 %Change 欄，否則用漲跌價/收盤回推；失敗回 None。"""
     pct = _num(_pick(row, ("%Change", "Change%", "漲跌%", "漲跌百分比", "漲跌百分比(%)")))
     if pct is None:
         last = _num(_pick(row, ("Last", "收盤價", "最後成交價", "SettlementPrice", "結算價")))
         chg = _num(_pick(row, ("Change", "漲跌價", "漲跌")))
         if last is not None and chg is not None and (last - chg):
             pct = chg / (last - chg) * 100
+    return round(pct, 2) if pct is not None else None
+
+
+def _row_date(row):
+    """把 TAIFEX 一列的交易日期正規化成 'YYYY-MM-DD'；無法解析回 None。"""
+    raw = _pick(row, ("Date", "日期", "交易日期", "TradeDate"))
+    if raw is None:
+        return None
+    s = str(raw).strip().replace("/", "-")
+    digits = s.replace("-", "")
+    if len(digits) == 8 and digits.isdigit():           # 20260701
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+    parts = s.split("-")                                # 2026-7-1 → 補零
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        y, m, d = parts
+        return f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
+    return None
+
+
+def _taifex_change(data):
+    """從 TAIFEX 期貨每日行情(list[dict])解析台指期(TX)近月漲跌%；失敗回 None。"""
+    row = _taifex_pick_row(data)
+    if row is None:
+        return None
+    pct = _row_change_pct(row)
     if pct is None:
         print("台指期解析失敗，樣本欄位：", list(row.keys()))
-        return None
-    return round(pct, 2)
+    return pct
 
 
-def fetch_taifex():
-    """台指期(TX)最近交易日漲跌%：優先夜盤(盤後，已含美股隔夜)，其次一般盤；抓不到回 None。"""
+def fetch_taifex_detail(min_date=None):
+    """台指期(TX)近月：優先夜盤(盤後，已含美股隔夜)，其次一般盤。
+    回 {'pct': float, 'date': 'YYYY-MM-DD'|None}；抓不到回 None。
+
+    新鮮度防呆：給了 min_date 時，若報表日期可解析且『早於 min_date』(抓到的是
+    上一場舊資料，今早那場還沒發布)，視為過時 → 丟棄不用。寧可回報無資料，
+    也不要拿一個過時的漲/跌方向去誤導今天的預測。"""
     for url in TAIFEX_URLS:
         try:
             data = requests.get(url, headers=HEADERS, timeout=15).json()
@@ -141,10 +174,25 @@ def fetch_taifex():
             continue
         if not isinstance(data, list) or not data:
             continue
-        pct = _taifex_change(data)
-        if pct is not None:
-            return pct
+        row = _taifex_pick_row(data)
+        if row is None:
+            continue
+        pct = _row_change_pct(row)
+        if pct is None:
+            print("台指期解析失敗，樣本欄位：", list(row.keys()))
+            continue
+        d = _row_date(row)
+        if min_date and d and d < str(min_date):
+            print(f"台指期資料過時({d} < {min_date})，丟棄不用：{url.split('/')[-1]}")
+            continue
+        return {"pct": pct, "date": d}
     return None
+
+
+def fetch_taifex(min_date=None):
+    """台指期(TX)近月漲跌%（含新鮮度防呆）；抓不到或過時回 None。"""
+    d = fetch_taifex_detail(min_date=min_date)
+    return d["pct"] if d else None
 
 
 T86_URL = "https://www.twse.com.tw/fund/T86"

@@ -19,7 +19,7 @@ def _fake_llm(system, user, schema, client=None):
     }
 
 
-_NO_LEAD = {"fetch_us": lambda: {}, "fetch_tf": lambda: None,
+_NO_LEAD = {"fetch_us": lambda: {}, "fetch_tf": lambda min_date=None: None,
             "fetch_fg": lambda code, today=None: None,
             "fetch_mg": lambda code, today=None: None}
 

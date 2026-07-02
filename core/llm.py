@@ -58,8 +58,10 @@ async def _agent_complete(system, user, schema, model):
     return text
 
 
-def _default_complete(system, user, schema, attempts=3):
-    """跑 Agent SDK，對偶發錯誤(含 Reached maximum number of turns、空回覆)重試。"""
+def _default_complete(system, user, schema, attempts=5):
+    """跑 Agent SDK，對偶發錯誤(含 Reached maximum number of turns、空回覆、
+    偶發限流/錯誤結果)重試。批次連續呼叫時最後幾筆較易踩到暫時性限流，
+    故用漸長退避(最長 30 秒)，讓限流視窗過去再重試。"""
     last = None
     for i in range(attempts):
         try:
@@ -68,9 +70,9 @@ def _default_complete(system, user, schema, attempts=3):
                 return text
             last = LLMError("Empty response from Agent SDK")
         except Exception as e:  # noqa: BLE001 — SDK 會丟泛型 Exception
-            last = e
+            last = LLMError(f"{type(e).__name__}: {e}")
         if i < attempts - 1:
-            time.sleep(2 * (i + 1))
+            time.sleep(min(5 * (i + 1), 30))
     raise last if last is not None else LLMError("Agent SDK failed")
 
 

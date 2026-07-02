@@ -258,10 +258,15 @@ _MARKET_SYSTEM = (
 
 
 def make_market_prediction(index_indicators, us_overnight, market_data,
-                           taifex_night=None, llm=generate_json, lessons=""):
+                           taifex_night=None, llm=generate_json, lessons="",
+                           taifex_asof=None):
+    tf_txt = (f"{taifex_night}（{taifex_asof} 那一場）" if taifex_asof
+              else json.dumps(taifex_night, ensure_ascii=False))
+    if taifex_night is None:
+        tf_txt = "無（抓不到或資料過時，本次不納入判斷）"
     user = (
         f"美股隔夜漲跌(%)：{json.dumps(us_overnight, ensure_ascii=False)}\n"
-        f"台指期夜盤漲跌(%)：{json.dumps(taifex_night, ensure_ascii=False)}\n"
+        f"台指期夜盤漲跌(%)：{tf_txt}\n"
         f"大盤昨收摘要：{json.dumps(market_data, ensure_ascii=False)}\n"
         f"大盤技術指標(到昨收)：{json.dumps(index_indicators, ensure_ascii=False)}"
     )
@@ -270,6 +275,7 @@ def make_market_prediction(index_indicators, us_overnight, market_data,
     out = llm(_MARKET_SYSTEM, user, MARKET_PRED_SCHEMA)
     out["us_overnight"] = us_overnight
     out["taifex_night"] = taifex_night
+    out["taifex_date"] = taifex_asof
     out["market_data"] = market_data
     return out
 
@@ -292,9 +298,15 @@ def format_market_prediction(date, pred, forecast=False):
         lines.append("")
         lines.append("──── 美股隔夜 ────")
         for name, pct in us.items():
-            lines.append(f"{'🟢' if pct >= 0 else '🔴'} {name}：{pct:+.2f}%")
+            # 台灣慣例：漲紅、跌綠
+            lines.append(f"{'🔴' if pct >= 0 else '🟢'} {name}：{pct:+.2f}%")
     tf = pred.get("taifex_night")
-    tf_txt = f"{tf:+.2f}%" if isinstance(tf, (int, float)) else "（無）"
+    tf_date = pred.get("taifex_date")
+    if isinstance(tf, (int, float)):
+        asof = f"（{tf_date}）" if tf_date else ""
+        tf_txt = f"{tf:+.2f}%{asof}"
+    else:
+        tf_txt = "（無資料，本次未納入判斷）"
     lines.append(f"📊 台指期夜盤：{tf_txt}")
     if mk.get("direction"):
         pct = mk.get("pct")

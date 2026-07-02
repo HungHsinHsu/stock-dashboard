@@ -501,7 +501,9 @@ if _page == "🌐 大盤":
         lines = [f"- **預期開盤方向**：{arrow}{conf_txt}"]
         tf = mp.get("taifex_night")
         if isinstance(tf, (int, float)):
-            lines.append(f"- **台指期夜盤**：{tf:+.2f}%")
+            tf_date = mp.get("taifex_date")
+            asof = f"（{tf_date}）" if tf_date else ""
+            lines.append(f"- **台指期夜盤**：{tf:+.2f}%{asof}")
         us = mp.get("us_overnight") or {}
         if us:
             lines.append("- **美股隔夜**：" +
