@@ -87,8 +87,12 @@ def _login(username, password):
 
 
 def _dash_owner():
+    # 管理者一律用 "admin" 這個 owner（與 Telegram 機器人同一份清單），
+    # 一般使用者各用自己的帳號名，清單互不影響。
     u = st.session_state.get("auth_user")
-    return u["name"] if u else "admin"
+    if not u:
+        return "admin"
+    return "admin" if u.get("role") == "admin" else u["name"]
 
 
 def _web_ask(prompt, who="admin", timeout_s=100):
@@ -709,11 +713,11 @@ def _render_scan_result(names, cands, date_label):
                      "已在清單": "✅" if tracked else "",
                      "_code": code, "_disp": disp})
     df = pd.DataFrame(rows)
+    editor_key = f"scan_editor_{date_label}"
     # 用 form 包住：表單內勾選不會逐次 rerun，按送出才一次套用（可連續勾很多檔）
     with st.form(f"scanform_{date_label}", border=False):
-        edited = st.data_editor(
-            df, hide_index=True, use_container_width=True,
-            key=f"scan_editor_{date_label}",
+        st.data_editor(
+            df, hide_index=True, use_container_width=True, key=editor_key,
             column_config={
                 "追蹤": st.column_config.CheckboxColumn("追蹤?", help="勾選要加入追蹤的"),
                 "_code": None, "_disp": None,
@@ -721,15 +725,25 @@ def _render_scan_result(names, cands, date_label):
             disabled=["訊號", "標的", "位置", "為什麼（理由）", "已在清單"])
         submitted = st.form_submit_button("➕ 加入勾選的到追蹤清單", type="primary")
     if submitted:
-        to_add = [(r["_code"], r["_disp"]) for _, r in edited.iterrows()
-                  if r["追蹤"] and r["_code"] not in tracked_codes]
+        # 從 data_editor 的實際編輯狀態讀勾選列（比回傳值可靠，尤其在 form 內）
+        edited_rows = st.session_state.get(editor_key, {}).get("edited_rows", {})
+        checked = [int(i) for i, ch in edited_rows.items() if ch.get("追蹤")]
+        to_add, already = [], []
+        for i in checked:
+            code, disp = rows[i]["_code"], rows[i]["_disp"]
+            (already if code in tracked_codes else to_add).append((code, disp))
         for code, disp in to_add:
             add_stock(code, name=disp, owner=owner)
         if to_add:
-            st.success(f"已加入 {len(to_add)} 檔追蹤")
+            msg = f"✅ 已加入追蹤：" + "、".join(d for _, d in to_add)
+            if already:
+                msg += f"（另 {len(already)} 檔本來就在清單，略過）"
+            st.success(msg)
             st.rerun()
+        elif already:
+            st.info(f"勾選的 {len(already)} 檔都已在追蹤清單了。")
         else:
-            st.info("沒有勾選新的標的（或勾到的已在清單）。")
+            st.info("這次沒有勾選任何標的。")
 
 
 def render_screener_page():
