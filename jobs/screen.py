@@ -28,7 +28,7 @@ def _digest(date, cands, names, top):
 
 
 def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnover,
-        limit=15, pause=0.3):
+        limit=15, pause=0.05):
     from core import db
     date = str((today or datetime.today()).date())
     uni = uni_fetch(top) or []
@@ -36,7 +36,7 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
     got = {"ok": 0}
 
     def _f(c):
-        df = (fetch or (lambda x: fetch_daily(x, months=5, workers=1)))(c)
+        df = (fetch or (lambda x: fetch_daily(x, months=5, workers=2)))(c)
         if df is not None and not getattr(df, "empty", True):
             got["ok"] += 1
         return df
