@@ -3,7 +3,7 @@
 
 排程跑（非互動）→ 放慢節流(workers=1、pause 較長)，對 TWSE 友善。
 """
-from core.data import fetch_top_turnover, fetch_daily
+from core.data import fetch_top_turnover, fetch_daily, fetch_foreign_flow
 from core.screener import scan
 from core.config import DASHBOARD_URL
 import core.telegram as tg
@@ -22,8 +22,8 @@ def _digest(date, cands, names, top):
         nm = names.get(x["code"], x["code"])
         where = x.get("at_batch") or x["kind"]
         lines.append(f"・[{x['signal']}] {nm} ({x['code']})：{where}｜{x['reason']}")
-    lines += ["", "（進場＝到位可接；觀望＝趨勢沒破在等；避開＝跌破季線墊底參考）",
-              "要追蹤用 /add 代號；外資這關進場前用 /預測 代號 再確認", f"🔗 {DASHBOARD_URL}"]
+    lines += ["", "（進場＝四關到位可接；觀望＝趨勢沒破在等；避開＝跌破季線墊底參考）",
+              "※ 已逐檔補查外資、資料不齊者已排除，訊號含外資；要追蹤用 /add 代號", f"🔗 {DASHBOARD_URL}"]
     return "\n".join(lines)
 
 
@@ -41,7 +41,8 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
             got["ok"] += 1
         return df
 
-    cands = scan([c for c, _ in uni], fetch=_f, limit=limit, pause=pause) if uni else []
+    cands = scan([c for c, _ in uni], fetch=_f, foreign_lookup=fetch_foreign_flow,
+                 limit=limit, pause=pause) if uni else []
     result = {"date": date, "top": top, "uni_n": len(uni),
               "fetched_n": got["ok"], "names": names, "cands": cands}
     try:

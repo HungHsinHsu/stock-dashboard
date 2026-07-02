@@ -17,11 +17,19 @@ def test_below_support3_is_stop_loss_avoid():
 
 
 def test_pullback_to_support_with_shrink_volume_allows_entry():
-    # 情境一：回檔到支撐1(±2%內)、收盤止穩(close>=prev)、量縮 → 進場
+    # 情境一：回檔到支撐1(±2%內)、收盤止穩(close>=prev)、量縮、外資已停手 → 進場
     ind = {"close": 223, "prev_close": 222, "ma20": 181,
            "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
-    s = entry_setup(ind)
+    s = entry_setup(ind, foreign_stopped=True)
     assert s["ceiling"] == "進場" and "支撐1" in s["at_batch"]
+
+
+def test_foreign_unknown_stays_watch_not_entry():
+    # 資料闕漏：技術面到位但外資無法確認 → 保守觀望，不給進場
+    ind = {"close": 223, "prev_close": 222, "ma20": 181,
+           "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
+    s = entry_setup(ind)                    # 不傳外資＝未知
+    assert s["ceiling"] == "觀望" and "外資" in s["reason"]
 
 
 def test_at_support_but_volume_not_shrunk_is_watch():
@@ -46,10 +54,10 @@ def test_vacuum_zone_high_position_is_watch_not_entry():
 
 
 def test_scenario_two_reclaim_ma20_with_volume():
-    # 情境二：帶量站回上方均線、收盤站穩、非空頭 → 進場
+    # 情境二：帶量站回上方均線、收盤站穩、非空頭、外資已停手 → 進場
     ind = {"close": 184, "prev_close": 180, "ma20": 181, "ma_align": "糾結",
            "dist_support1_pct": -17, "dist_support3_pct": 29, "vol_ratio": 1.6}
-    assert signal_ceiling(ind) == "進場"
+    assert signal_ceiling(ind, foreign_stopped=True) == "進場"
 
 
 def test_constrain_caps_llm_entry_when_not_setup():
@@ -60,11 +68,19 @@ def test_constrain_caps_llm_entry_when_not_setup():
     assert final == "觀望" and note
 
 
-def test_constrain_keeps_valid_entry_and_warns_foreign():
+def test_constrain_watch_when_foreign_unknown():
+    # 外資未知（資料闕漏）→ 不放行、夾成觀望（不再當進場）
     ind = {"close": 223, "prev_close": 222, "ma20": 181,
            "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
     final, note = constrain_signal({"signal": "進場"}, ind)
-    assert final == "進場" and "外資" in note  # 外資資料缺漏→放行但提醒
+    assert final == "觀望" and "外資" in note
+
+
+def test_constrain_keeps_entry_when_foreign_stopped():
+    ind = {"close": 223, "prev_close": 222, "ma20": 181,
+           "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
+    final, note = constrain_signal({"signal": "進場"}, ind, foreign_stopped=True)
+    assert final == "進場"
 
 
 _ENTRY_IND = {"close": 223, "prev_close": 222, "ma20": 181,

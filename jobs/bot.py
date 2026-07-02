@@ -295,7 +295,8 @@ def _scan_candidates_digest(top=120, limit=12):
             stats["ok"] += 1
         return df
 
-    cands = _scan([c for c, _ in uni], fetch=_f, limit=limit, pause=0.05)
+    cands = _scan([c for c, _ in uni], fetch=_f, foreign_lookup=fetch_foreign_flow,
+                  limit=limit, pause=0.05)
     if not cands:
         if stats["ok"] == 0:
             return (f"⚠️ 清單抓到 {len(uni)} 檔，但個股歷史 0 檔抓成功——多半是 TWSE 限流／"
@@ -309,8 +310,8 @@ def _scan_candidates_digest(top=120, limit=12):
         nm = name.get(x["code"], x["code"])
         where = x.get("at_batch") or x["kind"]
         lines.append(f"・[{x['signal']}] {nm} ({x['code']})：{where}｜{x['reason']}")
-    lines += ["", "（進場＝到位可接；觀望＝趨勢沒破、等回檔或確認；避開＝已跌破季線/趨勢偏弱，墊底參考）",
-              "外資這關掃描階段沒逐檔查，進場前用 /預測 代號 再確認；要追蹤用 /add 代號",
+    lines += ["", "（進場＝四關到位可接；觀望＝趨勢沒破、等回檔或確認；避開＝已跌破季線，墊底參考）",
+              "※ 已逐檔補查外資、資料不齊者已排除，訊號含外資；要追蹤用 /add 代號",
               f"🔗 {DASHBOARD_URL}"]
     return "\n".join(lines)
 

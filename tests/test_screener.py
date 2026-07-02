@@ -35,7 +35,8 @@ def _vacuum_uptrend():
 
 def test_scan_ranks_entry_first_broken_last_but_still_listed():
     data = {"2330": _pullback_hold_shrink(), "9999": _still_falling()}
-    out = scan(["9999", "2330"], fetch=lambda c: data.get(c))
+    out = scan(["9999", "2330"], fetch=lambda c: data.get(c),
+               foreign_lookup=lambda c: {"stopped": True})
     codes = [x["code"] for x in out]
     assert codes[0] == "2330" and out[0]["signal"] == "進場"   # 進場排最前
     # 跌破季線的也『仍列出』(在後面)、標避開，不再一片空白
@@ -49,6 +50,21 @@ def test_scan_excludes_denylist():
     assert out == []
 
 
+def test_scan_confirms_foreign_downgrades_entry():
+    # 技術面到位(無外資=進場)，但補查外資發現仍賣超 → 降為觀望
+    df = _pullback_hold_shrink()
+    out = scan(["2330"], fetch=lambda c: df,
+               foreign_lookup=lambda c: {"stopped": False, "sold_streak": 3})
+    assert out[0]["signal"] == "觀望" and "外資仍在賣超" in out[0]["reason"]
+
+
+def test_scan_foreign_stopped_keeps_entry():
+    df = _pullback_hold_shrink()
+    out = scan(["2330"], fetch=lambda c: df,
+               foreign_lookup=lambda c: {"stopped": True})
+    assert out[0]["signal"] == "進場" and "外資已停止倒貨" in out[0]["reason"]
+
+
 def test_scan_still_lists_watch_when_no_entry():
     # 就算沒有『進場』，觀望但趨勢沒破的也要列出，並標上訊號
     out = scan(["8888"], fetch=lambda c: _vacuum_uptrend())
@@ -60,8 +76,18 @@ def test_scan_still_lists_watch_when_no_entry():
 def test_scan_entry_ranks_above_watch():
     # 進場分數高於觀望 → 進場排前面
     data = {"E": _pullback_hold_shrink(), "W": _vacuum_uptrend()}
-    out = scan(["W", "E"], fetch=lambda c: data[c], limit=10)
+    out = scan(["W", "E"], fetch=lambda c: data[c], limit=10,
+               foreign_lookup=lambda c: {"stopped": True})
     assert out[0]["code"] == "E" and out[0]["signal"] == "進場"
+
+
+def test_scan_excludes_when_foreign_data_missing():
+    # 資料要齊：查不到外資的個股 → 整檔剔除，不推薦資料不全的標的
+    df = _pullback_hold_shrink()
+    assert scan(["2330"], fetch=lambda c: df,
+                foreign_lookup=lambda c: {"stopped": None}) == []
+    assert scan(["2330"], fetch=lambda c: df,
+                foreign_lookup=lambda c: None) == []
 
 
 def test_scan_skips_short_history_and_missing():

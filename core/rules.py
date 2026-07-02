@@ -150,12 +150,14 @@ def entry_setup(ind, code=None, foreign_stopped=None):
             base_reason = "帶量站回上方均線且收盤站穩，符合往上站情境"
 
     if qualified:
-        # 進場 AND 第四條：外資停止倒貨
+        # 進場 AND 第四條：外資停止倒貨。缺一或無法確認外資，一律保守 → 觀望，不給進場。
+        if foreign_stopped is True:
+            return result("進場", at_batch, base_reason + "，且外資已停止倒貨")
         if foreign_stopped is False:
             return result("觀望", at_batch, base_reason + "，但外資仍在賣超→等外資停手")
-        if foreign_stopped is None:
-            return result("進場", at_batch, base_reason + "；外資買賣超資料缺漏，請自行確認")
-        return result("進場", at_batch, base_reason + "，且外資已停止倒貨")
+        # None＝外資資料缺漏/無法確認 → 不當作進場（資料闕漏不放行）
+        return result("觀望", at_batch,
+                      base_reason + "，但外資買賣超無法確認→保守觀望，確認外資已停手再進")
 
     # 其餘：真空帶/未到價/未止穩/放量殺 → 等
     if at_batch and not (hold_ok and vol_ok):
@@ -187,6 +189,6 @@ def constrain_signal(pred, ind, code=None, foreign_stopped=None):
         if etf:                                   # ETF 順勢，不談外資/三批
             note = setup["reason"]
         else:
-            # 合格進場：附帶「外資倒貨」這條本檔無法驗證、需人工確認
-            note = f"{setup['reason']}；⚠️外資是否停止倒貨請自行確認，並用盤後定價(14:00–14:30)進場"
+            # 進場代表外資已確認停手（None 已被夾成觀望），提醒用盤後定價進場
+            note = f"{setup['reason']}；用盤後定價(14:00–14:30)進場"
     return final, note

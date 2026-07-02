@@ -679,7 +679,8 @@ def _run_screen(top):
             stats["ok"] += 1
         return df
 
-    cands = _scan([c for c, _ in uni], fetch=_f, limit=20, pause=0.05)
+    cands = _scan([c for c, _ in uni], fetch=_f, foreign_lookup=fetch_foreign_flow,
+                  limit=20, pause=0.05)
     return names, cands, len(uni), stats["ok"]
 
 
@@ -688,9 +689,9 @@ def _render_scan_result(names, cands, date_label):
     tracked_codes = {c.get("code") for c in effective_stocks(owner).values()}
     st.markdown(f"**{date_label}・相對最好的前 {len(cands)} 名**")
     st.caption(
-        "🟢進場＝到位可接、🟡觀望＝趨勢沒破仍在等、🔴避開＝已跌破季線/趨勢偏弱（相對最不弱、墊底參考）。"
+        "🟢進場＝四關到位可接、🟡觀望＝趨勢沒破仍在等、🔴避開＝已跌破季線（相對最不弱、墊底參考）。"
         "📏 排序：訊號 進場＞觀望＞避開 ＞ 回檔到支撐 ＞ 收盤站穩 ＞ 量縮 ＞ 離均線近。"
-        "外資這關沒逐檔查，進場前用個股頁或 /預測 代號 再確認。")
+        "※ 已逐檔補查外資、資料不齊者已排除，訊號已含外資。")
 
     def _badge(s):
         return ("🟢" if s in ("進場", "順勢偏多")

@@ -33,10 +33,11 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0):
     """對 codes 逐檔套規則、評分排序，回前 limit 名候選(list[dict]，含 signal 標籤)。
 
     fetch(code) -> DataFrame（需足夠歷史算 MA60；不足或抓不到則略過）。
-    foreign_lookup(code) -> 外資 dict 或 None（選填；省略時外資當未知，掃描階段不逐檔查）。
-    排序：訊號(進場>觀望) → 是否到支撐、站穩、量縮 → 離均線越近；同分時量縮越明顯越前。
+    foreign_lookup(code) -> 外資 dict（含 'stopped'）或 None。為省呼叫，掃描階段先把外資當
+      未知；排序取前 limit 名後，『只對這些入選檔補查外資、重新定訊號』（便宜、且讓標籤反映真實外資）。
+    排序：訊號(進場>觀望>避開) → 是否到支撐、站穩、量縮 → 離均線越近；同分時量縮越明顯越前。
     """
-    scored = []
+    prelim = []
     for code in codes:
         if is_denied(code) or is_leveraged_etf(code):
             continue                          # 禁區/槓桿股：本來就不玩，不列
@@ -50,17 +51,7 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0):
             continue
         ind = compute_indicators(df, {})
         etf = is_etf(code)
-        if etf:
-            setup = etf_setup(ind, code)
-        else:
-            fstopped = None
-            if foreign_lookup is not None:
-                try:
-                    fo = foreign_lookup(code)
-                    fstopped = fo.get("stopped") if fo else None
-                except Exception:
-                    fstopped = None
-            setup = entry_setup(ind, code, fstopped)
+        setup = etf_setup(ind, code) if etf else entry_setup(ind, code, None)
         ceil = setup.get("ceiling")
         score = _SIGNAL_BASE.get(ceil, 100)
         if setup.get("at_batch"):
@@ -72,16 +63,44 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0):
         md = _min_dist_pct(ind)
         if md is not None:
             score += max(0.0, 20.0 - md)      # 離均線越近加越多
-        scored.append({
-            "code": str(code),
-            "kind": "ETF" if etf else "個股",
-            "signal": _label(ceil, etf),
-            "at_batch": setup.get("at_batch"),
-            "reason": setup.get("reason"),
-            "close": ind.get("close"),
-            "vol_ratio": ind.get("vol_ratio"),
-            "score": round(score, 1),
-        })
-    scored.sort(key=lambda x: (-x["score"],
-                               x["vol_ratio"] if x["vol_ratio"] is not None else 9.9))
-    return scored[:limit]
+        item = {
+            "code": str(code), "kind": "ETF" if etf else "個股",
+            "signal": _label(ceil, etf), "at_batch": setup.get("at_batch"),
+            "reason": setup.get("reason"), "close": ind.get("close"),
+            "vol_ratio": ind.get("vol_ratio"), "score": round(score, 1),
+        }
+        prelim.append((item, ind, code, etf, ceil))
+    prelim.sort(key=lambda t: (-t[0]["score"],
+                               t[0]["vol_ratio"] if t[0]["vol_ratio"] is not None else 9.9))
+
+    if foreign_lookup is None:
+        return [item for item, *_ in prelim[:limit]]
+
+    # 外資確認：對排名靠前的候選(多取緩衝)逐檔補查外資。
+    # 原則：資料要齊——個股若『查不到外資』就整檔剔除（不推薦資料不全的標的），
+    # 查得到才用真實外資定訊號(進場/觀望)；ETF 不看外資，直接保留。
+    kept = []
+    for item, ind, code, etf, ceil in prelim[:max(limit * 2, 30)]:
+        if etf:
+            item["_rank"] = _SIGNAL_BASE.get(ceil, 100)
+            kept.append(item)
+            continue
+        try:
+            fo = foreign_lookup(code)
+        except Exception:
+            fo = None
+        stopped = (fo or {}).get("stopped")
+        if stopped is None:
+            continue                          # 外資資料不齊 → 這檔不列（資料不全不推薦）
+        s2 = entry_setup(ind, code, stopped)
+        item["signal"] = _label(s2["ceiling"], etf)
+        item["reason"] = s2["reason"]
+        item["_rank"] = _SIGNAL_BASE.get(s2["ceiling"], 100)
+        kept.append(item)
+    kept.sort(key=lambda x: (-x["_rank"],
+                             x["vol_ratio"] if x["vol_ratio"] is not None else 9.9))
+    out = []
+    for item in kept[:limit]:
+        item.pop("_rank", None)
+        out.append(item)
+    return out
