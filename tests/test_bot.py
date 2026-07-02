@@ -277,6 +277,31 @@ def test_qa_system_knows_bot_backup_scheduler():
     assert "雙保險" in bot.QA_SYSTEM and "補跑" in bot.QA_SYSTEM
 
 
+def test_qa_system_knows_screener():
+    # 選股掃描指令也要寫進知識
+    assert "/選股" in bot.QA_SYSTEM and "承接點" in bot.QA_SYSTEM
+
+
+def test_scan_command_lists_candidates(monkeypatch):
+    monkeypatch.setattr(bot, "tg", type("T", (), {
+        "send": staticmethod(lambda t: True)}))
+    monkeypatch.setattr(bot, "fetch_top_turnover",
+                        lambda n=150: [("2330", "台積電"), ("3481", "群創")])
+    monkeypatch.setattr(bot, "fetch_daily", lambda c, months=3: "DF")
+    monkeypatch.setattr(bot, "_scan", lambda codes, fetch, limit=12: [
+        {"code": "2330", "kind": "個股", "at_batch": "支撐2/MA20(第二批)",
+         "reason": "回檔到支撐2、收盤止穩且量縮", "vol_ratio": 0.8}])
+    out = bot.handle("/選股")
+    assert "台積電" in out and "2330" in out and "回檔到支撐2" in out
+
+
+def test_scan_command_handles_empty_universe(monkeypatch):
+    monkeypatch.setattr(bot, "tg", type("T", (), {
+        "send": staticmethod(lambda t: True)}))
+    monkeypatch.setattr(bot, "fetch_top_turnover", lambda n=150: [])
+    assert "抓不到市場清單" in bot.handle("/選股")
+
+
 def test_qa_system_knows_recent_fixes():
     # 這輪修的原因與作法也要讓機器人懂，使用者直接問就能得到解釋
     assert "新鮮度" in bot.QA_SYSTEM and "台指期" in bot.QA_SYSTEM  # 台指期不看過時夜盤

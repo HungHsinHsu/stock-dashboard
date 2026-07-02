@@ -8,8 +8,9 @@ import requests
 from core.data import (
     STOCKS as BASE_STOCKS, resolve_stocks,
     fetch_daily, fetch_index, fetch_us_overnight, fetch_taifex_detail,
-    fetch_foreign_flow, fetch_margin,
+    fetch_foreign_flow, fetch_margin, fetch_top_turnover,
 )
+from core.screener import scan as _scan
 from core.watchlist import add_stock, remove_stock, effective_stocks
 from core.positions import (
     enter_batch, exit_position, held_positions, get_batches, MAX_BATCHES,
@@ -56,6 +57,9 @@ HELP = "\n".join([
     "/開盤　立即產生今日大盤＋個股預測並記錄",
     "/開盤 00830　只補算某檔並寫進資料庫（早上沒跑成功時）",
     "",
+    "—— 選股掃描 ——",
+    "/選股　依回檔承接法從前150大成交股找承接點候選",
+    "",
     "—— 股票清單 ——",
     "/add 2330　加入（三段支撐用均線自動判斷）",
     "/remove 2330　移除",
@@ -82,6 +86,7 @@ BOT_COMMANDS = [
     ("predict", "預測下一交易日（即時試算，加代號看單檔）"),
     ("review", "復盤：查今天的預測與命中/檢討"),
     ("morning", "立即產生今日開盤預測（排程沒發車時手動補）"),
+    ("scan", "選股掃描：依回檔承接法從全市場找承接點候選"),
     ("add", "加入追蹤股票"),
     ("remove", "移除追蹤股票"),
     ("list", "目前追蹤清單"),
@@ -276,6 +281,27 @@ def _run_morning_now(query=None):
             "之後收盤會自動復盤、算進命中率。")
 
 
+def _scan_candidates_digest(top=150, limit=12):
+    """依回檔承接法規則掃『當日成交額前 top 檔』，挑出現在符合進場的候選。"""
+    uni = fetch_top_turnover(top)
+    if not uni:
+        return "⚠️ 抓不到市場清單，稍後再試。"
+    name = {c: nm for c, nm in uni}
+    cands = _scan([c for c, _ in uni],
+                  fetch=lambda c: fetch_daily(c, months=3), limit=limit)
+    if not cands:
+        return (f"🔎 依回檔承接法掃前 {top} 大成交股，目前沒有符合『進場』的標的"
+                "（多半是大盤環境不佳，該等就等）。")
+    lines = [f"🔎 選股掃描（回檔承接法・前 {top} 大成交股）", ""]
+    for x in cands:
+        nm = name.get(x["code"], x["code"])
+        where = x.get("at_batch") or x["kind"]
+        lines.append(f"・{nm} ({x['code']})：{where}｜{x['reason']}")
+    lines += ["", "外資這關掃描階段沒逐檔查，進場前用 /預測 代號 再確認一次；"
+              "要追蹤用 /add 代號", f"🔗 {DASHBOARD_URL}"]
+    return "\n".join(lines)
+
+
 def _resolve_in_watchlist(query):
     """先在使用者追蹤清單裡解析（即使 TWSE 名單抓不到也能用）。
     回 (code, 顯示名) 或 None。"""
@@ -357,6 +383,7 @@ KNOWN_CMDS = {
     "predict", "預測", "forecast", "即時預測", "即時", "現在預測", "p", "pred", "f",
     "review", "復盤", "結果", "查", "查預測", "查詢", "紀錄", "記錄",
     "開盤", "產生預測", "推播", "跑預測", "morning", "run",
+    "選股", "掃描", "選標的", "找標的", "scan", "screen",
 }
 
 
@@ -514,6 +541,13 @@ def _dispatch(text):
     # 開盤＝立即產生今日「正式」開盤預測（記錄＋推播），補排程沒發車時的手動觸發
     if cmd in ("開盤", "產生預測", "推播", "跑預測", "morning", "run"):
         return _run_morning_now(args[0] if args else None)
+    # 選股掃描：依回檔承接法規則從全市場找出當下的承接點候選
+    if cmd in ("選股", "掃描", "選標的", "找標的", "scan", "screen"):
+        tg.send("⏳ 選股掃描中（掃前 150 大成交股，約 1 分鐘）…")
+        try:
+            return _scan_candidates_digest()
+        except Exception as e:
+            return f"⚠️ 選股掃描失敗：{e}"
     # 以「/」開頭卻沒對到任何指令 → 打錯指令
     if text.strip().startswith("/"):
         return "不認得的指令。傳 /help 看用法。"

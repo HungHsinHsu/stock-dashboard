@@ -390,6 +390,30 @@ def fetch_stock_list():
     return out
 
 
+def fetch_top_turnover(n=150):
+    """當日成交金額前 n 檔（一般個股 4 碼 + ETF 00 開頭），回 [(code, name), ...]。
+    用 STOCK_DAY_ALL 單次抓全市場，便宜；抓不到回 []。"""
+    try:
+        data = requests.get(
+            "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+            headers=HEADERS, timeout=20,
+        ).json()
+    except Exception:
+        return []
+    rows = []
+    for r in data if isinstance(data, list) else []:
+        code = str(r.get("Code") or "").strip()
+        name = str(r.get("Name") or "").strip()
+        tv = _num(r.get("TradeValue"))
+        if not code or not name or tv is None:
+            continue
+        if not ((code.isdigit() and len(code) == 4) or code.startswith("00")):
+            continue                       # 排除權證等非個股/ETF
+        rows.append((tv, code, name))
+    rows.sort(reverse=True)
+    return [(c, nm) for _, c, nm in rows[:n]]
+
+
 def resolve_stocks(query, listing=None):
     """以代號或中文名稱解析股票，回 [(code, name), ...]（0=找不到 / 1=唯一 / 多=需釐清）。"""
     q = (query or "").strip()

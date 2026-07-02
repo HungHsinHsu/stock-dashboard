@@ -12,10 +12,11 @@ try:
 except Exception:
     pass
 
-from core.data import fetch_daily, fetch_index, fetch_foreign_flow
+from core.data import fetch_daily, fetch_index, fetch_foreign_flow, fetch_top_turnover
 from core.indicators import compute_indicators
 from core.rules import is_etf, NEAR_PCT, entry_setup, is_denied, DENYLIST
-from core.watchlist import effective_stocks
+from core.screener import scan as _scan
+from core.watchlist import effective_stocks, add_stock
 from core.market import market_summary
 from core.store import load_history
 from core.review import hit_rate
@@ -662,9 +663,53 @@ def render_history_overview(records, owner="admin"):
         "——皆以『全部歷史』計算，不受上方顯示範圍影響。詳細檢討到大盤頁/個股頁看。")
 
 
+@st.cache_data(ttl=4 * 3600, show_spinner=False)
+def _run_screen(top):
+    """掃當日成交額前 top 檔，套回檔承接法規則挑候選。快取 4 小時（同日重掃即時）。"""
+    uni = fetch_top_turnover(top)
+    names = {c: nm for c, nm in uni}
+    cands = _scan([c for c, _ in uni],
+                  fetch=lambda c: fetch_daily(c, months=3), limit=20)
+    return names, cands
+
+
+def render_screener_page():
+    st.markdown("### 🔎 選股掃描（回檔承接法）")
+    st.caption("依我們的選股規則掃『當日成交額前 N 大』的股票，挑出**現在正處在承接點**"
+               "（訊號＝進場）的候選，不用只盯舊清單。純技術規則；外資這關掃描階段沒逐檔查，"
+               "進場前請用個股頁或機器人 /預測 代號 再確認一次。")
+    top = st.slider("掃描範圍（當日成交額前 N 大）", 50, 300, 150, step=50)
+    if st.button("🚀 開始掃描", type="primary"):
+        with st.spinner("掃描中…（第一次約 30–60 秒，之後有快取）"):
+            st.session_state["scan_result"] = _run_screen(top)
+    res = st.session_state.get("scan_result")
+    if not res:
+        st.info("按上面「開始掃描」，這裡就會列出目前的承接點候選。")
+        return
+    names, cands = res
+    if not cands:
+        st.warning("目前沒有符合『進場』的候選——多半是大盤環境不佳，該等就等。")
+        return
+    owner = _dash_owner()
+    tracked = set(effective_stocks(owner).keys())
+    st.markdown(f"**找到 {len(cands)} 檔候選（量縮越明顯越前面）**")
+    for x in cands:
+        code = x["code"]
+        disp = f"{names.get(code, code)} ({code})"
+        c1, c2 = st.columns([4, 1])
+        c1.markdown(f"**{disp}**　·　{x.get('at_batch') or x['kind']}  \n{x['reason']}")
+        if disp in tracked or code in {c.get('code') for c in
+                                       effective_stocks(owner).values()}:
+            c2.caption("✅ 已追蹤")
+        elif c2.button("➕ 追蹤", key=f"scan_add_{code}"):
+            add_stock(code, name=disp, owner=owner)
+            st.success(f"已加入追蹤：{disp}")
+            st.rerun()
+
+
 # 深連結：?code=2344 → 直接開個股頁、選好該股
 _qp_code = st.query_params.get("code")
-_page = st.radio("頁面", ["🌐 大盤", "📈 個股", "📅 預測歷史"],
+_page = st.radio("頁面", ["🌐 大盤", "📈 個股", "📅 預測歷史", "🔎 選股"],
                  index=(1 if _qp_code else 0),
                  horizontal=True, label_visibility="collapsed")
 
@@ -728,6 +773,10 @@ if _page == "🌐 大盤":
 elif _page == "📅 預測歷史":
     st.markdown("### 📅 預測歷史總覽")
     render_history_overview(load_records(), _dash_owner())
+
+# ──────────────────────────── 選股掃描頁 ────────────────────────────
+elif _page == "🔎 選股":
+    render_screener_page()
 
 # ──────────────────────────── 個股頁 ────────────────────────────
 else:
