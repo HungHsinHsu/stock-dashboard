@@ -54,6 +54,7 @@ HELP = "\n".join([
     "",
     "—— 立即產生正式開盤預測（排程沒發車時手動補）——",
     "/開盤　立即產生今日大盤＋個股預測並記錄",
+    "/開盤 00830　只補算某檔並寫進資料庫（早上沒跑成功時）",
     "",
     "—— 股票清單 ——",
     "/add 2330　加入",
@@ -230,20 +231,45 @@ def _forecast_stock(code, name, supports):
     return "🔮 即時試算\n\n" + card
 
 
-def _run_morning_now():
-    """立即產生今日「正式」開盤預測：記錄進 DB＋推播卡片（等同排程那班）。
-    寫一次鎖定——今天已有預測就不重算，改把既有大盤卡重貼給使用者看。"""
+def _run_morning_now(query=None):
+    """立即產生今日「正式」開盤預測並『寫進 DB』（等同排程那班，非即時試算）。
+    記錄後收盤會自動復盤、算進命中率——不是只印卡片給你看。
+    寫一次鎖定：今天已有預測就不重算，改把既有卡重貼出來。
+    query 有給 → 只補算該檔（例如 00830 早上失敗，補寫進今天的正式預測）。"""
+    from jobs import morning
     _git_pull()
     today = str(datetime.today().date())
+
+    if query:                                   # 只補算單一個股（寫進 DB）
+        code, disp = _resolve_one(query)
+        if code is None:
+            return disp
+        rec = get_record(load_history(), today, code)
+        if rec and rec.get("prediction"):       # 已鎖定 → 重貼既有紀錄，不重算
+            card = format_prediction(_name_for(code) or disp, today, rec["prediction"])
+            return (f"📌 {disp} 今天已經有正式開盤預測了（寫一次鎖定、不重算）：\n\n"
+                    + card + "\n\n收盤會自動復盤、算進命中率。")
+        cfg = next((c for c in effective_stocks(_owner()).values()
+                    if c.get("code") == code), {"code": code})
+        tg.send(f"⏳ 正在為 {disp} 補算今日正式開盤預測並寫進資料庫…")
+        try:
+            produced = morning.run(stocks={disp: cfg})
+        except Exception as e:
+            return f"⚠️ 補算失敗：{e}"
+        if any(r.get("stock") == code for r in produced):
+            return (f"✅ {disp} 今日開盤預測已產生並『寫進資料庫』，收盤會自動復盤、"
+                    "算進命中率（不是只印給你看）。")
+        return (f"⚠️ {disp} 這次 AI 試算仍失敗（資料有到、多半是暫時限流）。"
+                f"稍等一下再試 /開盤 {code} 即可。")
+
     mrec = get_record(load_history(), today, "大盤")
     if mrec and mrec.get("prediction"):
         card = format_market_prediction(today, mrec["prediction"])
         return ("📌 今天已經產生過開盤預測了（寫一次就鎖定、不重算，避免竄改歷史）。\n"
                 "這是今天已記錄的大盤預測：\n\n" + card +
-                "\n\n個股用 /復盤 代號 查；想試算下一交易日用 /預測。")
+                "\n\n某檔早上沒跑成功可用 /開盤 代號 補寫；想試算下一交易日用 /預測。")
     tg.send("⏳ 正在產生今日開盤預測（大盤＋個股，約 1–3 分鐘）…")
     try:
-        from jobs import morning
         produced = morning.run()          # 內部會推播大盤卡與個股總表
     except Exception as e:
         return f"⚠️ 產生開盤預測失敗：{e}"
@@ -495,7 +521,7 @@ def _dispatch(text):
         return "\n".join(lines)
     # 開盤＝立即產生今日「正式」開盤預測（記錄＋推播），補排程沒發車時的手動觸發
     if cmd in ("開盤", "產生預測", "推播", "跑預測", "morning", "run"):
-        return _run_morning_now()
+        return _run_morning_now(args[0] if args else None)
     # 以「/」開頭卻沒對到任何指令 → 打錯指令
     if text.strip().startswith("/"):
         return "不認得的指令。傳 /help 看用法。"

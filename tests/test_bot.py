@@ -215,6 +215,31 @@ def test_qa_system_knows_recent_fixes():
     assert "新鮮度" in bot.QA_SYSTEM and "台指期" in bot.QA_SYSTEM  # 台指期不看過時夜盤
     assert "AI 試算失敗" in bot.QA_SYSTEM and "00830" in bot.QA_SYSTEM  # 非抓不到資料
     assert "/開盤" in bot.QA_SYSTEM                                    # 可手動補開盤預測
+    # 補算要「寫進資料庫」而非只印卡片，且 /開盤 代號 與 /預測 代號 有別
+    assert "寫進資料庫" in bot.QA_SYSTEM and "/開盤 代號" in bot.QA_SYSTEM
+
+
+def test_open_single_stock_records_via_morning(monkeypatch):
+    # /開盤 代號 → 走 morning.run 產生並寫進 DB（不是即時試算、不是只印卡片）
+    monkeypatch.setattr(bot, "_git_pull", lambda: None)
+    monkeypatch.setattr(bot, "load_history", lambda: [])
+    monkeypatch.setattr(bot, "resolve_stocks", lambda q: [("00830", "國泰費城半導體")])
+    monkeypatch.setattr(bot, "effective_stocks",
+                        lambda owner=None: {"國泰費城半導體 (00830)": {"code": "00830"}})
+    monkeypatch.setattr(bot, "tg", type("T", (), {
+        "send": staticmethod(lambda t: True)}))
+    seen = {}
+    import jobs.morning as morning
+
+    def fake_run(stocks=None, **k):
+        seen["stocks"] = stocks
+        return [{"date": "2026-07-02", "stock": "00830", "prediction": {}}]
+
+    monkeypatch.setattr(morning, "run", fake_run)
+    out = bot.handle("/開盤 00830")
+    assert "00830" in seen["stocks"] or any("00830" in c.get("code", "")
+                                            for c in seen["stocks"].values())
+    assert "寫進資料庫" in out               # 有寫進 DB、不是只印卡片
 
 
 def test_slash_typo_still_reports_unknown(monkeypatch):
