@@ -647,7 +647,7 @@ else:
 
         rule = timeframe_radio("tf_stock")
         st.plotly_chart(
-            price_fig(resample_ohlc(df, rule), supports=cfg.get("supports", {})),
+            price_fig(resample_ohlc(df, rule)),   # 支撐＝圖上三條均線，不再畫寫死水平線
             use_container_width=True, config=_CHART_CFG)
 
         # 三段支撐＝三條均線，隨收盤每日移動；列出今日價位與現價相對位置
@@ -674,20 +674,6 @@ else:
             st.caption("資料期間不足，尚無法計算均線支撐。")
 
         render_support_playbook(cfg["code"], last, _ma5, _ma20v, _ma60)
-
-        s = cfg.get("supports", {})
-        s1 = s.get("支撐1 (短期)")
-        s3 = s.get("支撐3 (長期)")
-        if s1 is None and s3 is None:
-            st.info("此標的未設定『手動水平支撐』，以上均線支撐即可參考。")
-        elif s1 is not None and last > s1:
-            st.success("價格在支撐1之上")
-        elif pd.notna(ma20_last) and last > ma20_last:
-            st.warning(f"⚠️ 真空帶：支撐1已破、MA20({ma20_last:.1f})之上。照紀律：等。")
-        elif s3 is not None and last > s3:
-            st.warning("⚠️ 跌破 MA20，接近支撐3，留意收盤是否止穩、量是否縮。")
-        else:
-            st.error("跌破支撐3，重新評估。")
         st.caption("資料來源：台灣證交所 TWSE（盤後）。進場判斷仍須看收盤確認，本工具僅供觀察。")
 
     st.divider()

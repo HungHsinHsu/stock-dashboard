@@ -57,8 +57,7 @@ HELP = "\n".join([
     "/開盤 00830　只補算某檔並寫進資料庫（早上沒跑成功時）",
     "",
     "—— 股票清單 ——",
-    "/add 2330　加入",
-    "/add 2330 1000 850　加入並設支撐",
+    "/add 2330　加入（三段支撐用均線自動判斷）",
     "/remove 2330　移除",
     "/list　目前清單",
     "",
@@ -407,23 +406,16 @@ def _dispatch(text):
     if cmd in ("add", "加入", "新增"):
         if not args:
             return "用法：/add 代號或名稱，例如 /add 2330 或 /add 台積電"
-        query, rest = args[0], args[1:]
+        query = args[0]
         matches = resolve_stocks(query)
         if not matches:
             return f"找不到「{query}」。請確認代號或中文名稱（限上市股票）。"
         if len(matches) > 1:
             return _ambiguous(query, matches)
         code, name = matches[0]
-        supports = None
-        if len(rest) >= 2:
-            try:
-                supports = {"支撐1 (短期)": float(rest[0]),
-                            "支撐3 (長期)": float(rest[1])}
-            except ValueError:
-                supports = None
         disp = f"{name} ({code})" if name else f"({code})"
-        add_stock(code, name=disp, supports=supports, owner=_owner())
-        return f"✅ 已加入 {disp}" + ("（含支撐）" if supports else "")
+        add_stock(code, name=disp, owner=_owner())
+        return f"✅ 已加入 {disp}（三段支撐用均線自動判斷，不必設價位）"
     if cmd in ("remove", "移除", "刪除", "del", "delete", "rm"):
         if not args:
             return "用法：/remove 代號或名稱，例如 /remove 2330 或 /remove 台積電"

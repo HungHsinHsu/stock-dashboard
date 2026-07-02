@@ -24,18 +24,20 @@ def test_rsi_all_up_is_100():
 def test_compute_indicators_basic():
     df = _df([float(100 + i) for i in range(60)])  # 穩定上漲 60 天
     df["MA20"] = df["Close"].rolling(20).mean()
-    ind = compute_indicators(df, {"支撐1 (短期)": 100, "支撐3 (長期)": 90})
+    ind = compute_indicators(df, {})
     assert ind["close"] == 159.0
     assert ind["prev_close"] == 158.0
-    assert ind["ma5"] is not None and ind["ma60"] is not None
+    assert ind["ma5"] == 157.0 and ind["ma60"] is not None
     assert 0 <= ind["rsi14"] <= 100
-    assert ind["dist_support1_pct"] == round((159.0 - 100) / 100 * 100, 2)
+    # 三段支撐＝均線（每日重算）：支撐1＝MA5、支撐3＝MA60，不再用寫死價位
+    assert ind["dist_support1_pct"] == round((159.0 - ind["ma5"]) / ind["ma5"] * 100, 2)
+    assert ind["dist_support3_pct"] == round((159.0 - ind["ma60"]) / ind["ma60"] * 100, 2)
 
 
 def test_compute_indicators_short_history():
     df = _df([100.0])
     df["MA20"] = df["Close"].rolling(20).mean()
-    ind = compute_indicators(df, {"支撐1 (短期)": 100, "支撐3 (長期)": 90})
+    ind = compute_indicators(df, {})
     assert ind["prev_close"] is None
     assert ind["ma20"] is None
     assert ind["rsi14"] is None

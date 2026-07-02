@@ -77,9 +77,8 @@ def compute_indicators(df: pd.DataFrame, supports: dict) -> dict:
         elif ma5 < ma20 < ma60:
             align = "空頭排列"
 
-    s1 = supports.get("支撐1 (短期)")
-    s3 = supports.get("支撐3 (長期)")
-
+    # 三段支撐＝三條均線（每日隨收盤重算，不再用寫死的水平價位）：
+    #   支撐1＝短期均線 MA5、支撐2＝中期均線 MA20、支撐3＝長期均線 MA60（季線）
     def dist(level):
         if last_close is None or not level:
             return None
@@ -105,6 +104,6 @@ def compute_indicators(df: pd.DataFrame, supports: dict) -> dict:
         "low_20d": _r(low20),
         "vol": vol,
         "vol_ratio": round(vol / vol_ma20, 2) if vol and vol_ma20 else None,
-        "dist_support1_pct": dist(s1),
-        "dist_support3_pct": dist(s3),
+        "dist_support1_pct": dist(ma5),    # 支撐1＝短期均線 MA5
+        "dist_support3_pct": dist(ma60),   # 支撐3＝長期均線 MA60（季線）
     }
