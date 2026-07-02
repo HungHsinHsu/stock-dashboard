@@ -14,7 +14,7 @@ from core.watchlist import add_stock, remove_stock, effective_stocks
 from core.positions import (
     enter_batch, exit_position, held_positions, get_batches, MAX_BATCHES,
 )
-from core.store import load_history
+from core.store import load_history, get_record
 from core.review import hit_rate
 from core.llm import generate_text
 from core.market import market_summary
@@ -29,6 +29,7 @@ from core.strategy import RULEBOOK, OPERATIONS
 from core.config import DASHBOARD_URL
 from core import db
 import core.telegram as tg
+from datetime import datetime
 
 STATE_PATH = "bot_state.json"
 
@@ -50,6 +51,9 @@ HELP = "\n".join([
     "—— 復盤（查今天已記錄的預測與命中/檢討）——",
     "/復盤　今天各股預測摘要",
     "/復盤 2330　單檔詳細＋命中與檢討",
+    "",
+    "—— 立即產生正式開盤預測（排程沒發車時手動補）——",
+    "/開盤　立即產生今日大盤＋個股預測並記錄",
     "",
     "—— 股票清單 ——",
     "/add 2330　加入",
@@ -77,6 +81,7 @@ HELP = "\n".join([
 BOT_COMMANDS = [
     ("predict", "預測下一交易日（即時試算，加代號看單檔）"),
     ("review", "復盤：查今天的預測與命中/檢討"),
+    ("morning", "立即產生今日開盤預測（排程沒發車時手動補）"),
     ("add", "加入追蹤股票"),
     ("remove", "移除追蹤股票"),
     ("list", "目前追蹤清單"),
@@ -221,6 +226,27 @@ def _forecast_stock(code, name, supports):
     return "🔮 即時試算\n\n" + card
 
 
+def _run_morning_now():
+    """立即產生今日「正式」開盤預測：記錄進 DB＋推播卡片（等同排程那班）。
+    寫一次鎖定——今天已有預測就不重算，改把既有大盤卡重貼給使用者看。"""
+    _git_pull()
+    today = str(datetime.today().date())
+    mrec = get_record(load_history(), today, "大盤")
+    if mrec and mrec.get("prediction"):
+        card = format_market_prediction(today, mrec["prediction"])
+        return ("📌 今天已經產生過開盤預測了（寫一次就鎖定、不重算，避免竄改歷史）。\n"
+                "這是今天已記錄的大盤預測：\n\n" + card +
+                "\n\n個股用 /復盤 代號 查；想試算下一交易日用 /預測。")
+    tg.send("⏳ 正在產生今日開盤預測（大盤＋個股，約 1–3 分鐘）…")
+    try:
+        from jobs import morning
+        produced = morning.run()          # 內部會推播大盤卡與個股總表
+    except Exception as e:
+        return f"⚠️ 產生開盤預測失敗：{e}"
+    return (f"✅ 今日開盤預測已產生並記錄（大盤＋個股 {len(produced)} 檔，見上方卡片），"
+            "之後收盤會自動復盤、算進命中率。")
+
+
 def _resolve_in_watchlist(query):
     """先在使用者追蹤清單裡解析（即使 TWSE 名單抓不到也能用）。
     回 (code, 顯示名) 或 None。"""
@@ -301,6 +327,7 @@ KNOWN_CMDS = {
     "position", "部位", "pos", "持股",
     "predict", "預測", "forecast", "即時預測", "即時", "現在預測", "p", "pred", "f",
     "review", "復盤", "結果", "查", "查預測", "查詢", "紀錄", "記錄",
+    "開盤", "產生預測", "推播", "跑預測", "morning", "run",
 }
 
 
@@ -462,6 +489,9 @@ def _dispatch(text):
         if not any_rec:
             return "目前清單內的股票都還沒有預測紀錄。"
         return "\n".join(lines)
+    # 開盤＝立即產生今日「正式」開盤預測（記錄＋推播），補排程沒發車時的手動觸發
+    if cmd in ("開盤", "產生預測", "推播", "跑預測", "morning", "run"):
+        return _run_morning_now()
     # 以「/」開頭卻沒對到任何指令 → 打錯指令
     if text.strip().startswith("/"):
         return "不認得的指令。傳 /help 看用法。"
