@@ -688,16 +688,18 @@ def render_screener_page():
         return
     names, cands = res
     if not cands:
-        st.warning("目前沒有符合『進場』的候選——多半是大盤環境不佳，該等就等。")
+        st.warning("目前連『趨勢沒破』的觀察標的都很少（整體偏弱、多半跌破季線）。稍後或明天再掃。")
         return
     owner = _dash_owner()
     tracked = set(effective_stocks(owner).keys())
-    st.markdown(f"**找到 {len(cands)} 檔候選（量縮越明顯越前面）**")
+    st.markdown(f"**相對最好的前 {len(cands)} 名**（🟢進場＝到位可接、🟡觀望＝趨勢沒破仍在等）")
     for x in cands:
         code = x["code"]
         disp = f"{names.get(code, code)} ({code})"
+        badge = "🟢" if x["signal"] in ("進場", "順勢偏多") else "🟡"
         c1, c2 = st.columns([4, 1])
-        c1.markdown(f"**{disp}**　·　{x.get('at_batch') or x['kind']}  \n{x['reason']}")
+        c1.markdown(f"{badge} **[{x['signal']}] {disp}**　·　{x.get('at_batch') or x['kind']}"
+                    f"  \n{x['reason']}")
         if disp in tracked or code in {c.get('code') for c in
                                        effective_stocks(owner).values()}:
             c2.caption("✅ 已追蹤")

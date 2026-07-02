@@ -27,12 +27,33 @@ def _still_falling():
     return _df(closes)
 
 
-def test_scan_picks_entry_and_skips_others():
+def _vacuum_uptrend():
+    # 緩漲、位置偏高（在支撐之上、未回檔）→ 觀望，但趨勢沒破，應列出並標『觀望』
+    closes = [100 + i for i in range(60)]
+    return _df(closes)
+
+
+def test_scan_picks_entry_and_skips_broken_trend():
     data = {"2330": _pullback_hold_shrink(), "9999": _still_falling()}
     out = scan(["2330", "9999"], fetch=lambda c: data.get(c))
     codes = [x["code"] for x in out]
     assert "2330" in codes            # 承接點候選有被挑出
-    assert "9999" not in codes        # 跌破長均線(停損)不入選
+    assert "9999" not in codes        # 跌破長均線(趨勢破/停損)不入選
+
+
+def test_scan_still_lists_watch_when_no_entry():
+    # 就算沒有『進場』，觀望但趨勢沒破的也要列出，並標上訊號
+    out = scan(["8888"], fetch=lambda c: _vacuum_uptrend())
+    assert len(out) == 1
+    assert out[0]["signal"] in ("觀望", "進場")   # 有標訊號
+    assert out[0]["signal"] == "觀望"
+
+
+def test_scan_entry_ranks_above_watch():
+    # 進場分數高於觀望 → 進場排前面
+    data = {"E": _pullback_hold_shrink(), "W": _vacuum_uptrend()}
+    out = scan(["W", "E"], fetch=lambda c: data[c], limit=10)
+    assert out[0]["code"] == "E" and out[0]["signal"] == "進場"
 
 
 def test_scan_skips_short_history_and_missing():

@@ -289,10 +289,12 @@ def test_scan_command_lists_candidates(monkeypatch):
                         lambda n=150: [("2330", "台積電"), ("3481", "群創")])
     monkeypatch.setattr(bot, "fetch_daily", lambda c, months=3: "DF")
     monkeypatch.setattr(bot, "_scan", lambda codes, fetch, limit=12: [
-        {"code": "2330", "kind": "個股", "at_batch": "支撐2/MA20(第二批)",
+        {"code": "2330", "kind": "個股", "signal": "觀望",
+         "at_batch": "支撐2/MA20(第二批)",
          "reason": "回檔到支撐2、收盤止穩且量縮", "vol_ratio": 0.8}])
     out = bot.handle("/選股")
     assert "台積電" in out and "2330" in out and "回檔到支撐2" in out
+    assert "觀望" in out            # 有標訊號
 
 
 def test_scan_command_handles_empty_universe(monkeypatch):
