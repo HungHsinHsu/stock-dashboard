@@ -24,6 +24,23 @@ def test_pullback_to_support_with_shrink_volume_allows_entry():
     assert s["ceiling"] == "進場" and "支撐1" in s["at_batch"]
 
 
+def test_rollover_downtrend_demotes_entry_to_watch():
+    # 趨勢健康關：短線全到位(到價、止穩、量縮、外資停手)，但月線 MA20 下彎(高檔回落)
+    # → 不算上升趨勢中的健康回檔，降為觀望（仁寶、晶豪科那種噴上去又摔下來的情況）
+    ind = {"close": 223, "prev_close": 222, "ma20": 181, "ma20_slope5": -4.0,
+           "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
+    s = entry_setup(ind, foreign_stopped=True)
+    assert s["ceiling"] == "觀望" and "月線" in s["reason"]
+
+
+def test_healthy_pullback_rising_ma20_allows_entry():
+    # 月線 MA20 還在往上(斜率>0)＝健康回檔 → 進場
+    ind = {"close": 223, "prev_close": 222, "ma20": 181, "ma20_slope5": 3.0,
+           "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
+    s = entry_setup(ind, foreign_stopped=True)
+    assert s["ceiling"] == "進場"
+
+
 def test_foreign_unknown_stays_watch_not_entry():
     # 資料闕漏：技術面到位但外資無法確認 → 保守觀望，不給進場
     ind = {"close": 223, "prev_close": 222, "ma20": 181,

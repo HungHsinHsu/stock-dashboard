@@ -151,6 +151,13 @@ def entry_setup(ind, code=None, foreign_stopped=None):
             base_reason = "帶量站回上方均線且收盤站穩，符合往上站情境"
 
     if qualified:
+        # 趨勢健康關：進場只接『上升趨勢中的健康回檔』。中期均線(月線 MA20)還在往上＝趨勢沒壞；
+        # 走平或下彎＝高檔摔下來(像仁寶、晶豪科那種噴上去又回落)，短線就算到價站穩量縮也不是好承接點 → 降觀望。
+        slope = ind.get("ma20_slope5")
+        if slope is not None and slope <= 0:
+            return result("觀望", at_batch,
+                          f"已到{at_batch}、站穩量縮，但中期均線(月線MA20)走平/下彎、"
+                          "趨勢轉弱(高檔回落)，非上升趨勢中的健康回檔→保守觀望，等月線重新翻揚再看")
         # 進場 AND 第四條：外資停止倒貨。缺一或無法確認外資，一律保守 → 觀望，不給進場。
         if foreign_stopped is True:
             return result("進場", at_batch, base_reason + "，且外資已停止倒貨")
