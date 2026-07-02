@@ -265,10 +265,13 @@ def price_fig(df, supports=None, with_volume=True):
         low=df["Low"], close=df["Close"], name="K線",
         increasing_line_color="#e63946", decreasing_line_color="#2a9d8f",
     ), row=1, col=1)
-    if "MA20" in df:
+    # 三段均線＝三段支撐（短期 MA5 橘／中期 MA20 紫／長期 MA60 季線 深紅），隨收盤每日移動
+    for period, color, width in ((5, "#e9a44c", 1), (20, "#9b59b6", 1.5),
+                                 (60, "#c0392b", 1.2)):
+        ma = df["MA20"] if period == 20 and "MA20" in df else df["Close"].rolling(period).mean()
         fig.add_trace(go.Scatter(
-            x=df.index, y=df["MA20"], name="MA20",
-            line=dict(color="#9b59b6", width=1.5)), row=1, col=1)
+            x=df.index, y=ma, name=f"MA{period}",
+            line=dict(color=color, width=width)), row=1, col=1)
     colors = {"支撐1 (短期)": "orange", "支撐3 (長期)": "magenta"}
     for name, price in (supports or {}).items():
         fig.add_hline(y=price, line_dash="dash", line_color=colors.get(name, "gray"),
@@ -568,11 +571,31 @@ else:
             price_fig(resample_ohlc(df, rule), supports=cfg.get("supports", {})),
             use_container_width=True, config=_CHART_CFG)
 
+        # 三段支撐＝三條均線，隨收盤每日移動；直接列出今日價位與現價相對位置
+        st.markdown("#### 📉 三段支撐（均線，每日更新）")
+        _cl = df["Close"]
+        _ma_rows = []
+        for _lab, _p in (("支撐1 短期均線 (MA5)", 5),
+                         ("支撐2 中期均線 (MA20／月線)", 20),
+                         ("支撐3 長期均線 (MA60／季線)", 60)):
+            _v = _cl.rolling(_p).mean().iloc[-1] if len(_cl) >= _p else float("nan")
+            if pd.notna(_v):
+                _d = (last - _v) / _v * 100 if _v else 0.0
+                _pos = "🔺 站上" if last >= _v else "🔻 跌破"
+                _ma_rows.append({"支撐": _lab, "今日價位": f"{_v:.2f}",
+                                 "現價相對": f"{_pos}（{_d:+.1f}%）"})
+        if _ma_rows:
+            st.table(pd.DataFrame(_ma_rows).set_index("支撐"))
+            st.caption(f"現價 {last:.2f}。均線每天隨最新收盤重算，故支撐位每日更新；"
+                       "回檔承接法在支撐附近『收盤止穩＋量縮』才分批接，跌破長期均線(季線)為停損區。")
+        else:
+            st.caption("資料期間不足，尚無法計算均線支撐。")
+
         s = cfg.get("supports", {})
         s1 = s.get("支撐1 (短期)")
         s3 = s.get("支撐3 (長期)")
         if s1 is None and s3 is None:
-            st.info("此標的未設定支撐位，僅以 MA20 參考。")
+            st.info("此標的未設定『手動水平支撐』，以上均線支撐即可參考。")
         elif s1 is not None and last > s1:
             st.success("價格在支撐1之上")
         elif pd.notna(ma20_last) and last > ma20_last:
