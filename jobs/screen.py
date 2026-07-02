@@ -52,6 +52,10 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
     except Exception as e:
         print("存選股結果失敗：", e)
     print(f"[screen] date={date} 清單={len(uni)} 讀取成功={got['ok']} 候選={len(cands)}")
+    for x in cands:
+        print(f"[screen] {names.get(x['code'], x['code'])} ({x['code']}) "
+              f"[{x['signal']}] {x.get('trend', '')} | "
+              f"{x.get('at_batch') or x['kind']} | 量比{x.get('vol_ratio')}")
     if notify:
         if cands:
             tg.send(_digest(date, cands, names, top))
