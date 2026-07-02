@@ -24,11 +24,27 @@ def test_pullback_to_support_with_shrink_volume_allows_entry():
     assert s["ceiling"] == "進場" and "支撐1" in s["at_batch"]
 
 
-def test_at_support_but_volume_not_shrunk_is_watch():
-    # 到價但放量(量未縮) → 觀望，等收盤確認
+def test_at_support_stabilised_but_volume_not_shrunk_is_half_size_entry():
+    # 中間版：到支撐＋收盤站穩、但量未縮、外資未確認 → 半批試單(進場)，不再是觀望
     ind = {"close": 223, "prev_close": 222, "ma20": 181,
            "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 1.3}
+    s = entry_setup(ind)
+    assert s["ceiling"] == "進場" and "半批" in s["tier"]
+
+
+def test_at_support_not_stabilised_still_watch_even_if_volume_shrunk():
+    # 站穩是必要關：收盤還在破底，就算量縮也只能觀望（不接刀）
+    ind = {"close": 218, "prev_close": 230, "ma20": 181,
+           "dist_support1_pct": -1.0, "dist_support3_pct": 40, "vol_ratio": 0.7}
     assert signal_ceiling(ind) == "觀望"
+
+
+def test_tiers_scale_with_confirmations():
+    # 量縮＋外資停手 → 標準（強）；只過一項 → 標準
+    strong = {"close": 223, "prev_close": 222, "ma20": 181,
+              "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
+    s = entry_setup(strong, foreign_stopped=True)
+    assert s["ceiling"] == "進場" and "量縮＋外資停手" in s["tier"]
 
 
 def test_at_support_but_not_stabilised_is_watch():
