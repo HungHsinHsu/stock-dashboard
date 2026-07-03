@@ -34,6 +34,8 @@ def _digest(date, cands, names, top):
         lines += ["", "📦 ETF（趨勢參考，走另一套框架，非個股承接法）："]
         lines += [_line(x, names) for x in etfs]
     lines += ["", "（進場＝四關到位可接；觀望＝趨勢沒破在等；避開＝跌破季線墊底參考）",
+              "🕒 此清單為當天收盤後一次性快照、盤中不更新；「等站穩」＝隔日承接（隔日回到支撐、"
+              "收盤站穩再分批接），非當天再等收盤。",
               "※ 已逐檔補查外資、資料不齊者已排除，訊號含外資；要追蹤用 /add 代號", f"🔗 {DASHBOARD_URL}"]
     return "\n".join(lines)
 

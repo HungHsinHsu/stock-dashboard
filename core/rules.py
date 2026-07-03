@@ -168,13 +168,17 @@ def entry_setup(ind, code=None, foreign_stopped=None):
                       base_reason + "，但外資買賣超無法確認→保守觀望，確認外資已停手再進")
 
     # 其餘：真空帶/未到價/未止穩/放量殺 → 等
+    # 註：此清單為收盤後快照(當日一次)，「站穩」指的是隔日承接——隔日回到支撐、
+    # 看隔日那根收盤站不站得穩，不是叫你當天再等一個收盤(當天已收)。
     if at_batch and not (hold_ok and vol_ok):
         miss = []
         if not hold_ok:
-            miss.append("尚未收盤止穩")
+            miss.append("收盤未站穩")
         if not vol_ok:
             miss.append("量未縮")
-        return result("觀望", at_batch, f"已到{at_batch}，但{'、'.join(miss)}，等收盤確認")
+        return result("觀望", at_batch,
+                      f"已到{at_batch}，但今日{'、'.join(miss)}；隔日回到支撐、"
+                      "收盤站穩再分批接（此清單當日一次、盤中不即時更新）")
     return result("觀望", None, "未到任一支撐(真空帶/位置偏高)，不是進場點")
 
 
