@@ -55,7 +55,7 @@ def _trend_label(ind):
 
 
 def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0,
-         etf_limit=8):
+         etf_limit=8, drop_incomplete=True):
     """對 codes 逐檔套規則、評分排序，回前 limit 名候選(list[dict]，含 signal 標籤)。
 
     fetch(code) -> DataFrame（需足夠歷史算 MA60；不足或抓不到則略過）。
@@ -117,8 +117,9 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0,
         except Exception:
             fo = None
         stopped = (fo or {}).get("stopped")
-        if stopped is None:
-            continue                          # 外資資料不齊 → 這檔不列（資料不全不推薦）
+        if stopped is None and drop_incomplete:
+            continue                          # 選股模式：外資不齊就剔除（不推薦資料不全的標的）
+        # 追蹤清單模式(drop_incomplete=False)：外資不齊也保留，用 None→entry_setup 給觀望
         s2 = entry_setup(ind, code, stopped)
         item["signal"] = _label(s2["ceiling"], etf)
         item["reason"] = s2["reason"]

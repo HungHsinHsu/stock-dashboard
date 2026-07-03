@@ -826,9 +826,48 @@ def render_screener_page():
                 st.warning(f"掃 {uni_n} 檔、成功讀取 {fetched_n} 檔，但都不符合。")
 
 
+def _render_watch_scan(owner):
+    """把回檔承接法套在追蹤清單、依『離進場多近』排序顯示（讀排程存好的快照）。"""
+    def _badge(s):
+        return ("🟢" if s in ("進場", "順勢偏多")
+                else "🔴" if s in ("避開", "明顯轉空避開") else "🟡")
+
+    with st.expander("📈 依『離進場多近』排序（追蹤清單體質掃描）", expanded=True):
+        stored = None
+        if db.db_enabled():
+            try:
+                stored = db.get_state("watch:latest")
+            except Exception:
+                stored = None
+        if stored and stored.get("cands"):
+            names = stored.get("names", {})
+            st.caption(f"收盤快照 {stored.get('date', '')}・**排最前＝最接近進場**。"
+                       "🟢進場　🟡觀望（排越前越近）　🔴避開（跌破季線）。盤中不更新。")
+            rows = [{
+                "訊號": f"{_badge(x['signal'])} {x['signal']}",
+                "標的": names.get(x["code"], x["code"]),
+                "波段體質": x.get("trend", "—"),
+                "位置／理由": f"{x.get('at_batch') or x.get('kind', '')}｜{x.get('reason', '')}",
+            } for x in stored["cands"]]
+            st.table(pd.DataFrame(rows).set_index("訊號"))
+        else:
+            st.info("還沒有追蹤清單掃描結果。每天收盤後（約 15:35）會自動掃；或按下方即時掃。")
+        if st.button("🔄 立即掃描我的清單（約 1 分鐘）", key="watch_rescan"):
+            with st.spinner("掃描追蹤清單中…（連證交所，可能較慢）"):
+                from jobs.watch import run as watch_run
+                try:
+                    watch_run(notify=False, stocks=effective_stocks(owner))
+                    st.success("掃描完成，已更新。")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"掃描失敗（多半是 TWSE 限流）：{e}")
+
+
 def render_manage_watchlist():
     st.markdown("### ⭐ 管理追蹤個股")
     owner = _dash_owner()
+    _render_watch_scan(owner)
+    st.divider()
     # 搜尋加入（代號或中文名）
     st.markdown("#### ➕ 搜尋加入")
     q = st.text_input("輸入股票代號或中文名稱", key="wl_search",

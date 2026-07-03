@@ -104,6 +104,11 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
         except Exception as e:
             print("存選股結果失敗：", e)
         _store_foreign_snapshot(db, date, cands)  # 順手補抓追蹤股(含華邦電)的外資存 DB
+        try:                                       # 順手把『追蹤清單體質掃描』也存一份(不重複推播)
+            from jobs import watch
+            watch.run(notify=False)
+        except Exception as e:
+            print("追蹤清單掃描失敗：", e)
     else:
         print("[screen] 清單抓不到(TWSE 沒回應)，保留上一份選股結果，不覆寫。")
     print(f"[screen] date={date} 清單={len(uni)} 讀取成功={got['ok']} 候選={len(cands)}")

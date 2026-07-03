@@ -60,6 +60,7 @@ HELP = "\n".join([
     "",
     "—— 選股掃描 ——",
     "/選股　依回檔承接法從前150大成交股找承接點候選",
+    "/追蹤掃描　把規則套在你的追蹤清單，依『離進場多近』排序",
     "",
     "—— 股票清單 ——",
     "/add 2330　加入（三段支撐用均線自動判斷）",
@@ -88,6 +89,7 @@ BOT_COMMANDS = [
     ("review", "復盤：查今天的預測與命中/檢討"),
     ("morning", "立即產生今日開盤預測（排程沒發車時手動補）"),
     ("scan", "選股掃描：依回檔承接法從全市場找承接點候選"),
+    ("watch", "追蹤清單掃描：把規則套在你的清單、依離進場多近排序"),
     ("add", "加入追蹤股票"),
     ("remove", "移除追蹤股票"),
     ("list", "目前追蹤清單"),
@@ -342,6 +344,25 @@ def _scan_command():
     return _scan_candidates_digest()
 
 
+def _watch_command():
+    """/清單：把回檔承接法套在『追蹤清單』每一檔，依離進場多近排序。
+    優先回已存快照(watch:latest)；沒有就即時掃(較慢)。"""
+    from jobs.watch import _digest, run as watch_run
+    try:
+        stored = db.get_state("watch:latest") if db.db_enabled() else None
+    except Exception:
+        stored = None
+    if stored and stored.get("cands"):
+        return _digest(stored.get("date", ""), stored["cands"], stored.get("names", {}))
+    tg.send("⏳ 尚無追蹤清單掃描結果，改即時掃描（約 1 分鐘）…")
+    res = watch_run(notify=False)   # 即時掃，回字串由外層送(不重複發)
+    if res.get("cands"):
+        return _digest(res["date"], res["cands"], res["names"])
+    if not res.get("n"):
+        return "⭐ 追蹤清單是空的——先用 /add 代號 或網頁『管理追蹤』加股票再掃。"
+    return "⭐ 追蹤清單掃描：這次抓不到資料（TWSE 沒回應），稍後再試。"
+
+
 def _resolve_in_watchlist(query):
     """先在使用者追蹤清單裡解析（即使 TWSE 名單抓不到也能用）。
     回 (code, 顯示名) 或 None。"""
@@ -585,6 +606,12 @@ def _dispatch(text):
             return _scan_command()
         except Exception as e:
             return f"⚠️ 選股失敗：{e}"
+    # 追蹤清單體質掃描：把規則套在『自己的追蹤清單』，依離進場多近排序
+    if cmd in ("追蹤掃描", "清單掃描", "掃清單", "我的清單", "體質", "watch"):
+        try:
+            return _watch_command()
+        except Exception as e:
+            return f"⚠️ 清單掃描失敗：{e}"
     # 以「/」開頭卻沒對到任何指令 → 打錯指令
     if text.strip().startswith("/"):
         return "不認得的指令。傳 /help 看用法。"
