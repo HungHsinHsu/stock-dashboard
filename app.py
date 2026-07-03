@@ -387,7 +387,7 @@ def load_foreign(code):
 def _render_entry_gates(code, df, last, ma5, ma60):
     """個股進場四關：依現價實時判定，一關一關打勾/打叉，並顯示卡在第幾關。
     用的是與每日預測同一套規則(core.rules.entry_setup)，所以與訊號一致。"""
-    st.markdown("##### 🚪 進場四關（依現價實時判定，一關一關看）")
+    st.markdown("##### 🚪 進場關卡（依現價實時判定，五關全過才進場）")
 
     # 即時資料過期時：改看每日快照(Actions 抓的正確資料)的承接法結論，而不是用過期價亂算。
     _snap = _snapshot_item(code)
@@ -395,7 +395,7 @@ def _render_entry_gates(code, df, last, ma5, ma60):
         x = _snap[0]
         _b = ("🟢" if x["signal"] in ("進場", "順勢偏多")
               else "🔴" if x["signal"] in ("避開", "明顯轉空避開") else "🟡")
-        st.info(f"ℹ️ 本站即時資料只到 {df.index[-1].date()}、慢了一步；四關改看**每日快照"
+        st.info(f"ℹ️ 本站即時資料只到 {df.index[-1].date()}、慢了一步；進場關卡改看**每日快照"
                 f"（{_snap[1]}，Actions 抓的正確資料）**的承接法結論：")
         st.markdown(f"### {_b} {x['signal']}")
         st.markdown(f"**位置**：{x.get('at_batch') or '未到支撐（位置偏高）'}　　"
@@ -405,7 +405,7 @@ def _render_entry_gates(code, df, last, ma5, ma60):
     # 過期又沒有可用快照 → 不用過期價亂算
     if not df.empty and len(pd.bdate_range(df.index[-1] + pd.Timedelta(days=1),
                                            pd.Timestamp(now_tw().date()))) >= 2:
-        st.warning("⚠️ 即時資料過期、又無可用快照，四關暫不計算。請按上方『重新抓』。")
+        st.warning("⚠️ 即時資料過期、又無可用快照，進場關卡暫不計算。請按上方『重新抓』。")
         return
 
     if is_denied(code):
@@ -414,7 +414,7 @@ def _render_entry_gates(code, df, last, ma5, ma60):
         return
     if pd.notna(ma60) and last < ma60:
         st.error("🛑 已跌破支撐3（季線 MA60）＝停損區：不接刀；手上有部位者依紀律全數出場。"
-                 "（四關不用看了，這關就出局）")
+                 "（關卡不用看了，這關就出局）")
         return
 
     ind = compute_indicators(df, {})
@@ -445,13 +445,24 @@ def _render_entry_gates(code, df, last, ma5, ma60):
         g4 = f"❌ 外資仍賣超（連{(foreign or {}).get('sold_streak') or 0}日）{snap_txt}"
     else:
         g4 = "❓ 外資資料未取得，需自行確認"
+    # 趨勢健康關（前提）：進場只接『上升趨勢中的健康回檔』，月線(MA20)近5日要還在往上。
+    slope = ind.get("ma20_slope5")
+    if slope is None:
+        g5 = "❓ 月線斜率資料不足"
+    elif slope > 0:
+        g5 = f"✅ 月線(MA20)仍向上（近5日斜率 {slope}）"
+    else:
+        g5 = f"❌ 月線(MA20)走平/下彎（近5日斜率 {slope}）＝趨勢轉弱、非健康回檔"
 
     st.table(pd.DataFrame([
         {"關卡": "① 價格到位（回到支撐±2%）", "現況": g1},
         {"關卡": "② 收盤站穩（沒再破底）", "現況": g2},
         {"關卡": "③ 量縮（量比<1＝賣壓衰竭）", "現況": g3},
         {"關卡": "④ 外資停止賣超", "現況": g4},
+        {"關卡": "⑤ 趨勢健康（月線MA20仍向上）", "現況": g5},
     ]).set_index("關卡"))
+    st.caption("⑤ 是前提：就算①～④都過，月線走平/下彎(高檔做頭)也只給觀望，"
+               "避免接到像做頭回落的股票。要進場＝五關全過。")
     if fstopped is None:
         st.caption("④ 外資即時抓不到（Streamlit 連證交所常被限流）。收盤後排程會補抓追蹤股的外資存起來，"
                    "屆時這裡會自動用『收盤快照』補上。")
