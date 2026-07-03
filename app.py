@@ -584,6 +584,29 @@ def _md_bullets(text):
     return "\n".join(f"- {p}" for p in parts)
 
 
+def _render_full_detail(rec, owner, rate):
+    """把某天『完整的』開盤預測＋收盤復盤（跟機器人同一份文字）顯示在網頁上——
+    含關鍵價位(站穩MA20/守住支撐1)、技術訊號、理由、籌碼、對錯一覽、檢討。"""
+    from core.predict import format_prediction, format_market_prediction
+    from core.review import format_review, format_market_review
+    p = rec.get("prediction") or {}
+    rv = rec.get("review")
+    date, is_mkt = rec["date"], rec.get("stock") == "大盤"
+    if is_mkt:
+        name = "🌐 大盤"
+    else:
+        c2n = {cfg["code"]: nm for nm, cfg in effective_stocks(owner).items()}
+        name = c2n.get(rec.get("stock"), rec.get("stock"))
+    if p:
+        st.text(format_market_prediction(date, p) if is_mkt
+                else format_prediction(name, date, p))
+    if rv and (rv.get("results") or rv.get("critique")):
+        st.text(format_market_review(date, rv, rate) if is_mkt
+                else format_review(name, date, rv, rate))
+    elif p:
+        st.caption("（這天還沒收盤復盤）")
+
+
 def render_history(records, show_signal):
     """預測歷史表（含復盤命中）。大盤與個股共用，差別只在是否顯示『訊號』欄。"""
     ordered = sorted(records, key=lambda x: x["date"], reverse=True)
@@ -650,6 +673,14 @@ def render_history(records, show_signal):
                      f"實際{rv.get('direction_actual', '—')} {hit}")
             with st.expander(title):
                 st.markdown(_md_bullets(rv["critique"]))
+
+    # 完整預測／復盤（跟機器人同一份，含關鍵價位/技術訊號/理由/籌碼/對錯一覽）——選日期看
+    st.markdown("**🔍 完整預測／復盤（機器人有的這裡都有・選日期看）**")
+    _opts = [r["date"] for r in ordered]
+    _sel = st.selectbox("選日期", _opts, key=f"detail_{ordered[0].get('stock', 'x')}")
+    _rec = next((r for r in ordered if r["date"] == _sel), None)
+    if _rec:
+        _render_full_detail(_rec, _dash_owner(), rate)
 
 
 def _pct(hits, n):
