@@ -37,7 +37,9 @@ def judge(prediction, today_close, prev_close, today_ma20, support1=None):
         "prev_close": prev_close,
         "direction_actual": direction_actual,
         "results": results,
-        "success": all(results.values()),
+        # 命中＝方向命中（與命中率、歷史總覽、大盤同一把尺）；站穩 MA20／支撐1 是附帶
+        # 細項，只在對錯一覽顯示，不會讓「預測跌→實際跌」變成未中。
+        "success": results["direction"],
     }
 
 
@@ -139,7 +141,7 @@ def format_review(stock_name, date, review, rate):
         f"🗓 {date}",
         "",
         f"{trend} 收盤：{review['actual_close']:.2f}（{chg:+.2f}）",
-        f"🎯 本日預測：{'命中 ✅' if review['success'] else '未中 ❌'}",
+        f"🎯 本日預測：{'命中 ✅' if r.get('direction') else '未中 ❌'}",
         "",
         "──── 對錯一覽 ────",
         f"{mark(r['direction'])} 方向（實際{review['direction_actual']}）",

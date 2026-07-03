@@ -20,7 +20,7 @@ def _stock_review_digest(items, date):
     預測方向與實際方向都寫出來，不必自己回推。"""
     lines = [f"📋 個股收盤復盤出爐（{date}）", ""]
     for name, pred_dir, rv in items:
-        hit = "命中 ✅" if rv.get("success") else "未中 ❌"
+        hit = "命中 ✅" if (rv.get("results") or {}).get("direction") else "未中 ❌"
         lines.append(
             f"🔍 {name}：預測{pred_dir or '—'} → 實際{rv.get('direction_actual', '—')}　{hit}")
     lines += ["", "詳細檢討看網頁，或用 /復盤 代號", f"🔗 {DASHBOARD_URL}"]

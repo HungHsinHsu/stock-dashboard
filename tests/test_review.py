@@ -16,6 +16,20 @@ def test_judge_all_hit():
     assert j["success"] is True
 
 
+def test_judge_direction_hit_but_hold_miss_still_counts_as_hit():
+    # 方向對(預測跌、實際跌)但『站穩 MA20』猜錯 → 仍算命中(success=方向)，
+    # 不再出現「預測跌→實際跌 未中」這種自相矛盾。
+    pred = {"direction": "跌", "hold_ma20": True, "hold_support1": True}
+    j = judge(pred, today_close=201.0, prev_close=203.0,
+              today_ma20=190.0, support1=222)          # 實際站穩(201>190)，但預測也說站穩→其實對
+    # 用一個真的站穩猜錯的情境：實際沒站穩、預測說站穩
+    j2 = judge({"direction": "跌", "hold_ma20": True},
+               today_close=201.0, prev_close=203.0, today_ma20=205.0)
+    assert j2["results"]["direction"] is True          # 方向命中
+    assert j2["results"]["hold_ma20"] is False          # 站穩猜錯
+    assert j2["success"] is True                        # 但整體仍算命中(以方向為準)
+
+
 def test_judge_direction_miss():
     pred = {"direction": "漲", "hold_ma20": True, "hold_support1": True}
     j = judge(pred, today_close=201.0, prev_close=203.0,
