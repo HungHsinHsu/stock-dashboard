@@ -36,8 +36,9 @@ def test_run_stores_foreign_snapshot_for_watchlist(monkeypatch):
     # 排程順手把追蹤股(華邦電 2344)的外資抓一份存 DB，供網頁回退
     stored = {}
     monkeypatch.setattr(db, "set_state", lambda k, v: stored.__setitem__(k, v))
+    # 真實結構：watchlist 以「代號」為 key，value 只有 name/supports（沒有 code 欄位）
     monkeypatch.setattr(db, "get_states_by_prefix",
-                        lambda p: {"wl:admin": {"華邦電 (2344)": {"code": "2344"}}})
+                        lambda p: {"wl:admin": {"2344": {"name": "華邦電 (2344)"}}})
     monkeypatch.setattr(screen, "fetch_foreign_flow",
                         lambda c: {"stopped": False, "sold_streak": 2, "net": -100})
     screen.run(uni_fetch=lambda n: [("8888", "測試")],

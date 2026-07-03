@@ -14,15 +14,13 @@ FOREIGN_KEY = "foreign:latest"   # 每天排程(Actions)抓好的外資快照，
 
 
 def _all_watchlist_codes(db):
-    """列舉各帳號追蹤清單裡的所有股票代號（給排程順手補抓外資用）。"""
+    """列舉各帳號追蹤清單裡的所有股票代號（給排程順手補抓外資用）。
+    watchlist 結構是 {code: {"name":.., "supports"?}}——代號是 key，不是 value 裡的欄位。"""
     codes = set()
     try:
         for _, wl in (db.get_states_by_prefix("wl:") or {}).items():
             if isinstance(wl, dict):
-                for entry in wl.values():
-                    c = entry.get("code") if isinstance(entry, dict) else None
-                    if c:
-                        codes.add(str(c))
+                codes |= {str(c) for c in wl.keys()}
     except Exception as e:
         print("列舉追蹤清單失敗：", e)
     return codes
