@@ -96,6 +96,7 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0,
             "code": str(code), "kind": "ETF" if etf else "個股",
             "signal": _label(ceil, etf), "at_batch": setup.get("at_batch"),
             "reason": setup.get("reason"), "close": ind.get("close"),
+            "prev_close": ind.get("prev_close"),   # 供網頁過期時用快照算漲跌幅
             "vol_ratio": ind.get("vol_ratio"), "score": round(score, 1),
             "trend": _trend_label(ind),
         }

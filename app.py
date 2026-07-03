@@ -51,7 +51,7 @@ def load_stock_df(code):
 
 def _snapshot_close(code):
     """從每日快照(watch:latest / screen:latest，皆由 Actions 在乾淨網路抓)取某代號
-    最新收盤 (價, 日期)；查無回 None。網頁即時抓到過期資料時用它給正確現價。"""
+    最新收盤 (價, 前一日收盤, 日期)；查無回 None。網頁即時抓到過期資料時用它給正確現價。"""
     if not db.db_enabled():
         return None
     for key in ("watch:latest", "screen:latest"):
@@ -61,7 +61,7 @@ def _snapshot_close(code):
             snap = None
         for x in (snap or {}).get("cands", []):
             if str(x.get("code")) == str(code) and x.get("close"):
-                return (x["close"], snap.get("date", ""))
+                return (x["close"], x.get("prev_close"), snap.get("date", ""))
     return None
 
 
@@ -1046,7 +1046,7 @@ else:
             msg = (f"⚠️ **資料可能過期**：即時抓到的最後一筆是 **{df.index[-1].date()}**，"
                    f"漏了約 {_stale_missing} 個交易日（多半是本站連證交所被限流、當月沒抓到）。")
             if _snap:
-                msg += f"　✅ 已改用每日快照收盤 **{_snap[0]:.2f}**（{_snap[1]}）當現價。"
+                msg += f"　✅ 已改用每日快照收盤 **{_snap[0]:.2f}**（{_snap[2]}）當現價。"
             msg += "　但下方**圖表／均線／三段支撐／四關仍是用過期資料算的**，請按右邊『重新抓』。"
             cc1, cc2 = st.columns([5, 1])
             cc1.warning(msg)
@@ -1059,8 +1059,13 @@ else:
     else:
         # 過期且有快照 → 現價直接用快照(Actions 乾淨網路抓的)，不再顯示過期的大數字
         if _stale_missing >= 2 and _snap:
-            last = _snap[0]
-            chg_txt, _price_note = None, f"每日快照 {_snap[1]}（即時來源過期）"
+            last, _sp = _snap[0], _snap[1]          # 收盤、前一日收盤
+            if _sp:
+                _c = last - _sp
+                chg_txt = f"{_c:+.2f} ({(_c / _sp * 100):+.2f}%)"
+            else:
+                chg_txt = None
+            _price_note = f"每日快照 {_snap[2]}（即時來源過期）"
         else:
             last = df["Close"].iloc[-1]
             prev = df["Close"].iloc[-2] if len(df) >= 2 else last
