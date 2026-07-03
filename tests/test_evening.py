@@ -132,6 +132,22 @@ def test_evening_skips_when_critique_exists(tmp_path, monkeypatch):
     assert not any("收盤復盤" in s for s in sends)
 
 
+def test_evening_backfills_past_unreviewed_stock(tmp_path, monkeypatch):
+    hp = str(tmp_path / "h.json")
+    # 6/29 有預測但沒復盤（當天收盤抓不到被跳過）；今天 6/30 復盤應回頭補做 6/29，
+    # 不然它會永遠卡在「尚未復盤」。
+    _seed(hp, [_stock_rec(date="2026-06-29", review=None)])
+    sends, lessons = _patch(monkeypatch, hp)
+    evening.run(
+        today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
+        fetch=lambda code, today=None: _df("2026-06-30"),   # 含 6/29 收盤
+        fetch_idx=lambda today=None: _df("2026-06-30"),
+        stocks={"華邦電 (2344)": {"code": "2344"}})
+    recs = json.load(open(hp, encoding="utf-8"))
+    r = next(x for x in recs if x["date"] == "2026-06-29" and x["stock"] == "2344")
+    assert (r.get("review") or {}).get("results") is not None   # 6/29 被補結算
+
+
 def test_evening_backfills_missing_critique(tmp_path, monkeypatch):
     hp = str(tmp_path / "h.json")
     # 有 review 但缺 critique（舊版猜中沒檢討）→ 應補上檢討

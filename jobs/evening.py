@@ -115,7 +115,45 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
         produced.append(rec)
         stock_summ.append((name, rec["prediction"].get("direction"), review))
 
-    print(f"[evening] produced={len(produced)} waiting={waiting}")
+    # 補結算：過去幾天『有預測卻沒復盤』的個股（當天收盤抓不到被跳過的）——資料現在
+    # 到齊就補做，否則它們會永遠卡在「尚未復盤」。用該預測『當天』的收盤結算，不是今天。
+    from datetime import date as _date, timedelta as _td
+    code2cfg = {cfg["code"]: (name, cfg) for name, cfg in stocks.items()}
+    cutoff = (_date.fromisoformat(date) - _td(days=8)).isoformat()
+    pending = [r for r in records
+               if r.get("stock") in code2cfg and r.get("prediction")
+               and not (r.get("review") or {}).get("critique")
+               and cutoff <= r.get("date", "") < date]
+    backfilled, _dfcache = [], {}
+    for r in pending:
+        code, d = r["stock"], r["date"]
+        if code not in _dfcache:
+            try:
+                _dfcache[code] = fetch(code, today=today)
+            except Exception:
+                _dfcache[code] = None
+        df = _dfcache[code]
+        if df is None or df.empty:
+            continue
+        sub = df[df.index.date <= _date.fromisoformat(d)]   # 只取到預測那天為止
+        if sub.empty or str(sub.index[-1].date()) != d:
+            continue                        # 那天的收盤還是抓不到 → 下次再補
+        name, cfg = code2cfg[code]
+        ind = compute_indicators(sub, cfg.get("supports", {}))
+        s1 = cfg.get("supports", {}).get("支撐1 (短期)")
+        judged = judge(r["prediction"], ind["close"], ind["prev_close"], ind["ma20"], s1)
+        review = make_review(r["prediction"], judged, ind, name,
+                             market=market, today_bar=_today_bar(sub), llm=llm)
+        r["review"] = review
+        records = upsert_record(records, r)
+        if not review.get("success"):
+            add_lesson(code, d, review.get("critique"))
+        backfilled.append((name, d))
+    if backfilled:
+        save_history(records, HISTORY_PATH)
+        print(f"[evening] 補結算 {len(backfilled)} 筆：{backfilled}")
+
+    print(f"[evening] produced={len(produced)} waiting={waiting} 補結算={len(backfilled)}")
     if produced:
         save_history(records, HISTORY_PATH)
     if stock_summ:                       # 個股復盤出爐 → 一則總表通知
