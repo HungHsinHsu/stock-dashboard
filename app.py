@@ -1131,7 +1131,32 @@ else:
                 st.rerun()
 
     if df.empty:
-        st.error("抓不到資料，把這個畫面回報給我。")
+        # 即時日線完全抓不到（本站被證交所限流）→ 改用每日快照(Actions 抓的)顯示價格＋結論。
+        _snap_it = _snapshot_item(cfg["code"])
+        if _snap_it and _snap_it[0].get("close"):
+            x, sdate = _snap_it
+            _b = ("🟢" if x["signal"] in ("進場", "順勢偏多")
+                  else "🔴" if x["signal"] in ("避開", "明顯轉空避開") else "🟡")
+            st.warning(f"⚠️ 本站即時抓不到「{choice}」的日線（連證交所被限流）。"
+                       "以下改用每日快照（Actions 在乾淨網路抓的），圖表暫時無法顯示。")
+            cc1, cc2 = st.columns(2)
+            _c0, _p0 = x["close"], x.get("prev_close")
+            if _p0:
+                cc1.metric("最新收盤", f"{_c0:.2f}",
+                           f"{_c0 - _p0:+.2f} ({(_c0 - _p0) / _p0 * 100:+.2f}%)",
+                           delta_color="inverse")
+            else:
+                cc1.metric("最新收盤", f"{_c0:.2f}")
+            cc1.caption(f"每日快照 {sdate}")
+            cc2.markdown(f"### {_b} {x['signal']}")
+            cc2.markdown(f"位置：{x.get('at_batch') or '未到支撐'}　｜　體質：{x.get('trend', '—')}")
+            st.caption(f"理由：{x.get('reason', '')}")
+            if st.button("🔄 重新抓最新資料", key=f"refetch_{cfg['code']}"):
+                load_stock_df.clear()
+                st.rerun()
+        else:
+            st.error("即時與每日快照都抓不到這檔的資料。若它在追蹤清單，收盤後排程會補上；"
+                     "否則請按頁面重整或稍後再試。")
     else:
         # 過期且有快照 → 現價直接用快照(Actions 乾淨網路抓的)，不再顯示過期的大數字
         if _stale and _snap:
