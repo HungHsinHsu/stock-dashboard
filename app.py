@@ -1132,26 +1132,16 @@ else:
     cfg = STOCKS[choice]
     df = load_stock_df(cfg["code"])
 
-    # 資料過期防呆：主機連證交所被限流時，當月可能漏抓，最後一根停在上月底，
-    # 害『現價』顯示過期價（例：華邦電 6/30 的 207 卡住，實際已 184）。用「漏了幾個
-    # 交易日」判斷（不是日曆天，才抓得到跨月那種只差 3 天卻漏 3 根的情況）。
-    _stale_missing, _snap = 0, None
+    # 資料新鮮度：df 已是 load_stock_df『即時抓與 DB 每日快照兩者取較新那份』——一定不會
+    # 比即時抓的還舊。這裡再明確標資料日期，並在真的落後(≥2 交易日)時警告，讓你一眼確認
+    # 不是舊資料（收盤後約 15:35 會更新；持續落後＝排程沒跑）。
     if not df.empty:
-        _snap_it = _snapshot_item(cfg["code"])
-        _snap = _snapshot_close(cfg["code"])
-        # 過期＝有更新的快照可比，或（無快照時）即時資料離今天漏了 2 個交易日以上。
-        _stale = _snap_newer_than(df, _snap_it[1] if _snap_it else None) or (
-            not _snap_it and len(pd.bdate_range(
-                df.index[-1] + pd.Timedelta(days=1),
-                pd.Timestamp(now_tw().date()))) >= 2)
-        if _stale:
-            msg = (f"⚠️ **資料可能過期**：本站即時抓到的最後一筆是 **{df.index[-1].date()}**"
-                   "（多半是連證交所被限流、當月沒抓到）。")
-            if _snap:
-                msg += f"　✅ 已改用每日快照收盤 **{_snap[0]:.2f}**（{_snap[2]}）當現價。"
-            msg += "　下方圖表／均線／支撐仍是過期資料，四關已改看快照結論；可按右邊『重新抓』。"
+        _behind = len(pd.bdate_range(df.index[-1] + pd.Timedelta(days=1),
+                                     pd.Timestamp(now_tw().date())))
+        if _behind >= 2:
             cc1, cc2 = st.columns([5, 1])
-            cc1.warning(msg)
+            cc1.warning(f"⚠️ 這份資料最後一天是 **{df.index[-1].date()}**、落後約 {_behind} 個"
+                        "交易日，可能不是最新（每天收盤後約 15:35 自動更新；持續落後代表排程沒跑）。")
             if cc2.button("🔄 重新抓最新資料"):
                 load_stock_df.clear()
                 st.rerun()
@@ -1184,28 +1174,17 @@ else:
             st.error("即時與每日快照都抓不到這檔的資料。若它在追蹤清單，收盤後排程會補上；"
                      "否則請按頁面重整或稍後再試。")
     else:
-        # 過期且有快照 → 現價直接用快照(Actions 乾淨網路抓的)，不再顯示過期的大數字
-        if _stale and _snap:
-            last, _sp = _snap[0], _snap[1]          # 收盤、前一日收盤
-            if _sp:
-                _c = last - _sp
-                chg_txt = f"{_c:+.2f} ({(_c / _sp * 100):+.2f}%)"
-            else:
-                chg_txt = None
-            _price_note = f"每日快照 {_snap[2]}（即時來源過期）"
-        else:
-            last = df["Close"].iloc[-1]
-            prev = df["Close"].iloc[-2] if len(df) >= 2 else last
-            chg = last - prev
-            pct = (chg / prev * 100) if prev else 0.0
-            chg_txt, _price_note = f"{chg:+.2f} ({pct:+.2f}%)", None
+        # df 已是最新那份，直接用它算現價與漲跌
+        last = df["Close"].iloc[-1]
+        prev = df["Close"].iloc[-2] if len(df) >= 2 else last
+        chg = last - prev
+        pct = (chg / prev * 100) if prev else 0.0
         ma20_last = df["MA20"].iloc[-1]
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("最新收盤", f"{last:.2f}", chg_txt,
+        c1.metric("最新收盤", f"{last:.2f}", f"{chg:+.2f} ({pct:+.2f}%)",
                   delta_color="inverse")   # 台股漲紅跌綠
-        if _price_note:
-            c1.caption(_price_note)
+        c1.caption(f"📅 資料截至 {df.index[-1].date()}（收盤）")   # 明確標日期，避免誤用舊資料
         c2.metric("最高(近期)", f"{df['High'].max():.2f}")
         c3.metric("最低(近期)", f"{df['Low'].min():.2f}")
 
