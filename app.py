@@ -328,10 +328,24 @@ def price_fig(df, supports=None, with_volume=True):
 
 @st.cache_data(ttl=1800)
 def load_foreign(code):
+    # 先即時抓；Streamlit 主機連 TWSE 常被限流/擋，抓不到就回退讀排程(Actions)每天存好的外資快照。
     try:
-        return fetch_foreign_flow(code)
+        fo = fetch_foreign_flow(code)
     except Exception:
-        return None
+        fo = None
+    if fo and fo.get("stopped") is not None:
+        return fo
+    try:
+        snap = db.get_state("foreign:latest") if db.db_enabled() else None
+    except Exception:
+        snap = None
+    if snap and isinstance(snap.get("map"), dict):
+        stored = snap["map"].get(str(code))
+        if stored and stored.get("stopped") is not None:
+            stored = dict(stored)
+            stored["_from_snapshot"] = snap.get("date")   # 標記這是收盤快照、非即時
+            return stored
+    return fo
 
 
 def _render_entry_gates(code, df, last, ma5, ma60):
@@ -368,10 +382,12 @@ def _render_entry_gates(code, df, last, ma5, ma60):
         g3 = f"✅ 量縮（量比 {vr}）"
     else:
         g3 = f"❌ 未量縮（量比 {vr}，屬放量）"
+    snap_date = (foreign or {}).get("_from_snapshot")
+    snap_txt = f"（收盤快照 {snap_date}）" if snap_date else ""
     if fstopped is True:
-        g4 = "✅ 外資已停止賣超"
+        g4 = f"✅ 外資已停止賣超{snap_txt}"
     elif fstopped is False:
-        g4 = f"❌ 外資仍賣超（連{(foreign or {}).get('sold_streak') or 0}日）"
+        g4 = f"❌ 外資仍賣超（連{(foreign or {}).get('sold_streak') or 0}日）{snap_txt}"
     else:
         g4 = "❓ 外資資料未取得，需自行確認"
 
@@ -381,6 +397,14 @@ def _render_entry_gates(code, df, last, ma5, ma60):
         {"關卡": "③ 量縮（量比<1＝賣壓衰竭）", "現況": g3},
         {"關卡": "④ 外資停止賣超", "現況": g4},
     ]).set_index("關卡"))
+    if fstopped is None:
+        st.caption("④ 外資即時抓不到（Streamlit 連證交所常被限流）。收盤後排程會補抓追蹤股的外資存起來，"
+                   "屆時這裡會自動用『收盤快照』補上。")
+    elif snap_date:
+        st.caption(f"④ 外資為 {snap_date} 的**收盤快照**（即時抓取失敗時採用；隔日承接看的本就是收盤值）。")
+    if st.button("🔄 重新取得外資", key=f"reforeign_{code}"):
+        load_foreign.clear()
+        st.rerun()
 
     if ceiling == "進場":
         st.success(f"✅ 四關全過 → 承接點候選「{at_batch or '下一批'}」。")

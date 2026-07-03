@@ -10,6 +10,46 @@ import core.telegram as tg
 from datetime import datetime
 
 STATE_KEY = "screen:latest"
+FOREIGN_KEY = "foreign:latest"   # 每天排程(Actions)抓好的外資快照，供網頁在即時抓不到時回退
+
+
+def _all_watchlist_codes(db):
+    """列舉各帳號追蹤清單裡的所有股票代號（給排程順手補抓外資用）。"""
+    codes = set()
+    try:
+        for _, wl in (db.get_states_by_prefix("wl:") or {}).items():
+            if isinstance(wl, dict):
+                for entry in wl.values():
+                    c = entry.get("code") if isinstance(entry, dict) else None
+                    if c:
+                        codes.add(str(c))
+    except Exception as e:
+        print("列舉追蹤清單失敗：", e)
+    return codes
+
+
+def _store_foreign_snapshot(db, date, cands, lookup=None):
+    """把『追蹤股＋今日候選股』的外資買賣超抓一份存進 DB。
+    網頁個股頁即時抓 TWSE 常被限流，抓不到時就回退讀這份（來源是 Actions，較穩）。"""
+    lookup = lookup or fetch_foreign_flow    # 在呼叫時解析，測試可 monkeypatch 模組屬性
+    codes = _all_watchlist_codes(db)
+    codes |= {x["code"] for x in cands if x.get("kind") != "ETF"}
+    fmap = {}
+    for c in sorted(codes):
+        try:
+            fo = lookup(c)
+        except Exception:
+            fo = None
+        if fo and fo.get("stopped") is not None:     # 只存真的抓到的（資料不齊不存）
+            fmap[c] = fo
+    if fmap:
+        try:
+            db.set_state(FOREIGN_KEY, {"date": date, "map": fmap})
+            print(f"[screen] 外資快照已存 {len(fmap)} 檔（含追蹤股）")
+        except Exception as e:
+            print("存外資快照失敗：", e)
+    else:
+        print("[screen] 外資快照：這次一檔都沒抓到，保留上一份。")
 
 
 def _line(x, names):
@@ -64,6 +104,7 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
             db.set_state(STATE_KEY, result)      # 存起來供網頁/機器人直接讀
         except Exception as e:
             print("存選股結果失敗：", e)
+        _store_foreign_snapshot(db, date, cands)  # 順手補抓追蹤股(含華邦電)的外資存 DB
     else:
         print("[screen] 清單抓不到(TWSE 沒回應)，保留上一份選股結果，不覆寫。")
     print(f"[screen] date={date} 清單={len(uni)} 讀取成功={got['ok']} 候選={len(cands)}")
