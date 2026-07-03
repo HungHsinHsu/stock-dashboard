@@ -49,9 +49,9 @@ def load_stock_df(code):
     return fetch_daily(code, months=18)
 
 
-def _snapshot_close(code):
-    """從每日快照(watch:latest / screen:latest，皆由 Actions 在乾淨網路抓)取某代號
-    最新收盤 (價, 前一日收盤, 日期)；查無回 None。網頁即時抓到過期資料時用它給正確現價。"""
+def _snapshot_item(code):
+    """從每日快照(watch:latest / screen:latest，皆由 Actions 在乾淨網路抓)取某代號的
+    完整候選 dict 與快照日期 (item, date)；查無回 None。"""
     if not db.db_enabled():
         return None
     for key in ("watch:latest", "screen:latest"):
@@ -60,9 +60,28 @@ def _snapshot_close(code):
         except Exception:
             snap = None
         for x in (snap or {}).get("cands", []):
-            if str(x.get("code")) == str(code) and x.get("close"):
-                return (x["close"], x.get("prev_close"), snap.get("date", ""))
+            if str(x.get("code")) == str(code):
+                return (x, snap.get("date", ""))
     return None
+
+
+def _snapshot_close(code):
+    """取某代號快照的 (收盤, 前一日收盤, 日期)；查無回 None。網頁即時過期時給正確現價。"""
+    it = _snapshot_item(code)
+    if it and it[0].get("close"):
+        return (it[0]["close"], it[0].get("prev_close"), it[1])
+    return None
+
+
+def _snap_newer_than(df, snap_date):
+    """快照日期是否比即時 df 的最後一根還新（＝即時資料過期）。用日期直接比，
+    不用日曆天/交易天啟發式，避免遇到假日誤判。"""
+    if df.empty or not snap_date:
+        return False
+    try:
+        return pd.Timestamp(snap_date).date() > df.index[-1].date()
+    except Exception:
+        return False
 
 
 @st.cache_resource
@@ -370,12 +389,23 @@ def _render_entry_gates(code, df, last, ma5, ma60):
     用的是與每日預測同一套規則(core.rules.entry_setup)，所以與訊號一致。"""
     st.markdown("##### 🚪 進場四關（依現價實時判定，一關一關看）")
 
-    # 資料過期就不算四關——用過期收盤算出來的訊號是錯的，寧可不給也不要誤導。
-    _miss = (len(pd.bdate_range(df.index[-1] + pd.Timedelta(days=1),
-                                pd.Timestamp(now_tw().date()))) if not df.empty else 0)
-    if _miss >= 2:
-        st.warning(f"⚠️ 這檔即時資料過期（漏約 {_miss} 個交易日），四關會用到錯的收盤價，"
-                   "**暫不計算**。請按上方『重新抓最新資料』，或以每日推薦/機器人 /預測 為準。")
+    # 即時資料過期時：改看每日快照(Actions 抓的正確資料)的承接法結論，而不是用過期價亂算。
+    _snap = _snapshot_item(code)
+    if _snap and _snap_newer_than(df, _snap[1]) and _snap[0].get("signal"):
+        x = _snap[0]
+        _b = ("🟢" if x["signal"] in ("進場", "順勢偏多")
+              else "🔴" if x["signal"] in ("避開", "明顯轉空避開") else "🟡")
+        st.info(f"ℹ️ 本站即時資料只到 {df.index[-1].date()}、慢了一步；四關改看**每日快照"
+                f"（{_snap[1]}，Actions 抓的正確資料）**的承接法結論：")
+        st.markdown(f"### {_b} {x['signal']}")
+        st.markdown(f"**位置**：{x.get('at_batch') or '未到支撐（位置偏高）'}　　"
+                    f"**體質**：{x.get('trend', '—')}")
+        st.caption(f"理由：{x.get('reason', '')}")
+        return
+    # 過期又沒有可用快照 → 不用過期價亂算
+    if not df.empty and len(pd.bdate_range(df.index[-1] + pd.Timedelta(days=1),
+                                           pd.Timestamp(now_tw().date()))) >= 2:
+        st.warning("⚠️ 即時資料過期、又無可用快照，四關暫不計算。請按上方『重新抓』。")
         return
 
     if is_denied(code):
@@ -1039,15 +1069,19 @@ else:
     # 交易日」判斷（不是日曆天，才抓得到跨月那種只差 3 天卻漏 3 根的情況）。
     _stale_missing, _snap = 0, None
     if not df.empty:
-        _stale_missing = len(pd.bdate_range(df.index[-1] + pd.Timedelta(days=1),
-                                            pd.Timestamp(now_tw().date())))
-        if _stale_missing >= 2:
-            _snap = _snapshot_close(cfg["code"])
-            msg = (f"⚠️ **資料可能過期**：即時抓到的最後一筆是 **{df.index[-1].date()}**，"
-                   f"漏了約 {_stale_missing} 個交易日（多半是本站連證交所被限流、當月沒抓到）。")
+        _snap_it = _snapshot_item(cfg["code"])
+        _snap = _snapshot_close(cfg["code"])
+        # 過期＝有更新的快照可比，或（無快照時）即時資料離今天漏了 2 個交易日以上。
+        _stale = _snap_newer_than(df, _snap_it[1] if _snap_it else None) or (
+            not _snap_it and len(pd.bdate_range(
+                df.index[-1] + pd.Timedelta(days=1),
+                pd.Timestamp(now_tw().date()))) >= 2)
+        if _stale:
+            msg = (f"⚠️ **資料可能過期**：本站即時抓到的最後一筆是 **{df.index[-1].date()}**"
+                   "（多半是連證交所被限流、當月沒抓到）。")
             if _snap:
                 msg += f"　✅ 已改用每日快照收盤 **{_snap[0]:.2f}**（{_snap[2]}）當現價。"
-            msg += "　但下方**圖表／均線／三段支撐／四關仍是用過期資料算的**，請按右邊『重新抓』。"
+            msg += "　下方圖表／均線／支撐仍是過期資料，四關已改看快照結論；可按右邊『重新抓』。"
             cc1, cc2 = st.columns([5, 1])
             cc1.warning(msg)
             if cc2.button("🔄 重新抓最新資料"):
@@ -1058,7 +1092,7 @@ else:
         st.error("抓不到資料，把這個畫面回報給我。")
     else:
         # 過期且有快照 → 現價直接用快照(Actions 乾淨網路抓的)，不再顯示過期的大數字
-        if _stale_missing >= 2 and _snap:
+        if _stale and _snap:
             last, _sp = _snap[0], _snap[1]          # 收盤、前一日收盤
             if _sp:
                 _c = last - _sp
