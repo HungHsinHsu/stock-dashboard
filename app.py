@@ -38,15 +38,41 @@ else:
         "請到 Streamlit → 右下 **Manage app / Settings → Secrets**，加入一行："
         "`DATABASE_URL = \"你的 Supabase 連線字串\"`，儲存後 App 會自動重啟即恢復。")
 
-# 多抓一點歷史，週/月線才有足夠根數
-@st.cache_data(ttl=3600)
+# 多抓一點歷史，週/月線才有足夠根數。
+# 網頁優先讀 Actions 每天存進 DB 的日線（bars:*），即時抓只當補充——這樣網頁不受
+# 證交所限流影響：即時抓失敗/過期時，改用 DB 那份(乾淨網路抓的)，圖表/均線/五關都正確。
+def _prefer_db_bars(code_key, live_df):
+    from core.barstore import load_bars
+    try:
+        if not db.db_enabled():
+            return live_df
+        rows = db.get_state(f"bars:{code_key}")
+        db_df = load_bars(rows) if rows else None
+    except Exception:
+        db_df = None
+    if db_df is not None and not db_df.empty and (
+            live_df is None or getattr(live_df, "empty", True)
+            or db_df.index[-1] > live_df.index[-1]):
+        return db_df                          # 即時抓沒有/較舊 → 用 DB 那份
+    return live_df
+
+
+@st.cache_data(ttl=1800)
 def load_index_df():
-    return fetch_index(months=18)
+    try:
+        live = fetch_index(months=18)
+    except Exception:
+        live = None
+    return _prefer_db_bars("_index", live)
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)
 def load_stock_df(code):
-    return fetch_daily(code, months=18)
+    try:
+        live = fetch_daily(code, months=18)
+    except Exception:
+        live = None
+    return _prefer_db_bars(code, live)
 
 
 def _snapshot_item(code):

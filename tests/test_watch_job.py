@@ -25,6 +25,7 @@ def test_watch_lists_stock_even_when_foreign_missing(monkeypatch):
     codes = [x["code"] for x in res["cands"]]
     assert "2344" in codes                       # 外資缺也保留
     assert calls.get("watch:latest")             # 有存快照
+    assert calls.get("bars:2344")                # 有把日線存進 DB 給網頁讀
     assert res["n"] == 1
 
 

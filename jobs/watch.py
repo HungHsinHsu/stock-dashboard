@@ -10,9 +10,23 @@ from core.screener import scan
 from core.watchlist import all_tracked_stocks
 from core.config import DASHBOARD_URL
 from core.tz import now_tw
+from core.barstore import dump_bars
 import core.telegram as tg
 
 STATE_KEY = "watch:latest"
+
+
+def _store_bars(db, bars):
+    """把各追蹤股日線存進 DB（key＝bars:代號），網頁讀這份、不用自己去打證交所。"""
+    n = 0
+    for c, dfc in bars.items():
+        try:
+            db.set_state(f"bars:{c}", dump_bars(dfc))
+            n += 1
+        except Exception as e:
+            print(f"存日線失敗 {c}：", e)
+    if n:
+        print(f"[watch] 已存 {n} 檔日線供網頁讀")
 
 
 def _line(x, names):
@@ -51,10 +65,13 @@ def run(notify=True, fetch=None, stocks=None, limit=50, pause=0.05):
     codes = list(names.keys())
     got = {"ok": 0}
 
+    bars = {}
+
     def _f(c):
-        df = (fetch or (lambda x: fetch_daily(x, months=5, workers=2)))(c)
+        df = (fetch or (lambda x: fetch_daily(x, months=12, workers=2)))(c)
         if df is not None and not getattr(df, "empty", True):
             got["ok"] += 1
+            bars[str(c)] = df                 # 順手留一份日線，等下存 DB 給網頁讀
         return df
 
     cands = scan(codes, fetch=_f, foreign_lookup=fetch_foreign_flow,
@@ -67,6 +84,16 @@ def run(notify=True, fetch=None, stocks=None, limit=50, pause=0.05):
             db.set_state(STATE_KEY, result)
         except Exception as e:
             print("存追蹤掃描結果失敗：", e)
+        _store_bars(db, bars)                 # 存各追蹤股日線，網頁改讀 DB、不再自己抓證交所
+        if fetch is None:                     # 真的在跑(非測試注入)才順手存大盤指數日線
+            try:
+                from core.data import fetch_index
+                idx = fetch_index(months=12)
+                if idx is not None and not getattr(idx, "empty", True):
+                    db.set_state("bars:_index", dump_bars(idx))
+                    print("[watch] 已存大盤指數日線")
+            except Exception as e:
+                print("存指數日線失敗：", e)
     print(f"[watch] date={date} 清單={len(codes)} 讀取成功={got['ok']} 排出={len(cands)}")
     for x in cands:
         print(f"[watch] {names.get(x['code'], x['code'])} ({x['code']}) "
