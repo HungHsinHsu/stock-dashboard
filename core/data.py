@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from core.tz import now_tw
 from dateutil.relativedelta import relativedelta
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (stock-dashboard)"}
@@ -23,7 +24,7 @@ def fetch_stock_name(code, today=None):
     STOCK_DAY 個股/ETF 皆可查；但當月月初盤前可能還沒有資料，
     故往前找最多 3 個月，直到某月標題含有股名。ETF 也走這條路解析。
     """
-    today = today or datetime.today()
+    today = today or now_tw()
     for i in range(3):
         d = today - relativedelta(months=i)
         ym = d.strftime("%Y%m01")
@@ -254,7 +255,7 @@ def fetch_foreign_flow(code, today=None, max_back=8):
         "trust_net": 投信最近一日, "dealer_net": 自營商, "total_net": 三大法人合計}。
     stopped=外資最近一日是否未賣超(>=0)。抓不到回相關值 None。
     """
-    today = today or datetime.today()
+    today = today or now_tw()
     nets, last_date, dbg, extra = [], None, None, {}
     d, checked = today, 0
     while len(nets) < 3 and checked < max_back:
@@ -328,7 +329,7 @@ def fetch_margin(code, today=None, max_back=8):
         except (ValueError, IndexError, TypeError):
             return None
 
-    today = today or datetime.today()
+    today = today or now_tw()
     d, checked = today, 0
     while checked < max_back:
         ymd = d.strftime("%Y%m%d")
@@ -468,7 +469,7 @@ def fetch_daily(code, months=6, today=None, workers=6):
     各月為獨立請求，預設用小型執行緒池平行抓，首次載入由數十秒縮到數秒；
     workers<=1 則退回循序（含 TWSE_DELAY 間隔）以維持保守行為。
     """
-    today = today or datetime.today()
+    today = today or now_tw()
     dates = [today - relativedelta(months=i) for i in range(months)]
     frames = []
     if workers and workers > 1 and months > 1:
@@ -534,7 +535,7 @@ def fetch_index(months=6, today=None, workers=6):
 
     與 fetch_daily 相同：各月獨立請求，預設平行抓以加快載入。
     """
-    today = today or datetime.today()
+    today = today or now_tw()
     dates = [today - relativedelta(months=i) for i in range(months)]
     frames = []
     if workers and workers > 1 and months > 1:

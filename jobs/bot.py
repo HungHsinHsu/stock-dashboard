@@ -31,6 +31,7 @@ from core.config import DASHBOARD_URL
 from core import db
 import core.telegram as tg
 from datetime import datetime, timezone, timedelta
+from core.tz import now_tw, today_tw
 
 STATE_PATH = "bot_state.json"
 
@@ -242,7 +243,7 @@ def _run_morning_now(query=None):
     query 有給 → 只補算該檔（例如 00830 早上失敗，補寫進今天的正式預測）。"""
     from jobs import morning
     _git_pull()
-    today = str(datetime.today().date())
+    today = str(today_tw())
 
     if query:                                   # 只補算單一個股（寫進 DB）
         code, disp = _resolve_one(query)
@@ -700,7 +701,7 @@ _sched_done = set()          # 記憶體備援（無 DB 時用）
 
 
 def _tw_now():
-    return datetime.now(timezone.utc) + timedelta(hours=8)   # 台灣 UTC+8
+    return now_tw()   # 台灣 UTC+8（core.tz 統一時鐘）
 
 
 def _slot_done(key):

@@ -19,6 +19,7 @@ from core.config import DASHBOARD_URL
 import core.telegram as tg
 import time
 from datetime import datetime
+from core.tz import today_tw
 
 
 def _stock_pred_digest(items, date):
@@ -42,7 +43,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
     db.migrate_owner_data()    # 舊單一清單/部位 → admin 帳號命名空間
     stocks = all_tracked_stocks() if stocks is None else stocks
     # 預測以「執行當日」為標籤(今日開盤前預測)，供當日收盤復盤對得上。
-    run_date = str(today.date()) if today is not None else str(datetime.today().date())
+    run_date = str(today.date()) if today is not None else str(today_tw())
     index_df = fetch_idx(today=today)
     market = market_summary(index_df)
     us = fetch_us()

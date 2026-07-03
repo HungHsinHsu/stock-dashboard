@@ -12,6 +12,7 @@ from core.watchlist import all_tracked_stocks
 from core.config import DASHBOARD_URL
 import core.telegram as tg
 from datetime import datetime
+from core.tz import today_tw
 
 
 def _stock_review_digest(items, date):
@@ -48,7 +49,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
     db.migrate_owner_data()
     stocks = all_tracked_stocks() if stocks is None else stocks
     # 復盤對「執行當日」這天的開盤預測；需確認當日收盤資料已發布才結算。
-    date = str(today.date()) if today is not None else str(datetime.today().date())
+    date = str(today.date()) if today is not None else str(today_tw())
     idx_df = fetch_idx(today=today)
     market = market_summary(idx_df)
     records = load_history(HISTORY_PATH)

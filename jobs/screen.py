@@ -6,6 +6,7 @@
 from core.data import fetch_top_turnover, fetch_daily, fetch_foreign_flow
 from core.screener import scan
 from core.config import DASHBOARD_URL
+from core.tz import now_tw
 import core.telegram as tg
 from datetime import datetime
 
@@ -81,7 +82,7 @@ def _digest(date, cands, names, top):
 def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnover,
         limit=15, pause=0.05):
     from core import db
-    date = str((today or datetime.today()).date())
+    date = str((today or now_tw()).date())
     uni = uni_fetch(top) or []
     names = {c: nm for c, nm in uni}
     got = {"ok": 0}

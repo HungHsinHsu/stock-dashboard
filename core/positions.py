@@ -7,6 +7,7 @@
 import json
 import os
 from datetime import datetime
+from core.tz import now_tw
 
 from core import db
 
@@ -64,7 +65,7 @@ def enter_batch(code, date=None, owner=DEFAULT_OWNER, path=POSITIONS_PATH):
     new = min(cur + 1, MAX_BATCHES)
     positions[str(code)] = {
         "batches": new,
-        "updated": date or datetime.today().strftime("%Y-%m-%d"),
+        "updated": date or now_tw().strftime("%Y-%m-%d"),
     }
     save_positions(positions, owner, path)
     return new
