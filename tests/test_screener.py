@@ -66,6 +66,14 @@ def test_scan_etf_limit_caps_etf_section():
     assert [x["kind"] for x in out] == ["個股", "ETF"]   # 兩檔 ETF 被截成 1 檔
 
 
+def test_scan_orders_watch_by_proximity_to_entry():
+    # 同是觀望：到支撐、站穩、量縮(較接近進場)的排在『位置偏高沒回檔』的前面
+    data = {"NEAR": _pullback_hold_shrink(), "FAR": _vacuum_uptrend()}
+    out = scan(["FAR", "NEAR"], fetch=lambda c: data[c])   # 不給外資→都觀望
+    assert [x["signal"] for x in out] == ["觀望", "觀望"]
+    assert out[0]["code"] == "NEAR"                        # 越接近進場排越前
+
+
 def test_scan_excludes_denylist():
     # 禁區股(群創 3481)本來就不玩 → 不列
     out = scan(["3481"], fetch=lambda c: _pullback_hold_shrink())

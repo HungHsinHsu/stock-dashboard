@@ -33,9 +33,12 @@ def _group_first(items, limit, etf_limit):
     """個股優先、ETF 分開放：個股排前面（各自依分數，就算全觀望也在最上面），
     ETF 收在後面當『趨勢參考』，不跟個股搶排名、不洗版。"""
     def _key(x):
+        # 先照訊號分級(進場>觀望>避開)，同級再照『接近進場的程度』(score：到支撐/站穩/
+        # 量縮/離均線近越高)，最後量縮越明顯越前。這樣同是觀望，越接近進場的排越前。
         rank = x.get("_rank", x.get("score", 0))
+        score = x.get("score", 0)
         vr = x["vol_ratio"] if x.get("vol_ratio") is not None else 9.9
-        return (-rank, vr)
+        return (-rank, -score, vr)
     stocks = sorted([x for x in items if x.get("kind") != "ETF"], key=_key)
     etfs = sorted([x for x in items if x.get("kind") == "ETF"], key=_key)
     out = stocks[:limit] + etfs[:etf_limit]
