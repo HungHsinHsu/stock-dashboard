@@ -25,6 +25,7 @@ from core.store import load_history
 from core.review import hit_rate
 from core.auth import hash_password, verify_password
 from core import db
+from core.tz import now_tw
 
 st.set_page_config(page_title="台股觀察儀表板", layout="wide", page_icon="📊")
 st.title("📊 台股觀察儀表板")
@@ -46,6 +47,22 @@ def load_index_df():
 @st.cache_data(ttl=3600)
 def load_stock_df(code):
     return fetch_daily(code, months=18)
+
+
+def _snapshot_close(code):
+    """從每日快照(watch:latest / screen:latest，皆由 Actions 在乾淨網路抓)取某代號
+    最新收盤 (價, 日期)；查無回 None。網頁即時抓到過期資料時用它給正確現價。"""
+    if not db.db_enabled():
+        return None
+    for key in ("watch:latest", "screen:latest"):
+        try:
+            snap = db.get_state(key)
+        except Exception:
+            snap = None
+        for x in (snap or {}).get("cands", []):
+            if str(x.get("code")) == str(code) and x.get("close"):
+                return (x["close"], snap.get("date", ""))
+    return None
 
 
 @st.cache_resource
@@ -1008,6 +1025,25 @@ else:
     choice = st.selectbox("選擇股票", _names, index=_idx)
     cfg = STOCKS[choice]
     df = load_stock_df(cfg["code"])
+
+    # 資料過期防呆：主機連證交所被限流時，當月可能漏抓，最後一根停在上月底，
+    # 害『現價』顯示過期價（例：華邦電 6/30 的 207 卡住，實際已 184）。用「漏了幾個
+    # 交易日」判斷（不是日曆天，才抓得到跨月那種只差 3 天卻漏 3 根的情況）。
+    if not df.empty:
+        _missing = len(pd.bdate_range(df.index[-1] + pd.Timedelta(days=1),
+                                      pd.Timestamp(now_tw().date())))
+        if _missing >= 2:
+            snap = _snapshot_close(cfg["code"])
+            msg = (f"⚠️ **資料可能過期**：這裡即時抓到的最後一筆是 **{df.index[-1].date()}**，"
+                   f"漏了約 {_missing} 個交易日（多半是本站連證交所被限流、當月沒抓到）。")
+            if snap:
+                msg += f"　✅ 每日快照最新收盤：**{snap[0]:.2f}**（{snap[1]}）→ **以這個為準**。"
+            msg += "　下方圖表／均線／四關是用過期資料算的，請按下方『重新抓』。"
+            cc1, cc2 = st.columns([5, 1])
+            cc1.warning(msg)
+            if cc2.button("🔄 重新抓最新資料"):
+                load_stock_df.clear()
+                st.rerun()
 
     if df.empty:
         st.error("抓不到資料，把這個畫面回報給我。")

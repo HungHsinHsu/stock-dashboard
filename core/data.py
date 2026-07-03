@@ -449,18 +449,28 @@ def parse_twse_json(j):
     return rows
 
 
-def _fetch_stock_month(code, d):
-    """抓某代號某月的日線，回 list[dict]；失敗回 []。"""
+def _fetch_stock_month(code, d, retries=2):
+    """抓某代號某月的日線，回 list[dict]；失敗回 []。
+
+    重要：被限流時 TWSE 會回非 OK（解析成空）。若『當月』被漏抓，日線最後一根會停在
+    上個月底 → 個股頁把過期價當現價顯示。故失敗（回空）時重試幾次，降低漏抓當月的機率。
+    """
     ym = d.strftime("%Y%m01")
     url = (
         "https://www.twse.com.tw/exchangeReport/STOCK_DAY"
         f"?response=json&date={ym}&stockNo={code}"
     )
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        return parse_twse_json(r.json())
-    except Exception:
-        return []
+    for attempt in range(retries + 1):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=10)
+            rows = parse_twse_json(r.json())
+            if rows:
+                return rows
+        except Exception:
+            pass
+        if attempt < retries:
+            time.sleep(TWSE_DELAY * (attempt + 1))   # 退避後再試
+    return []
 
 
 def fetch_daily(code, months=6, today=None, workers=6):
