@@ -1050,16 +1050,41 @@ def render_manage_watchlist():
             st.info("沒有勾選要移除的。")
 
 
+def _db_bars_df(code):
+    """只讀 DB 日線(bars:<code>)、不即時抓——每日策略頁逐檔用，避免在 Streamlit 上
+    對每一檔即時抓 TWSE 被限流、整頁卡死。查無回空 DataFrame。"""
+    from core.barstore import load_bars
+    try:
+        if not db.db_enabled():
+            return pd.DataFrame()
+        rows = db.get_state(f"bars:{code}")
+        df = load_bars(rows) if rows else None
+        return df if df is not None else pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
+def _snap_foreign_stopped(code):
+    """只讀外資收盤快照(foreign:latest)、不即時抓。回 stopped(True/False) 或 None(無資料)。"""
+    try:
+        snap = db.get_state("foreign:latest") if db.db_enabled() else None
+    except Exception:
+        snap = None
+    fo = ((snap or {}).get("map") or {}).get(str(code))
+    return fo.get("stopped") if fo and fo.get("stopped") is not None else None
+
+
 def _strategy_ind(code):
-    """取某代號指標供每日策略頁。優先『即時/DB bars』，過期或抓不到則用每日快照
-    （screener 候選已含 MA5/20/60 支撐價）。回 (ind_dict, source, date)；查無回 (None,..)。"""
-    df = load_stock_df(code)
+    """取某代號指標供每日策略頁——全程只讀 DB（日線 bars ＋ 選股/追蹤快照），不即時抓。
+    優先 DB 日線；過期或無 bars 則用每日快照（screener 候選已含 MA5/20/60）。
+    回 (ind_dict, source, date)；查無回 (None, None, None)。"""
+    df = _db_bars_df(code)
     snap = _snapshot_item(code)
     snap_newer = bool(snap and _snap_newer_than(df, snap[1]))
     if not df.empty and not snap_newer:
         ind = compute_indicators(df, {})
         if ind.get("close") is not None:
-            return ind, f"即時/DB {df.index[-1].date()}", str(df.index[-1].date())
+            return ind, f"DB {df.index[-1].date()}", str(df.index[-1].date())
     if snap and snap[0].get("close") is not None:
         x = snap[0]
         ind = {
@@ -1071,7 +1096,7 @@ def _strategy_ind(code):
         return ind, f"快照 {snap[1]}", snap[1]
     if not df.empty:
         d = str(df.index[-1].date())
-        return compute_indicators(df, {}), f"即時/DB {d}", d
+        return compute_indicators(df, {}), f"DB {d}", d
     return None, None, None
 
 
@@ -1096,6 +1121,8 @@ def render_daily_strategy(owner):
     cands = snap.get("cands") or []
     cand_map = {str(c["code"]): c for c in cands}
     snap_names = snap.get("names") or {}
+    st.caption(f"🔎 讀到：追蹤 {len(stocks)} 檔、今日選股候選 {len(cands)} 檔"
+               f"（選股快照日 {snap.get('date', '—')}）。資料全部只讀資料庫、不即時抓。")
 
     def _nm(code):
         return code2name.get(str(code)) or snap_names.get(str(code)) or str(code)
@@ -1124,46 +1151,55 @@ def render_daily_strategy(owner):
     entry_codes = list(dict.fromkeys(
         [str(c["code"]) for c in stocks.values()]
         + [str(c["code"]) for c in cands if c.get("kind") != "ETF"]))
+    def _r2(v):                          # 顯示用：無值 → 「待更新」（缺 MA 也不留白）
+        return _r(v) if isinstance(v, (int, float)) else "待更新"
+
     rows, plans = [], []
     for code in entry_codes:
-        ind, src, _d = _strategy_ind(code)
-        if not ind or ind.get("close") is None:
+        cand = cand_map.get(str(code))
+        ind, _src, _d = _strategy_ind(code)
+        ind = ind or {}
+        c = cand or {}
+        close = ind.get("close") if ind.get("close") is not None else c.get("close")
+        if close is None:                # DB、快照都沒有這檔 → 真的沒資料，略過
             continue
-        close, ma5, ma20, ma60 = (ind.get("close"), ind.get("ma5"),
-                                  ind.get("ma20"), ind.get("ma60"))
-        etf, cand = is_etf(code), cand_map.get(str(code))
-        if cand:                     # 候選：用 screener 已算好的（含外資五關）
+        ma5 = ind.get("ma5") if ind.get("ma5") is not None else c.get("ma5")
+        ma20 = ind.get("ma20") if ind.get("ma20") is not None else c.get("ma20")
+        ma60 = ind.get("ma60") if ind.get("ma60") is not None else c.get("ma60")
+        etf = is_etf(code)
+        if cand:                         # 候選：用 screener 已算好的（含外資五關）
             signal, at_batch, reason = cand.get("signal"), cand.get("at_batch"), cand.get("reason")
         elif etf:
             s = etf_setup(ind, code)
             signal = ETF_SIGNAL_LABEL.get(s["ceiling"], s["ceiling"])
             at_batch, reason = None, s["reason"]
         else:
-            fo = load_foreign(code)
-            s = entry_setup(ind, code, fo.get("stopped") if fo else None)
+            s = entry_setup(ind, code, _snap_foreign_stopped(code))
             signal, at_batch, reason = s["ceiling"], s["at_batch"], s["reason"]
         drop = _drop_to(ma60, close)
         wide = drop is not None and drop > 10
         rows.append({
             "標的": f"{_nm(code)} {code}", "訊號": signal,
             "位置": at_batch or ("ETF" if etf else "—"),
-            "支撐1掛單": _r(ma5), "季線停損": _r(ma60),
-            "跌到季線 -%": drop, "負擔": _afford(close),
+            "支撐1掛單": _r2(ma5), "季線停損": _r2(ma60),
+            "跌到季線 -%": drop if drop is not None else "—", "負擔": _afford(close),
         })
         if etf:
             plan = "ETF·趨勢框架，不套三批；順勢偏多可分批或定期定額"
         elif signal == "進場":
-            plan = (f"掛 **{_r(ma5)}**（支撐1）接第一批 1/3；跌到 {_r(ma20)}(支撐2)、"
-                    f"{_r(ma60)}(季線)分別加第二、三批")
+            plan = (f"掛 **{_r2(ma5)}**（支撐1）接第一批 1/3；跌到 {_r2(ma20)}(支撐2)、"
+                    f"{_r2(ma60)}(季線)分別加第二、三批")
         elif signal == "避開":
             plan = "已跌破季線＝停損區，避開、不接刀"
         else:
-            plan = f"觀望：等回到支撐 **{_r(ma5)}** 附近站穩、量縮再進"
+            plan = f"觀望：等回到支撐 **{_r2(ma5)}** 附近站穩、量縮再進"
         warn = "　🔴 季線停損離現價 >10%（太遠、不當停損）→ 這檔改用月線移動停利" if wide else ""
         plans.append(f"- **{_nm(code)} {code}**（{signal}）：{plan}{warn}")
     if rows:
         st.dataframe(pd.DataFrame(rows).set_index("標的"), use_container_width=True)
         st.markdown("\n".join(plans))
+        st.caption("『待更新』＝該檔還沒有 DB 日線/候選支撐價；下次收盤選股(15:35)或把它 /add "
+                   "進追蹤清單後就會補上。")
     else:
         st.info("目前沒有可顯示的進場標的（追蹤清單為空、且今日尚無選股候選）。")
 
