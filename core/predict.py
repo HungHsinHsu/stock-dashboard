@@ -310,26 +310,43 @@ def _taifex_conflicts_us(taifex_night, us_overnight):
 
 def make_market_prediction(index_indicators, us_overnight, market_data,
                            taifex_night=None, llm=generate_json, lessons="",
-                           taifex_asof=None):
+                           taifex_asof=None, us_asof=None, tw_last=None):
     # 台指期與美股嚴重背離（費半大跌卻顯示漲等）→ 台指期多半過時/雜訊，丟棄不用
     tf_conflict = _taifex_conflicts_us(taifex_night, us_overnight)
     if tf_conflict:
         taifex_night, taifex_asof = None, None
+    us_txt = (f"{json.dumps(us_overnight, ensure_ascii=False)}（{us_asof} 收盤）"
+              if us_asof else json.dumps(us_overnight, ensure_ascii=False))
     tf_txt = (f"{taifex_night}（{taifex_asof} 那一場）" if taifex_asof
               else json.dumps(taifex_night, ensure_ascii=False))
     if taifex_night is None:
         tf_txt = ("無（台指期與美股隔夜嚴重背離、多半過時，本次不納入；純以美股隔夜與技術面判斷）"
                   if tf_conflict else "無（抓不到或資料過時，本次不納入判斷）")
+    # 已消化偵測：美股/台指期資料日期若『不晚於台股上一個交易日』，代表台股已反映過，
+    # 屬舊訊息(例：週五美股放假→週一還是拿週四美股，而台股週五早已反映)，不可重複計入。
+    digested = []
+    if us_asof and tw_last and us_asof <= tw_last:
+        digested.append(
+            f"美股隔夜為 {us_asof} 收盤，不晚於台股上一個交易日 {tw_last}——台股上個交易日"
+            "已反映過這波美股(可能因美股放假沒新盤)，屬『已消化的舊訊息』，"
+            "不可再當今日新的利多/利空重複計入；今日方向請以台股自身技術面與籌碼為主。")
+    if taifex_night is not None and taifex_asof and tw_last and taifex_asof <= tw_last:
+        digested.append(
+            f"台指期為 {taifex_asof} 那場，不晚於台股上一個交易日 {tw_last}，同屬已消化、勿重複計入。")
     user = (
-        f"美股隔夜漲跌(%)：{json.dumps(us_overnight, ensure_ascii=False)}\n"
+        f"美股隔夜漲跌(%)：{us_txt}\n"
         f"台指期夜盤漲跌(%)：{tf_txt}\n"
         f"大盤昨收摘要：{json.dumps(market_data, ensure_ascii=False)}\n"
         f"大盤技術指標(到昨收)：{json.dumps(index_indicators, ensure_ascii=False)}"
     )
+    if digested:
+        user += "\n\n⚠️ 資料新鮮度提醒（重要）：\n" + "\n".join(f"・{d}" for d in digested)
     if lessons:
         user += f"\n\n{lessons}"
     out = llm(_MARKET_SYSTEM, user, MARKET_PRED_SCHEMA)
     out["us_overnight"] = us_overnight
+    out["us_date"] = us_asof
+    out["us_digested"] = bool(us_asof and tw_last and us_asof <= tw_last)
     out["taifex_night"] = taifex_night
     out["taifex_date"] = taifex_asof
     out["market_data"] = market_data
@@ -351,11 +368,15 @@ def format_market_prediction(date, pred, forecast=False):
         f"🔮 預測開盤方向：{pred.get('direction', '—')}{conf_txt}",
     ]
     if us:
+        us_date = pred.get("us_date")
         lines.append("")
-        lines.append("──── 美股隔夜 ────")
+        lines.append(f"──── 美股隔夜{f'（{us_date} 收盤）' if us_date else ''} ────")
         for name, pct in us.items():
             # 台灣慣例：漲紅、跌綠
             lines.append(f"{'🔴' if pct >= 0 else '🟢'} {name}：{pct:+.2f}%")
+        if pred.get("us_digested"):
+            lines.append("⚠️ 此為放假前的美股（台股上一個交易日已反映過），非今日新訊息、"
+                         "未當作新的多空重複計入。")
     tf = pred.get("taifex_night")
     tf_date = pred.get("taifex_date")
     if isinstance(tf, (int, float)):

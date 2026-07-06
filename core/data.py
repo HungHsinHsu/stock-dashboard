@@ -68,14 +68,36 @@ def _yahoo_change(symbol):
     return round((last - prev) / prev * 100, 2) if prev else None
 
 
-def fetch_us_overnight():
-    """美股主要指數隔夜漲跌 {name: pct}（Yahoo Finance；抓不到的略過）。"""
+def _yahoo_last_date(symbol):
+    """該標的最後一根日 K 的日期(YYYY-MM-DD)；抓不到回 None。用來判斷美股資料是哪一天，
+    以偵測『放假沒開盤 → 抓到的是上一場、台股已反映過』的情況。"""
+    url = (
+        "https://query1.finance.yahoo.com/v8/finance/chart/"
+        f"{symbol.replace('^', '%5E')}?range=10d&interval=1d"
+    )
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=15).json()["chart"]["result"][0]
+        ts = [t for t, c in zip(r["timestamp"],
+                                r["indicators"]["quote"][0]["close"]) if c is not None]
+        if ts:
+            from datetime import datetime as _dt, timezone as _tz
+            return _dt.fromtimestamp(ts[-1], _tz.utc).strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    return None
+
+
+def fetch_us_overnight(with_date=False):
+    """美股主要指數隔夜漲跌 {name: pct}（Yahoo Finance；抓不到的略過）。
+    with_date=True 時回 (漲跌dict, 美股最後交易日 'YYYY-MM-DD')，供判斷資料是否已被台股消化。"""
     out = {}
     for name, sym in US_INDICES.items():
         c = _yahoo_change(sym)
         if c is not None:
             out[name] = c
-    return out
+    if not with_date:
+        return out
+    return out, _yahoo_last_date("^GSPC")   # 四大指數同一交易日曆，取一個即可
 
 
 TAIFEX_URLS = (

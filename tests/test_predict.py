@@ -19,7 +19,8 @@ def _fake_llm(system, user, schema, client=None):
     }
 
 
-_NO_LEAD = {"fetch_us": lambda: {}, "fetch_tf": lambda min_date=None: None,
+_NO_LEAD = {"fetch_us": lambda with_date=False: (({}, None) if with_date else {}),
+            "fetch_tf": lambda min_date=None: None,
             "fetch_fg": lambda code, today=None: None,
             "fetch_mg": lambda code, today=None: None}
 
@@ -174,6 +175,35 @@ def test_market_keeps_taifex_when_consistent():
         {"ma20": 45000}, {"費半SOX": -3.0}, {"direction": "跌", "pct": -0.5},
         taifex_night=-1.2, llm=_spy, taifex_asof="2026-07-01")
     assert "-1.2" in seen["user"]            # 同向的台指期照常納入
+
+
+def test_market_flags_digested_us_when_not_newer_than_tw():
+    # 美股資料日期(7/2) 不晚於台股上一交易日(7/3)＝週五美股放假、台股已反映過 →
+    # 提示模型『已消化、勿重複計入』
+    seen = {}
+
+    def _spy(system, user, schema, client=None):
+        seen["user"] = user
+        return {"direction": "漲", "confidence": "中", "drivers": [], "reason": "x"}
+
+    make_market_prediction(
+        {"ma20": 45000}, {"費半SOX": -5.44}, {"direction": "跌", "pct": -0.5},
+        taifex_night=None, llm=_spy, us_asof="2026-07-02", tw_last="2026-07-03")
+    assert "已消化" in seen["user"] and "重複計入" in seen["user"]
+
+
+def test_market_no_digested_flag_when_us_is_newer():
+    # 美股(7/6)晚於台股上一交易日(7/3)＝真的是新隔夜 → 不加已消化提示
+    seen = {}
+
+    def _spy(system, user, schema, client=None):
+        seen["user"] = user
+        return {"direction": "漲", "confidence": "中", "drivers": [], "reason": "x"}
+
+    make_market_prediction(
+        {"ma20": 45000}, {"費半SOX": 2.0}, {"direction": "漲", "pct": 0.5},
+        taifex_night=None, llm=_spy, us_asof="2026-07-06", tw_last="2026-07-03")
+    assert "已消化" not in seen["user"]
 
 
 def test_format_prediction_forecast_labels_basis_date():
