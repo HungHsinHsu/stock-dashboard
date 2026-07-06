@@ -30,6 +30,7 @@ from core.auth import hash_password, verify_password
 from core import db
 from core.tz import now_tw
 
+# （部署觸發：確保 Streamlit Cloud 乾淨重載 core.rules 等模組）
 st.set_page_config(page_title="台股觀察儀表板", layout="wide", page_icon="📊")
 st.title("📊 台股觀察儀表板")
 if db.db_enabled():
