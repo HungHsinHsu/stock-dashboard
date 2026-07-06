@@ -182,6 +182,41 @@ def entry_setup(ind, code=None, foreign_stopped=None):
     return result("觀望", None, "未到任一支撐(真空帶/位置偏高)，不是進場點")
 
 
+def exit_setup(ind, batches=None):
+    """已持有部位（回檔承接法）的出場紀律。回 {action, reason}。
+    action ∈ {"出場", "減碼", "續抱", None}。與進場對稱、沿用同一組均線做『移動停利』：
+
+      ・收盤跌破季線 MA60（支撐3）→ 出場：趨勢確認轉壞，全數認賠/獲利了結。
+        （MA60 隨股價上漲墊高＝天然移動停利，漲越多、出場線越高、鎖越多獲利。）
+      ・收盤跌破月線 MA20（但仍在季線之上）→ 減碼：短線轉弱第一警訊，先出一半、
+        剩餘移到季線停損。但『建倉未滿三批(batches<3)』時月線 MA20 是加碼支撐(支撐2)、
+        不是減碼點，故此情況回『續抱』（越跌越買、不自打嘴巴）。
+      ・站穩月線之上 → 續抱：趨勢未壞，讓獲利奔跑。
+
+    batches=None（例：網頁把追蹤清單全當持有、不知實際批數）→ 跌破月線一律當『減碼』警訊。
+    """
+    close = ind.get("close")
+    ma20 = ind.get("ma20")
+    ma60 = ind.get("ma60")
+    if close is None:
+        return {"action": None, "reason": "無現價資料，無法判定出場"}
+    if ma60 is not None and close < ma60:
+        return {"action": "出場",
+                "reason": "收盤跌破季線(MA60)＝趨勢確認轉壞，依紀律全數出場"
+                          "（移動停利/停損：季線隨股價墊高，漲越多鎖越多）"}
+    if ma20 is not None and close < ma20:
+        if batches is not None and batches < 3:
+            return {"action": "續抱",
+                    "reason": "跌破月線(MA20)但建倉未滿三批：月線是加碼支撐(支撐2)、"
+                              "非減碼點；守住季線即可"}
+        return {"action": "減碼",
+                "reason": "收盤跌破月線(MA20)＝短線轉弱，先減碼約一半、"
+                          "剩餘移到季線(MA60)停損"}
+    return {"action": "續抱",
+            "reason": "站穩月線(MA20)之上、趨勢未壞→續抱"
+                      "（跌破月線減碼、跌破季線全數出場）"}
+
+
 def signal_ceiling(ind, code=None, foreign_stopped=None):
     return entry_setup(ind, code, foreign_stopped)["ceiling"]
 

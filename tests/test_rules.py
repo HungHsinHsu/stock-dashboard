@@ -1,4 +1,41 @@
-from core.rules import signal_ceiling, constrain_signal, entry_setup, is_denied
+from core.rules import (
+    signal_ceiling, constrain_signal, entry_setup, exit_setup, is_denied,
+)
+
+
+# ─────────────── 出場紀律 exit_setup（移動停利，跟著均線走）───────────────
+def test_exit_hold_above_ma20():
+    # 收盤站穩月線之上 → 續抱
+    s = exit_setup({"close": 100, "ma20": 95, "ma60": 80})
+    assert s["action"] == "續抱"
+
+
+def test_exit_below_ma60_is_full_exit():
+    # 跌破季線 → 全數出場（不管批數）
+    s = exit_setup({"close": 78, "ma20": 95, "ma60": 80})
+    assert s["action"] == "出場"
+
+
+def test_exit_below_ma20_unknown_batches_is_trim():
+    # 跌破月線、仍在季線上、批數未知（網頁全當持有）→ 減碼警訊
+    s = exit_setup({"close": 90, "ma20": 95, "ma60": 80}, batches=None)
+    assert s["action"] == "減碼"
+
+
+def test_exit_below_ma20_but_building_still_holds():
+    # 建倉未滿三批：月線是加碼支撐、非減碼 → 續抱
+    s = exit_setup({"close": 90, "ma20": 95, "ma60": 80}, batches=1)
+    assert s["action"] == "續抱"
+
+
+def test_exit_below_ma20_full_position_trims():
+    # 滿三批後跌破月線 → 轉保護獲利、減碼
+    s = exit_setup({"close": 90, "ma20": 95, "ma60": 80}, batches=3)
+    assert s["action"] == "減碼"
+
+
+def test_exit_no_close_returns_none():
+    assert exit_setup({"ma20": 95, "ma60": 80})["action"] is None
 
 
 # 華邦電快照：支撐1≈222、MA20≈181、支撐3≈142。close 用「距 % 」表示位置。

@@ -51,6 +51,15 @@ def test_scan_reports_trend():
     assert out and "排列" in out[0]["trend"] and "季線" in out[0]["trend"]
 
 
+def test_scan_item_carries_support_prices():
+    # 候選要帶三段支撐價(MA5/20/60)，供『每日策略頁』算掛單/停損線
+    out = scan(["2330"], fetch=lambda c: _pullback_hold_shrink(),
+               foreign_lookup=lambda c: {"stopped": True})
+    assert out
+    for k in ("ma5", "ma20", "ma60"):
+        assert k in out[0] and isinstance(out[0][k], (int, float))
+
+
 def test_scan_stocks_ranked_before_etfs():
     # 個股優先、ETF 分開放：就算 ETF 是『順勢偏多』(高分)，個股(即使只是觀望)也排在 ETF 前面
     data = {"0050": _vacuum_uptrend(), "8888": _vacuum_uptrend()}

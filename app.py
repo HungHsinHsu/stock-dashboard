@@ -17,7 +17,10 @@ from core.data import (
     resolve_stocks,
 )
 from core.indicators import compute_indicators
-from core.rules import is_etf, NEAR_PCT, entry_setup, is_denied, DENYLIST
+from core.rules import (
+    is_etf, NEAR_PCT, entry_setup, exit_setup, etf_setup, is_denied, DENYLIST,
+    ETF_SIGNAL_LABEL,
+)
 from core.screener import scan as _scan
 from core.watchlist import effective_stocks, add_stock, remove_stock
 from core.market import market_summary
@@ -1046,10 +1049,162 @@ def render_manage_watchlist():
             st.info("沒有勾選要移除的。")
 
 
+def _strategy_ind(code):
+    """取某代號指標供每日策略頁。優先『即時/DB bars』，過期或抓不到則用每日快照
+    （screener 候選已含 MA5/20/60 支撐價）。回 (ind_dict, source, date)；查無回 (None,..)。"""
+    df = load_stock_df(code)
+    snap = _snapshot_item(code)
+    snap_newer = bool(snap and _snap_newer_than(df, snap[1]))
+    if not df.empty and not snap_newer:
+        ind = compute_indicators(df, {})
+        if ind.get("close") is not None:
+            return ind, f"即時/DB {df.index[-1].date()}", str(df.index[-1].date())
+    if snap and snap[0].get("close") is not None:
+        x = snap[0]
+        ind = {
+            "close": x.get("close"), "prev_close": x.get("prev_close"),
+            "ma5": x.get("ma5"), "ma20": x.get("ma20"), "ma60": x.get("ma60"),
+            "vol_ratio": x.get("vol_ratio"), "ma20_slope5": x.get("ma20_slope5"),
+            "ma_align": (x.get("trend") or "").split("·")[0] or None,
+        }
+        return ind, f"快照 {snap[1]}", snap[1]
+    if not df.empty:
+        d = str(df.index[-1].date())
+        return compute_indicators(df, {}), f"即時/DB {d}", d
+    return None, None, None
+
+
+def render_daily_strategy(owner):
+    """每日操作策略頁：把追蹤股＋今日候選分『進場 / 出場』兩區塊，逐檔寫出策略。
+    進場＝該掛哪、幾批、停損線；出場＝追蹤清單全當持有，該續抱/減碼/出場。
+    帶兩個現實檢查：季線停損離現價幾%（太遠標紅、改建議月線移動停利）、掛單金額 vs 預算。"""
+    st.markdown("### 📋 每日操作策略")
+    st.caption(
+        "**進場區**＝追蹤股＋今日選股候選；**出場區**＝追蹤清單全部當『持有中』試算。"
+        "支撐＝均線（支撐1=MA5、支撐2=MA20、支撐3=季線MA60），每天隨收盤移動、不寫死。")
+    budget = st.number_input(
+        "本波預算（元）— 估掛單金額與負擔（國泰零股手續費低，買零股/小單都 OK）",
+        min_value=0, value=100000, step=10000)
+
+    stocks = effective_stocks(owner)                  # {name:{code,...}}
+    code2name = {str(c["code"]): n for n, c in stocks.items()}
+    try:
+        snap = db.get_state("screen:latest") or {}
+    except Exception:
+        snap = {}
+    cands = snap.get("cands") or []
+    cand_map = {str(c["code"]): c for c in cands}
+    snap_names = snap.get("names") or {}
+
+    def _nm(code):
+        return code2name.get(str(code)) or snap_names.get(str(code)) or str(code)
+
+    def _r(v):
+        return round(v, 2) if isinstance(v, (int, float)) else v
+
+    def _drop_to(line, close):
+        """從現價跌到 line 要跌幾%（正數）。line 在上方則為負。"""
+        if line is None or not close:
+            return None
+        return round((close - line) / close * 100, 1)
+
+    def _afford(close):
+        if not close:
+            return "—"
+        one = close * 1000
+        if budget <= 0:
+            return f"1張 {one:,.0f}"
+        if one <= budget:
+            return f"可買 {int(budget // one)} 張"
+        return f"1張{one:,.0f}>預算→零股約{int(budget // close)}股"
+
+    # ───────── 進場區：追蹤股 ∪ 今日候選（個股；ETF 標註走趨勢框架）─────────
+    st.markdown("#### 🟢 進場區")
+    entry_codes = list(dict.fromkeys(
+        [str(c["code"]) for c in stocks.values()]
+        + [str(c["code"]) for c in cands if c.get("kind") != "ETF"]))
+    rows, plans = [], []
+    for code in entry_codes:
+        ind, src, _d = _strategy_ind(code)
+        if not ind or ind.get("close") is None:
+            continue
+        close, ma5, ma20, ma60 = (ind.get("close"), ind.get("ma5"),
+                                  ind.get("ma20"), ind.get("ma60"))
+        etf, cand = is_etf(code), cand_map.get(str(code))
+        if cand:                     # 候選：用 screener 已算好的（含外資五關）
+            signal, at_batch, reason = cand.get("signal"), cand.get("at_batch"), cand.get("reason")
+        elif etf:
+            s = etf_setup(ind, code)
+            signal = ETF_SIGNAL_LABEL.get(s["ceiling"], s["ceiling"])
+            at_batch, reason = None, s["reason"]
+        else:
+            fo = load_foreign(code)
+            s = entry_setup(ind, code, fo.get("stopped") if fo else None)
+            signal, at_batch, reason = s["ceiling"], s["at_batch"], s["reason"]
+        drop = _drop_to(ma60, close)
+        wide = drop is not None and drop > 10
+        rows.append({
+            "標的": f"{_nm(code)} {code}", "訊號": signal,
+            "位置": at_batch or ("ETF" if etf else "—"),
+            "支撐1掛單": _r(ma5), "季線停損": _r(ma60),
+            "跌到季線 -%": drop, "負擔": _afford(close),
+        })
+        if etf:
+            plan = "ETF·趨勢框架，不套三批；順勢偏多可分批或定期定額"
+        elif signal == "進場":
+            plan = (f"掛 **{_r(ma5)}**（支撐1）接第一批 1/3；跌到 {_r(ma20)}(支撐2)、"
+                    f"{_r(ma60)}(季線)分別加第二、三批")
+        elif signal == "避開":
+            plan = "已跌破季線＝停損區，避開、不接刀"
+        else:
+            plan = f"觀望：等回到支撐 **{_r(ma5)}** 附近站穩、量縮再進"
+        warn = "　🔴 季線停損離現價 >10%（太遠、不當停損）→ 這檔改用月線移動停利" if wide else ""
+        plans.append(f"- **{_nm(code)} {code}**（{signal}）：{plan}{warn}")
+    if rows:
+        st.dataframe(pd.DataFrame(rows).set_index("標的"), use_container_width=True)
+        st.markdown("\n".join(plans))
+    else:
+        st.info("目前沒有可顯示的進場標的（追蹤清單為空、且今日尚無選股候選）。")
+
+    # ───────── 出場區：追蹤清單全部當持有試算 ─────────
+    st.markdown("#### 🔴 出場區（追蹤清單全部當『持有中』試算）")
+    exrows = []
+    for name, c in stocks.items():
+        code = str(c["code"])
+        ind, src, _d = _strategy_ind(code)
+        if not ind or ind.get("close") is None:
+            continue
+        close, ma20, ma60 = ind.get("close"), ind.get("ma20"), ind.get("ma60")
+        if is_etf(code):
+            act = "出場" if (ma60 is not None and close < ma60) else "續抱"
+            reason = "ETF趨勢框架：站季線上順勢抱、跌破季線轉弱減/出"
+        else:
+            ex = exit_setup(ind, None)      # 不知實際批數 → 全當持有
+            act, reason = ex["action"], ex["reason"]
+        drop60 = _drop_to(ma60, close)
+        drop20 = _drop_to(ma20, close)
+        icon = {"出場": "🛑", "減碼": "⚠️", "續抱": "✅"}.get(act, "•")
+        if act == "續抱" and drop60 is not None and drop60 > 10:
+            line = f"季線 {_r(ma60)}（-{drop60}%，太遠）→ 建議月線 {_r(ma20)}（-{drop20}%）移動停利"
+        elif ma60 is not None:
+            line = f"季線 {_r(ma60)}（跌到 -{drop60}% 出場）"
+        else:
+            line = "—"
+        exrows.append({"標的": f"{name} {code}", "建議": f"{icon} {act}",
+                       "出場/停損線": line})
+    if exrows:
+        st.dataframe(pd.DataFrame(exrows).set_index("標的"), use_container_width=True)
+        st.caption("出場＝跌破季線全出；減碼＝跌破月線先出一半（移到季線停損）；續抱＝站穩月線。"
+                   "季線離現價太遠(>10%)時，該檔改用月線當移動停利，避免『等跌 20% 才停損』的荒謬。")
+    else:
+        st.info("追蹤清單為空，沒有可試算的出場標的。")
+
+
 # 深連結：?code=2344 → 直接開個股頁、選好該股
 _qp_code = st.query_params.get("code")
 _page = st.radio("頁面",
-                 ["🌐 大盤", "📈 個股", "📅 預測歷史", "🔎 每日推薦", "⭐ 管理追蹤"],
+                 ["🌐 大盤", "📈 個股", "📋 每日策略", "📅 預測歷史",
+                  "🔎 每日推薦", "⭐ 管理追蹤"],
                  index=(1 if _qp_code else 0),
                  horizontal=True, label_visibility="collapsed")
 
@@ -1108,6 +1263,10 @@ if _page == "🌐 大盤":
         render_history(mrecs, show_signal=False)
     else:
         st.info("尚無大盤預測紀錄。")
+
+# ──────────────────────────── 每日策略頁 ────────────────────────────
+elif _page == "📋 每日策略":
+    render_daily_strategy(_dash_owner())
 
 # ──────────────────────────── 預測歷史頁 ────────────────────────────
 elif _page == "📅 預測歷史":

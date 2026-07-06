@@ -99,6 +99,9 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0,
             "prev_close": ind.get("prev_close"),   # 供網頁過期時用快照算漲跌幅
             "vol_ratio": ind.get("vol_ratio"), "score": round(score, 1),
             "trend": _trend_label(ind),
+            # 三段支撐價（＝MA5/20/60），供「每日策略頁」算掛單價/停損線，免再抓一次
+            "ma5": ind.get("ma5"), "ma20": ind.get("ma20"), "ma60": ind.get("ma60"),
+            "ma20_slope5": ind.get("ma20_slope5"),
         }
         prelim.append((item, ind, code, etf, ceil))
     prelim.sort(key=lambda t: (-t[0]["score"],
