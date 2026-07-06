@@ -1,27 +1,56 @@
-"""一次性診斷：看 fetch_daily 對幾檔股票實際抓到什麼（最後幾根日線、最後日期），
-用來確認個股頁「現價」是否卡在舊月份（當月被限流漏抓 → 最後收盤停在上月底）。
+"""一次性診斷：檢查『大盤預測』的兩個領先指標——美股隔夜、台指期夜盤——實際抓到什麼
+日期/數值，以及今天已存的大盤預測用了哪一份，確認有沒有拿到放假日/過舊的資料。
 """
-from core.data import fetch_daily, _fetch_stock_month
-from core.tz import now_tw
-from datetime import timedelta
+import json
+import requests
+from core.data import fetch_us_overnight, fetch_taifex_detail, HEADERS, US_INDICES
+from core.tz import now_tw, today_tw
+
+
+def _yahoo_last_bars(symbol, n=4):
+    url = ("https://query1.finance.yahoo.com/v8/finance/chart/"
+           f"{symbol.replace('^', '%5E')}?range=10d&interval=1d")
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=15).json()
+        r = res["chart"]["result"][0]
+        ts = r["timestamp"]
+        cl = r["indicators"]["quote"][0]["close"]
+        import datetime as dt
+        out = [(dt.datetime.utcfromtimestamp(t).strftime("%Y-%m-%d"), c)
+               for t, c in zip(ts, cl) if c is not None]
+        return out[-n:]
+    except Exception as e:
+        return f"抓不到 {symbol}: {e}"
 
 
 def run():
-    print("now_tw:", now_tw())
-    for code in ["2344", "2330", "2454"]:
-        print(f"\n===== {code} =====")
-        # 先單獨看『當月』抓到幾根（測當月是否漏抓）
-        cur = _fetch_stock_month(code, now_tw())
-        print(f"當月單抓 rows={len(cur)}",
-              f"最後={cur[-1]['Date'].date()} close={cur[-1]['Close']}" if cur else "當月抓不到！")
-        df = fetch_daily(code, months=6, workers=2)
-        print(f"fetch_daily rows={len(df)}")
-        if not df.empty:
-            print(df.tail(4)[["Open", "High", "Low", "Close", "Volume"]].to_string())
-            last_date = df.index[-1]
-            print(f"last_close={df['Close'].iloc[-1]} last_date={last_date.date()}")
-            stale_days = (now_tw().date() - last_date.date()).days
-            print(f"距今 {stale_days} 天{'  ⚠️ 疑似過期' if stale_days > 5 else ''}")
+    print("now_tw:", now_tw(), " today_tw:", today_tw())
+    print("\n===== 美股隔夜 fetch_us_overnight() =====")
+    print(json.dumps(fetch_us_overnight(), ensure_ascii=False))
+    print("--- 各指數 Yahoo 最後幾根(日期,收盤) 看有沒有放假日缺一天/最後一天是幾號 ---")
+    for name, sym in US_INDICES.items():
+        print(f"  {name}({sym}):", _yahoo_last_bars(sym))
+
+    print("\n===== 台指期 fetch_taifex_detail =====")
+    print("無 min_date :", fetch_taifex_detail())
+    print(f"min_date={today_tw()} :", fetch_taifex_detail(min_date=str(today_tw())))
+
+    print("\n===== 今天已存的大盤預測用了哪份 =====")
+    try:
+        from core.store import load_history
+        recs = [r for r in load_history() if r.get("stock") == "大盤" and r.get("prediction")]
+        recs.sort(key=lambda r: r["date"])
+        if recs:
+            r = recs[-1]
+            p = r["prediction"]
+            print("date:", r["date"], "direction:", p.get("direction"),
+                  "confidence:", p.get("confidence"))
+            print("us_overnight:", json.dumps(p.get("us_overnight"), ensure_ascii=False))
+            print("taifex_night:", p.get("taifex_night"), "taifex_date:", p.get("taifex_date"))
+        else:
+            print("找不到大盤預測紀錄")
+    except Exception as e:
+        print("讀預測紀錄失敗：", e)
 
 
 if __name__ == "__main__":
