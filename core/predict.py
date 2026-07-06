@@ -114,7 +114,7 @@ def _chip_summary(foreign, margin):
 
 def make_prediction(indicators, stock_name, market=None, us_overnight=None,
                     llm=generate_json, code=None, foreign=None, batches=None,
-                    lessons="", margin=None):
+                    lessons="", margin=None, us_asof=None, tw_last=None):
     # 客觀相對強弱：個股昨日漲跌 vs 大盤昨日漲跌（負=弱於大盤，看跌參考）
     rel_txt = ""
     try:
@@ -149,6 +149,9 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
             f"美股隔夜四大指數漲跌(%)：\n{json.dumps(us_overnight, ensure_ascii=False)}\n"
             f"籌碼面(法人三大＋融資融券)：\n{_chip_summary(foreign, margin)}"
         )
+    if us_asof and tw_last and us_asof <= tw_last:
+        user += (f"\n\n⚠️ 資料新鮮度：美股隔夜為 {us_asof} 收盤、不晚於台股上一交易日 {tw_last}"
+                 "，台股已反映過(可能美股放假沒新盤)，屬舊訊息，勿當今日新多空重複計入。")
     if lessons:
         user += f"\n\n{lessons}"
     pred = llm(system, user, PREDICTION_SCHEMA)

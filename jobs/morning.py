@@ -37,7 +37,7 @@ def _stock_pred_digest(items, date):
 def run(today=None, llm=generate_json, fetch=fetch_daily,
         fetch_idx=fetch_index, notify=None, stocks=None,
         fetch_us=fetch_us_overnight, fetch_tf=fetch_taifex_detail,
-        fetch_fg=fetch_foreign_flow, fetch_mg=fetch_margin):
+        fetch_fg=fetch_foreign_flow, fetch_mg=fetch_margin, force=False):
     from core import db
     db.migrate_from_json()     # DB 首次啟用時匯入舊 JSON（無 DB 則 no-op）
     db.migrate_owner_data()    # 舊單一清單/部位 → admin 帳號命名空間
@@ -63,7 +63,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
     # 大盤(加權指數)開盤預測：以美股隔夜 + 台指期為領先指標、大盤技術面為輔
     # 鐵律：當日大盤預測一旦存在就鎖死，重跑不覆蓋（不可篡改歷史預測）。
     _m_exist = get_record(records, run_date, "大盤")
-    if not index_df.empty and not (_m_exist and _m_exist.get("prediction")):
+    if not index_df.empty and (force or not (_m_exist and _m_exist.get("prediction"))):
         try:
             idx_ind = compute_indicators(index_df, {})
             mpred = make_market_prediction(idx_ind, us, market, taifex, llm=llm,
@@ -89,7 +89,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         date = run_date
         # 鐵律：同日同股預測一旦存在就鎖死，重跑只補缺、不覆蓋（不可篡改歷史）。
         _exist = get_record(records, date, cfg["code"])
-        if _exist and _exist.get("prediction"):
+        if _exist and _exist.get("prediction") and not force:
             locked_any = True
             print(f"  {name}: 已有 {date} 預測，鎖定不覆蓋")
             continue
@@ -113,7 +113,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
                     indicators, name, market=market, us_overnight=us, llm=llm,
                     code=cfg["code"], foreign=foreign,
                     batches=get_batches(cfg["code"]),
-                    lessons=lessons_prompt(records, cfg["code"]), margin=margin)
+                    lessons=lessons_prompt(records, cfg["code"]), margin=margin,
+                    us_asof=us_asof, tw_last=tw_last)
                 break
             except Exception as e:
                 print(f"{name} AI 試算失敗(第{attempt + 1}輪)：{type(e).__name__}: {e}")
