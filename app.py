@@ -1121,8 +1121,44 @@ def render_daily_strategy(owner):
     cands = snap.get("cands") or []
     cand_map = {str(c["code"]): c for c in cands}
     snap_names = snap.get("names") or {}
+    # 快照類狀態一次讀完、逐檔不再重查 DB（否則對 ~30 檔各多次查 Supabase→頁面很慢/看似卡住）
+    try:
+        _watch_snap = db.get_state("watch:latest") or {}
+    except Exception:
+        _watch_snap = {}
+    try:
+        _fmap = (db.get_state("foreign:latest") or {}).get("map") or {}
+    except Exception:
+        _fmap = {}
+    watch_codes = set(code2name)
+    snap_item = {}
+    for _s in (_watch_snap, snap):
+        for _x in (_s.get("cands") or []):
+            snap_item.setdefault(str(_x.get("code")), (_x, _s.get("date", "")))
     st.caption(f"🔎 讀到：追蹤 {len(stocks)} 檔、今日選股候選 {len(cands)} 檔"
                f"（選股快照日 {snap.get('date', '—')}）。資料全部只讀資料庫、不即時抓。")
+
+    def _ind_for(code):
+        """該檔指標：追蹤股讀 DB 日線算完整指標；純候選用選股快照(含 close，支撐價待收盤選股補)。
+        逐檔最多讀一次 bars、不重讀快照 blob。回 ind dict（可能只有 close）。"""
+        code = str(code)
+        si = snap_item.get(code)
+        bars = _db_bars_df(code) if code in watch_codes else pd.DataFrame()
+        if not bars.empty and not (si and _snap_newer_than(bars, si[1])):
+            ind = compute_indicators(bars, {})
+            if ind.get("close") is not None:
+                return ind
+        if si and si[0].get("close") is not None:
+            x = si[0]
+            return {"close": x.get("close"), "prev_close": x.get("prev_close"),
+                    "ma5": x.get("ma5"), "ma20": x.get("ma20"), "ma60": x.get("ma60"),
+                    "vol_ratio": x.get("vol_ratio"), "ma20_slope5": x.get("ma20_slope5"),
+                    "ma_align": (x.get("trend") or "").split("·")[0] or None}
+        return compute_indicators(bars, {}) if not bars.empty else {}
+
+    def _fstopped(code):
+        fo = _fmap.get(str(code))
+        return fo.get("stopped") if fo and fo.get("stopped") is not None else None
 
     def _nm(code):
         return code2name.get(str(code)) or snap_names.get(str(code)) or str(code)
@@ -1157,8 +1193,7 @@ def render_daily_strategy(owner):
     rows, plans = [], []
     for code in entry_codes:
         cand = cand_map.get(str(code))
-        ind, _src, _d = _strategy_ind(code)
-        ind = ind or {}
+        ind = _ind_for(code) or {}
         c = cand or {}
         close = ind.get("close") if ind.get("close") is not None else c.get("close")
         if close is None:                # DB、快照都沒有這檔 → 真的沒資料，略過
@@ -1174,7 +1209,7 @@ def render_daily_strategy(owner):
             signal = ETF_SIGNAL_LABEL.get(s["ceiling"], s["ceiling"])
             at_batch, reason = None, s["reason"]
         else:
-            s = entry_setup(ind, code, _snap_foreign_stopped(code))
+            s = entry_setup(ind, code, _fstopped(code))
             signal, at_batch, reason = s["ceiling"], s["at_batch"], s["reason"]
         drop = _drop_to(ma60, close)
         wide = drop is not None and drop > 10
@@ -1208,7 +1243,7 @@ def render_daily_strategy(owner):
     exrows = []
     for name, c in stocks.items():
         code = str(c["code"])
-        ind, src, _d = _strategy_ind(code)
+        ind = _ind_for(code)
         if not ind or ind.get("close") is None:
             continue
         close, ma20, ma60 = ind.get("close"), ind.get("ma20"), ind.get("ma60")
