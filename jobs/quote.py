@@ -8,7 +8,7 @@
   QUOTE_CODES=2330,2454 python -m jobs.quote
 """
 import os
-from core.data import fetch_daily
+from core.data import fetch_daily, fetch_foreign_flow
 from core.indicators import compute_indicators
 
 DEFAULT = ["2408", "2884", "2883", "2881"]
@@ -36,6 +36,16 @@ def run(codes=None):
         print(f"  支撐3 MA60: {ind.get('ma60')}")
         print(f"  量比={ind.get('vol_ratio')} 排列={ind.get('ma_align')} "
               f"月線斜率(ma20_slope5)={ind.get('ma20_slope5')}")
+        # 最近 7 根收盤，看近期走勢(噴高→回落 or 續強)
+        tail = df.tail(7)
+        print("  近7日收盤:", ", ".join(f"{d.date()}={round(float(v), 2)}"
+              for d, v in tail["Close"].items()))
+        # 外資買賣超(T86)：判斷賣壓有沒有停、是承接法第四關
+        try:
+            fo = fetch_foreign_flow(c)
+        except Exception as e:
+            fo = {"err": f"{type(e).__name__}: {e}"}
+        print(f"  外資T86: {fo}")
 
 
 if __name__ == "__main__":
