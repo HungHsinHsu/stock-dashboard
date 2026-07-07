@@ -1190,6 +1190,16 @@ def render_daily_strategy(owner):
     def _r2(v):                          # 顯示用：無值 → 「待更新」（缺 MA 也不留白）
         return _r(v) if isinstance(v, (int, float)) else "待更新"
 
+    def _ladder(close, mas):
+        """把三段支撐排成『越跌越買』的分批階梯：只取『在現價(含+0.5%)之下』的支撐、
+        再按價格由高到低排。糾結股均線常不照 MA5>MA20>MA60，硬綁『第一批MA5→第二批MA20』
+        會出現『跌到比第一批還高的價』這種矛盾；一律照實際價格高→低排才正確。
+        回 [(價, 標籤), ...]（高→低）。"""
+        pts = [(v, lbl) for v, lbl in mas
+               if isinstance(v, (int, float)) and close and v <= close * 1.005]
+        pts.sort(key=lambda x: -x[0])
+        return pts
+
     rows, plans = [], []
     for code in entry_codes:
         cand = cand_map.get(str(code))
@@ -1213,22 +1223,27 @@ def render_daily_strategy(owner):
             signal, at_batch, reason = s["ceiling"], s["at_batch"], s["reason"]
         drop = _drop_to(ma60, close)
         wide = drop is not None and drop > 10
+        lad = _ladder(close, [(ma5, "MA5"), (ma20, "月線"), (ma60, "季線")])
+        first_price = _r(lad[0][0]) if lad else _r2(ma5)
         rows.append({
             "標的": f"{_nm(code)} {code}", "訊號": signal,
             "位置": at_batch or ("ETF" if etf else "—"),
-            "支撐1掛單": _r2(ma5), "季線停損": _r2(ma60),
+            "第一批掛單": first_price, "季線停損": _r2(ma60),
             "跌到季線 -%": drop if drop is not None else "—", "負擔": _afford(close),
         })
+        names3 = ["第一批", "第二批", "第三批"]
         if etf:
             plan = "ETF·趨勢框架，不套三批；順勢偏多可分批或定期定額"
-        elif signal == "進場":
-            plan = (f"掛 **{_r2(ma5)}**（支撐1）接第一批 1/3；跌到 {_r2(ma20)}(支撐2)、"
-                    f"{_r2(ma60)}(季線)分別加第二、三批")
+        elif signal == "進場" and lad:
+            steps = "、".join(f"{names3[i]} {_r(p)}({lbl})"
+                              for i, (p, lbl) in enumerate(lad[:3]))
+            plan = f"由高到低往下接（越跌買越多）：{steps}；收盤跌破季線 {_r2(ma60)} 全出"
         elif signal == "避開":
             plan = "已跌破季線＝停損區，避開、不接刀"
         else:
-            plan = f"觀望：等回到支撐 **{_r2(ma5)}** 附近站穩、量縮再進"
-        warn = "　🔴 季線停損離現價 >10%（太遠、不當停損）→ 這檔改用月線移動停利" if wide else ""
+            tgt = f"{_r(lad[0][0])}({lad[0][1]})" if lad else "均線支撐"
+            plan = f"觀望：等回到 {tgt} 附近站穩、量縮再進"
+        warn = "　🔴 季線離現價 >10%、當停損太遠 → 這檔改用月線移動停利" if wide else ""
         plans.append(f"- **{_nm(code)} {code}**（{signal}）：{plan}{warn}")
     if rows:
         st.dataframe(pd.DataFrame(rows).set_index("標的"), use_container_width=True)

@@ -149,9 +149,9 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
             f"美股隔夜四大指數漲跌(%)：\n{json.dumps(us_overnight, ensure_ascii=False)}\n"
             f"籌碼面(法人三大＋融資融券)：\n{_chip_summary(foreign, margin)}"
         )
-    if us_asof and tw_last and us_asof <= tw_last:
-        user += (f"\n\n⚠️ 資料新鮮度：美股隔夜為 {us_asof} 收盤、不晚於台股上一交易日 {tw_last}"
-                 "，台股已反映過(可能美股放假沒新盤)，屬舊訊息，勿當今日新多空重複計入。")
+    if us_asof and tw_last and us_asof < tw_last:
+        user += (f"\n\n⚠️ 資料新鮮度：美股隔夜為 {us_asof} 收盤、早於台股上一交易日 {tw_last}"
+                 "，台股已反映過(多半是美股放假沒新盤)，屬舊訊息，勿當今日新多空重複計入。")
     if lessons:
         user += f"\n\n{lessons}"
     pred = llm(system, user, PREDICTION_SCHEMA)
@@ -325,17 +325,20 @@ def make_market_prediction(index_indicators, us_overnight, market_data,
     if taifex_night is None:
         tf_txt = ("無（台指期與美股隔夜嚴重背離、多半過時，本次不納入；純以美股隔夜與技術面判斷）"
                   if tf_conflict else "無（抓不到或資料過時，本次不納入判斷）")
-    # 已消化偵測：美股/台指期資料日期若『不晚於台股上一個交易日』，代表台股已反映過，
+    # 已消化偵測：美股/台指期資料日期若『早於台股上一個交易日』，代表台股已反映過，
     # 屬舊訊息(例：週五美股放假→週一還是拿週四美股，而台股週五早已反映)，不可重複計入。
+    # 關鍵：用『<』不是『<=』。美股「D 那場」是 D 晚上~隔天清晨收，發生在台股 D 收盤『之後』，
+    # 所以「美股日期==台股上一交易日」是正常的隔夜新訊息(fresh)，不是已消化；
+    # 只有「美股日期<台股上一交易日」(如週四美股 vs 台股週五)才是台股已反映過的舊訊息。
     digested = []
-    if us_asof and tw_last and us_asof <= tw_last:
+    if us_asof and tw_last and us_asof < tw_last:
         digested.append(
-            f"美股隔夜為 {us_asof} 收盤，不晚於台股上一個交易日 {tw_last}——台股上個交易日"
-            "已反映過這波美股(可能因美股放假沒新盤)，屬『已消化的舊訊息』，"
+            f"美股隔夜為 {us_asof} 收盤，早於台股上一個交易日 {tw_last}——台股上個交易日"
+            "已反映過這波美股(多半因美股放假沒新盤)，屬『已消化的舊訊息』，"
             "不可再當今日新的利多/利空重複計入；今日方向請以台股自身技術面與籌碼為主。")
-    if taifex_night is not None and taifex_asof and tw_last and taifex_asof <= tw_last:
+    if taifex_night is not None and taifex_asof and tw_last and taifex_asof < tw_last:
         digested.append(
-            f"台指期為 {taifex_asof} 那場，不晚於台股上一個交易日 {tw_last}，同屬已消化、勿重複計入。")
+            f"台指期為 {taifex_asof} 那場，早於台股上一個交易日 {tw_last}，同屬已消化、勿重複計入。")
     user = (
         f"美股隔夜漲跌(%)：{us_txt}\n"
         f"台指期夜盤漲跌(%)：{tf_txt}\n"
@@ -349,7 +352,7 @@ def make_market_prediction(index_indicators, us_overnight, market_data,
     out = llm(_MARKET_SYSTEM, user, MARKET_PRED_SCHEMA)
     out["us_overnight"] = us_overnight
     out["us_date"] = us_asof
-    out["us_digested"] = bool(us_asof and tw_last and us_asof <= tw_last)
+    out["us_digested"] = bool(us_asof and tw_last and us_asof < tw_last)
     out["taifex_night"] = taifex_night
     out["taifex_date"] = taifex_asof
     out["market_data"] = market_data

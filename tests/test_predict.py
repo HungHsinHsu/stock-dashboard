@@ -177,8 +177,8 @@ def test_market_keeps_taifex_when_consistent():
     assert "-1.2" in seen["user"]            # 同向的台指期照常納入
 
 
-def test_market_flags_digested_us_when_not_newer_than_tw():
-    # 美股資料日期(7/2) 不晚於台股上一交易日(7/3)＝週五美股放假、台股已反映過 →
+def test_market_flags_digested_us_when_earlier_than_tw():
+    # 美股資料日期(7/2) 早於台股上一交易日(7/3)＝週五美股放假、台股已反映過 →
     # 提示模型『已消化、勿重複計入』
     seen = {}
 
@@ -190,6 +190,23 @@ def test_market_flags_digested_us_when_not_newer_than_tw():
         {"ma20": 45000}, {"費半SOX": -5.44}, {"direction": "跌", "pct": -0.5},
         taifex_night=None, llm=_spy, us_asof="2026-07-02", tw_last="2026-07-03")
     assert "已消化" in seen["user"] and "重複計入" in seen["user"]
+
+
+def test_market_no_digested_when_us_same_date_as_tw():
+    # 正常交易日：美股「7/6 那場」是台股 7/6 收盤『之後』的隔夜新訊息(當晚~隔天清晨收) →
+    # us日期==台股上一交易日『不算』已消化（這是把 <= 改成 < 修掉的 bug：以前每個正常日
+    # 都被誤判成已消化、叫模型忽略昨晚美股）。
+    seen = {}
+
+    def _spy(system, user, schema, client=None):
+        seen["user"] = user
+        return {"direction": "漲", "confidence": "中", "drivers": [], "reason": "x"}
+
+    out = make_market_prediction(
+        {"ma20": 45000}, {"費半SOX": 2.17}, {"direction": "漲", "pct": 0.5},
+        taifex_night=None, llm=_spy, us_asof="2026-07-06", tw_last="2026-07-06")
+    assert "已消化" not in seen["user"]
+    assert out["us_digested"] is False
 
 
 def test_market_no_digested_flag_when_us_is_newer():
