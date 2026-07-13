@@ -101,6 +101,14 @@ def save_predictions(records):
     _run(q)
 
 
+def delete_predictions(date):
+    """刪掉某日整批預測/復盤（例：颱風休市那天排程誤寫的髒資料）。回刪除筆數。"""
+    def q(cur):
+        cur.execute("DELETE FROM predictions WHERE date=%s", (date,))
+        return cur.rowcount
+    return _run(q)
+
+
 # ── positions（部位）────────────────────────────────────────────
 def load_positions():
     def q(cur):
@@ -137,6 +145,14 @@ def save_lessons(lessons):
                    ON CONFLICT(stock, date) DO UPDATE SET lesson=EXCLUDED.lesson""",
                 (x.get("stock"), x.get("date"), x.get("lesson")))
     _run(q)
+
+
+def delete_lessons(date):
+    """刪掉某日的教訓（配合 delete_predictions 一起清非交易日髒資料）。回刪除筆數。"""
+    def q(cur):
+        cur.execute("DELETE FROM lessons WHERE date=%s", (date,))
+        return cur.rowcount
+    return _run(q)
 
 
 # ── watchlist（追蹤清單）────────────────────────────────────────

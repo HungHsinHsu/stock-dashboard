@@ -13,6 +13,14 @@ on:
         description: "morning or evening"
         required: true
         default: "morning"
+      admin_date:
+        description: "dbadmin 用：要檢視/清除的日期 YYYY-MM-DD（非交易日髒資料）"
+        required: false
+        default: ""
+      admin_action:
+        description: "dbadmin 用：list（預設，只檢視）或 delete（確認後刪除）"
+        required: false
+        default: "list"
 
 permissions:
   contents: write
@@ -55,6 +63,9 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # jobs.dbadmin 專用（其他 job 忽略）：清非交易日髒資料
+          ADMIN_DATE: ${{ github.event.inputs.admin_date }}
+          ADMIN_ACTION: ${{ github.event.inputs.admin_action }}
         run: python -m jobs.${{ steps.which.outputs.job }}
       - name: Commit history（僅 JSON 模式；設了 DATABASE_URL 就走 DB、跳過）
         env:
