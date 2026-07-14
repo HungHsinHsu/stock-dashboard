@@ -112,6 +112,53 @@ def test_etf_uptrend_labels_follow_trend():
     assert "順勢偏多" in s and "大盤" in s
 
 
+def _down_llm(system, user, schema, client=None):
+    return {"signal": "觀望", "direction": "跌", "confidence": "中",
+            "bull_signals": [], "bear_signals": [], "hold_ma20": False,
+            "hold_support1": False, "reason": "自身均線下彎"}
+
+
+def _up_llm2(system, user, schema, client=None):
+    return {"signal": "進場", "direction": "漲", "confidence": "中",
+            "bull_signals": [], "bear_signals": [], "hold_ma20": True,
+            "hold_support1": False, "reason": "站上均線"}
+
+
+def test_market_index_etf_direction_aligns_to_market():
+    # 0050≈大盤：LLM 自算『跌』，但今日大盤預測『漲』→ 方向對齊大盤，原判存 direction_llm
+    ind = {"close": 60, "prev_close": 59, "ma20": 58, "ma60": 55,
+           "ma_align": "多頭排列", "vol_ratio": 0.9}
+    out = make_prediction(ind, "元大台灣50 (0050)", llm=_down_llm, code="0050",
+                          market_direction="漲")
+    assert out["direction"] == "漲"           # 對齊大盤
+    assert out["direction_llm"] == "跌"        # 保留原始技術面判斷供對照
+    assert "對齊大盤" in out["direction_rule_note"]
+
+
+def test_market_index_etf_no_change_when_already_matches():
+    # 方向本就與大盤一致 → 不動、不加 direction_llm
+    ind = {"close": 60, "ma20": 58, "ma60": 55, "ma_align": "多頭排列"}
+    out = make_prediction(ind, "富邦台50 (006208)", llm=_up_llm2, code="006208",
+                          market_direction="漲")
+    assert out["direction"] == "漲" and "direction_llm" not in out
+
+
+def test_sector_etf_direction_not_aligned_to_market():
+    # 費半 ETF(00830)追蹤 SOX、不是加權指數 → 不對齊大盤，維持自身判斷
+    ind = {"close": 50, "prev_close": 51, "ma20": 55, "ma60": 60,
+           "ma_align": "空頭排列", "vol_ratio": 1.5}
+    out = make_prediction(ind, "國泰費城半導體 (00830)", llm=_down_llm, code="00830",
+                          market_direction="漲")
+    assert out["direction"] == "跌" and "direction_llm" not in out
+
+
+def test_stock_direction_not_aligned_to_market():
+    # 個股(2330)方向由自身技術面決定，不因大盤而被覆蓋
+    out = make_prediction({"close": 200, "ma20": 190}, "台積電 (2330)",
+                          llm=_down_llm, code="2330", market_direction="漲")
+    assert out["direction"] == "跌"
+
+
 def test_make_prediction_includes_market():
     ind = {"close": 203.0, "ma20": 186.5}
     market = {"direction": "跌", "pct": -0.7, "above_ma20": False}
@@ -390,3 +437,21 @@ def test_morning_run_multiple_stocks(tmp_path, monkeypatch):
     digests = [s for s in sends if "個股開盤預測出爐" in s]
     assert len(digests) == 1
     assert "A (1111)" in digests[0] and "B (2222)" in digests[0]
+
+
+def test_morning_aligns_market_etf_direction(tmp_path, monkeypatch):
+    # 端到端：大盤預測『漲』、0050 的 LLM 自算『跌』→ morning 應把 0050 方向對齊成『漲』，
+    # 杜絕「大盤跌卻 0050 漲」這種自我矛盾（_fake_llm：大盤=漲、個股=跌）。
+    monkeypatch.setattr(morning, "HISTORY_PATH", str(tmp_path / "h.json"))
+    monkeypatch.setattr(morning, "tg", type("T", (), {
+        "send": staticmethod(lambda text: True)}))
+    recs = morning.run(
+        today=pd.Timestamp("2026-06-30"), llm=_fake_llm,
+        fetch=lambda code, today=None: _df_with_ma20(),
+        fetch_idx=lambda today=None: _idx_df(),
+        stocks={"元大台灣50 (0050)": {"code": "0050"}},
+        **_NO_LEAD,
+    )
+    etf = [r for r in recs if r["stock"] == "0050"][0]
+    assert etf["prediction"]["direction"] == "漲"        # 對齊大盤
+    assert etf["prediction"]["direction_llm"] == "跌"     # 原技術面判斷保留

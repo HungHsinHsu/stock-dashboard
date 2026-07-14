@@ -2,7 +2,9 @@ import json
 import re
 from core.llm import generate_json
 from core.config import DASHBOARD_URL
-from core.rules import constrain_signal, is_etf, ETF_UNDERLYING, ETF_SIGNAL_LABEL
+from core.rules import (
+    constrain_signal, is_etf, is_market_index_etf, ETF_UNDERLYING, ETF_SIGNAL_LABEL,
+)
 from core.textclean import humanize
 
 
@@ -114,7 +116,8 @@ def _chip_summary(foreign, margin):
 
 def make_prediction(indicators, stock_name, market=None, us_overnight=None,
                     llm=generate_json, code=None, foreign=None, batches=None,
-                    lessons="", margin=None, us_asof=None, tw_last=None):
+                    lessons="", margin=None, us_asof=None, tw_last=None,
+                    market_direction=None):
     # 客觀相對強弱：個股昨日漲跌 vs 大盤昨日漲跌（負=弱於大盤，看跌參考）
     rel_txt = ""
     try:
@@ -155,6 +158,15 @@ def make_prediction(indicators, stock_name, market=None, us_overnight=None,
     if lessons:
         user += f"\n\n{lessons}"
     pred = llm(system, user, PREDICTION_SCHEMA)
+    # 市值型大盤 ETF(0050/006208…)≈大盤：方向對齊今日大盤預測，杜絕「大盤跌卻 0050 漲」
+    # 的自我矛盾。保留 LLM 原判於 direction_llm 供對照（比照下方 signal_llm 作法）。
+    if etf and market_direction in ("漲", "跌") and is_market_index_etf(code):
+        if pred.get("direction") != market_direction:
+            pred["direction_llm"] = pred.get("direction")
+            pred["direction"] = market_direction
+            pred["direction_rule_note"] = (
+                f"市值型大盤ETF，方向對齊大盤預測（{market_direction}）；"
+                f"原技術面判為 {pred['direction_llm']}")
     # 進場與否：規則為主、LLM 受限。把 LLM 的 signal 夾進紀律允許範圍。
     foreign_stopped = foreign.get("stopped") if foreign else None
     final_signal, rule_note = constrain_signal(pred, indicators, code,

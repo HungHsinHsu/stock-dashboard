@@ -40,6 +40,10 @@ ETF_UNDERLYING = {
     "00881": "台股半導體類股",
 }
 
+# 市值型大盤 ETF＝追蹤加權指數本身者（0050、006208…）。這類 ETF≈大盤，
+# 預測方向理應等同大盤；否則會出現「大盤跌、0050 漲」的自我矛盾。
+MARKET_INDEX_UNDERLYING = "台股大盤（加權指數）"
+
 # ETF 走趨勢框架，訊號沿用同一組欄位但改成趨勢語意（顯示時翻成人話）
 ETF_SIGNAL_LABEL = {"進場": "順勢偏多", "觀望": "趨勢轉弱觀望", "避開": "明顯轉空避開"}
 
@@ -53,6 +57,12 @@ def is_leveraged_etf(code):
     """槓桿/反向 ETF（代號結尾 L 或 R，如 00631L 正2、00632R 反1）。"""
     c = str(code or "").strip().upper()
     return c.startswith("00") and (c.endswith("L") or c.endswith("R"))
+
+
+def is_market_index_etf(code):
+    """是否為『追蹤加權指數本身』的市值型大盤 ETF（0050、006208…），方向應對齊大盤。
+    高股息(0056/00878)、費半(00830/00891)、半導體(00881)追蹤別的指數，不算。"""
+    return ETF_UNDERLYING.get(str(code or "").strip()) == MARKET_INDEX_UNDERLYING
 
 
 def etf_setup(ind, code=None):

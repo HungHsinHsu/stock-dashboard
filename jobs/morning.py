@@ -81,6 +81,11 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
         locked_any = True
         print(f"大盤 {run_date} 已有預測，鎖定不覆蓋")
 
+    # 市值型大盤 ETF(0050/006208…)的方向要對齊今日大盤預測；先取得大盤方向
+    # （不論剛預測或已鎖定，統一從當日大盤紀錄讀；大盤缺漏則為 None，ETF 維持自算）。
+    _mrec = get_record(records, run_date, "大盤")
+    market_dir = (_mrec.get("prediction") or {}).get("direction") if _mrec else None
+
     for name, cfg in stocks.items():
         df = fetch(cfg["code"], today=today)
         if df.empty:
@@ -114,7 +119,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
                     code=cfg["code"], foreign=foreign,
                     batches=get_batches(cfg["code"]),
                     lessons=lessons_prompt(records, cfg["code"]), margin=margin,
-                    us_asof=us_asof, tw_last=tw_last)
+                    us_asof=us_asof, tw_last=tw_last, market_direction=market_dir)
                 break
             except Exception as e:
                 print(f"{name} AI 試算失敗(第{attempt + 1}輪)：{type(e).__name__}: {e}")
