@@ -89,6 +89,11 @@ def etf_setup(ind, code=None):
 NEAR_PCT = 2.0     # 收盤距某支撐 ±2% 內算「到價」
 VOL_SHRINK = 1.0   # 量比 < 此值算「量縮」（vs 20 日均量）
 VOL_EXPAND = 1.2   # 量比 > 此值算「帶量」
+# 當日漲幅 ≥ 此值＝大漲/漲停：那根是「噴出」不是「回檔」，即使貼近均線也不承接（避免追高）。
+# 承接法的關卡只看『靜態位置』（離均線多近、量比<1、收≥昨收），漲停會用錯誤理由踩中全部
+# （短均線被拉上來貼價→「到支撐」、漲停惜售低量→「量縮」、+10%→「止穩」），故補這道『當日
+# 動態』守門，把噴出的那根排除在回檔承接之外。
+SURGE_PCT = 4.5
 
 SIGNAL_RANK = {"避開": 0, "觀望": 1, "進場": 2}
 
@@ -118,6 +123,7 @@ def entry_setup(ind, code=None, foreign_stopped=None):
     ma20 = ind.get("ma20")
     prev = ind.get("prev_close")
     vr = ind.get("vol_ratio")
+    day_chg = ((close - prev) / prev * 100) if (close is not None and prev) else None
     d1 = ind.get("dist_support1_pct")   # 距支撐1 %（>0 在其上）
     d3 = ind.get("dist_support3_pct")   # 距支撐3 %
     d2 = _pct_to_ma20(close, ma20)      # 距支撐2(MA20) %
@@ -161,6 +167,12 @@ def entry_setup(ind, code=None, foreign_stopped=None):
             base_reason = "帶量站回上方均線且收盤站穩，符合往上站情境"
 
     if qualified:
+        # 當日動態守門：那根若是大漲/漲停（≥SURGE_PCT），就不是「回檔」而是「噴出、追高」——
+        # 貼近均線只是短均線被拉上來，非真回檔。優先於外資關，直接夾成觀望（避免叫人追漲停）。
+        if day_chg is not None and day_chg >= SURGE_PCT:
+            return result("觀望", at_batch,
+                          f"當日大漲/漲停(+{day_chg:.1f}%)＝噴出非回檔；貼近{at_batch}只是"
+                          "短均線被拉上來，非真回檔→觀望，不追高，等回穩再承接")
         # 趨勢健康關：進場只接『上升趨勢中的健康回檔』。中期均線(月線 MA20)還在往上＝趨勢沒壞；
         # 走平或下彎＝高檔摔下來(像仁寶、晶豪科那種噴上去又回落)，短線就算到價站穩量縮也不是好承接點 → 降觀望。
         slope = ind.get("ma20_slope5")

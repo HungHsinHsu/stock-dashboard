@@ -78,6 +78,25 @@ def test_healthy_pullback_rising_ma20_allows_entry():
     assert s["ceiling"] == "進場"
 
 
+def test_surge_day_near_support_is_not_pullback_entry():
+    # 藥華藥式假陽性：當日漲停(+10%)、收盤貼近 MA5(支撐1)、量縮(漲停惜售)、外資停手、月線上彎，
+    # 靜態四關全過，但那根是「噴出」不是「回檔」→ 必須夾成觀望，不給進場（不追漲停）。
+    ind = {"close": 1320, "prev_close": 1200, "ma20": 1252,
+           "dist_support1_pct": 0.2, "dist_support3_pct": 40, "vol_ratio": 0.67,
+           "ma20_slope5": 17.8}
+    s = entry_setup(ind, foreign_stopped=True)
+    assert s["ceiling"] == "觀望"
+    assert "大漲" in s["reason"] or "追高" in s["reason"] or "噴出" in s["reason"]
+
+
+def test_mild_up_pullback_still_allows_entry():
+    # 門檻不誤傷正常回檔：小漲(+1.8%)貼近支撐、量縮、外資停手 → 仍是進場
+    ind = {"close": 226, "prev_close": 222, "ma20": 181,
+           "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
+    s = entry_setup(ind, foreign_stopped=True)
+    assert s["ceiling"] == "進場"
+
+
 def test_foreign_unknown_stays_watch_not_entry():
     # 資料闕漏：技術面到位但外資無法確認 → 保守觀望，不給進場
     ind = {"close": 223, "prev_close": 222, "ma20": 181,
