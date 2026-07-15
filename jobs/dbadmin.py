@@ -18,11 +18,25 @@ from core import db, store
 def run():
     date = os.environ.get("ADMIN_DATE", "").strip()
     action = os.environ.get("ADMIN_ACTION", "list").strip().lower()
-    if not date:
-        print("ADMIN_DATE 未設定；請提供要處理的日期（YYYY-MM-DD）。中止。")
-        return
     if not db.db_enabled():
         print("未設定 DATABASE_URL，無法連 DB。中止。")
+        return
+
+    if action == "screen":
+        # 傾印目前選股快照 screen:latest：看每檔候選的訊號＋理由＋收盤/均線/量比，
+        # 用來查核「某檔為何被標進場/觀望」是否合理（例：漲停股不該標進場）。
+        snap = db.get_state("screen:latest") or {}
+        cands = snap.get("cands") or []
+        print(f"screen:latest date={snap.get('date')} 候選={len(cands)} 檔")
+        for x in cands:
+            print(f"  [{x.get('signal')}] {x.get('code')} 收{x.get('close')} "
+                  f"前收{x.get('prev_close')} MA5={x.get('ma5')} MA20={x.get('ma20')} "
+                  f"MA60={x.get('ma60')} 量比={x.get('vol_ratio')} 排列={x.get('trend')}"
+                  f"｜{x.get('at_batch') or '-'}｜{x.get('reason')}")
+        return
+
+    if not date:
+        print("ADMIN_DATE 未設定；請提供要處理的日期（YYYY-MM-DD）。中止。")
         return
 
     records = store.load_history()
