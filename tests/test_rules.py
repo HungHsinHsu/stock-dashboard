@@ -97,6 +97,29 @@ def test_mild_up_pullback_still_allows_entry():
     assert s["ceiling"] == "進場"
 
 
+def test_tech_ready_true_for_entry_and_foreign_gated_watch():
+    # 技術面健康回檔到位：外資停手→進場、外資賣超/未知→觀望，三者都 tech_ready＝激進版可當天接
+    ind = {"close": 223, "prev_close": 222, "ma20": 181,
+           "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
+    assert entry_setup(ind, foreign_stopped=True)["tech_ready"] is True    # 進場
+    assert entry_setup(ind, foreign_stopped=False)["tech_ready"] is True   # 外資賣超→觀望
+    assert entry_setup(ind)["tech_ready"] is True                           # 外資未知→觀望
+
+
+def test_tech_ready_false_for_surge_vacuum_and_rollover():
+    # 漲停噴出(非回檔)、真空帶、月線下彎轉弱 → 都不是健康回檔 → tech_ready False(激進版也不接)
+    surge = {"close": 1320, "prev_close": 1200, "ma20": 1252,
+             "dist_support1_pct": 0.2, "dist_support3_pct": 40, "vol_ratio": 0.67,
+             "ma20_slope5": 17.8}
+    assert entry_setup(surge, foreign_stopped=True)["tech_ready"] is False
+    vacuum = {"close": 206, "prev_close": 204, "ma20": 181,
+              "dist_support1_pct": -7.2, "dist_support3_pct": 45, "vol_ratio": 0.8}
+    assert entry_setup(vacuum, foreign_stopped=True)["tech_ready"] is False
+    rollover = {"close": 223, "prev_close": 222, "ma20": 181, "ma20_slope5": -4.0,
+                "dist_support1_pct": 0.5, "dist_support3_pct": 57, "vol_ratio": 0.8}
+    assert entry_setup(rollover, foreign_stopped=True)["tech_ready"] is False
+
+
 def test_foreign_unknown_stays_watch_not_entry():
     # 資料闕漏：技術面到位但外資無法確認 → 保守觀望，不給進場
     ind = {"close": 223, "prev_close": 222, "ma20": 181,

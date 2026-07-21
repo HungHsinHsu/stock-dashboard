@@ -844,10 +844,45 @@ def _run_screen(top):
     return names, cands, len(uni), stats["ok"]
 
 
-def _render_scan_result(names, cands, date_label):
+def _is_actionable(x, mode):
+    """此模式下是否『現在可操作』。
+    保守(右側)：只有進場（四關全過、含外資停手）。
+    激進(左側)：進場 ＋ 技術面到位但被外資那關擋成觀望(tech_ready)。"""
+    sig = x.get("signal")
+    if sig in ("進場", "順勢偏多"):
+        return True
+    if mode == "激進":
+        tr = x.get("tech_ready")
+        if tr is True:
+            return True
+        # 向後相容：舊快照沒 tech_ready 欄 → 用理由字串認『被外資擋下的觀望』
+        if tr is None and sig == "觀望" and "外資" in (x.get("reason") or ""):
+            return True
+    return False
+
+
+def _op_hint(x, mode):
+    """操作提示：掛單參考＋停損（季線）。"""
+    ma60 = x.get("ma60")
+    stop = f"停損季線 {ma60:.1f}" if isinstance(ma60, (int, float)) else "停損季線"
+    if mode == "激進":
+        return f"⚡ 當天開盤附近分批『左側』接、不等收盤確認｜{stop}"
+    return f"🛡️ 隔日回到支撐、收盤站穩再分批接｜{stop}"
+
+
+def _render_scan_result(names, cands, date_label, mode="保守"):
     owner = _dash_owner()
     tracked_codes = {c.get("code") for c in effective_stocks(owner).values()}
     st.markdown(f"**{date_label}・相對最好的前 {len(cands)} 名**")
+    n_act = sum(1 for x in cands if _is_actionable(x, mode))
+    if mode == "激進":
+        st.warning(f"⚡ **激進版（左側·當天）**：把「技術面到位、但外資還沒停手」的也一起列為可接"
+                   f"（🎯 共 {n_act} 檔）。**不等收盤確認、當天開盤附近就分批接**——買得早、便宜，"
+                   "但**勝率較低、可能先套**，務必設停損（季線）。")
+    else:
+        st.info(f"🛡️ **保守版（右側·隔日）**：只列四關全過（含外資已停手）的進場"
+                f"（🎯 共 {n_act} 檔）。**隔日回到支撐、收盤站穩再分批接**——買得晚一點，"
+                "但方向較確認、勝率高。")
     st.caption(
         "🟢進場＝四關到位可接、🟡觀望＝趨勢沒破仍在等、🔴避開＝已跌破季線（相對最不弱、墊底參考）。"
         "📏 排序：訊號 進場＞觀望＞避開 ＞ 回檔到支撐 ＞ 收盤站穩 ＞ 量縮 ＞ 離均線近。"
@@ -883,10 +918,14 @@ def _render_scan_result(names, cands, date_label):
                                   value=tracked, disabled=tracked,
                                   key=f"chk_{date_label}_{code}",
                                   label_visibility="visible" if tracked else "collapsed")
-                c[1].markdown(f"{_badge(x['signal'])} {x['signal']}")
+                act = _is_actionable(x, mode)
+                c[1].markdown(f"{'🎯' if act else '　'}{_badge(x['signal'])} {x['signal']}")
                 c[2].markdown(f"**{disp}**")
                 c[3].markdown(x.get("trend", "—"))
-                c[4].markdown(f"{x.get('at_batch') or x.get('kind', '')}｜{x.get('reason', '')}")
+                reason = f"{x.get('at_batch') or x.get('kind', '')}｜{x.get('reason', '')}"
+                if act:
+                    reason += f"　➜ {_op_hint(x, mode)}"
+                c[4].markdown(reason)
                 checks.append((code, disp, tracked, v))
 
         st.markdown("#### 📈 個股（主）")
@@ -918,6 +957,12 @@ def render_screener_page():
     st.caption("🕒 **這是當天收盤後一次性的快照，盤中不會即時更新**；下一次重算是隔天收盤後。"
                "候選裡寫「收盤未站穩／等站穩」是指**隔日承接**——隔日回到支撐、看隔日收盤站穩再分批接，"
                "不是叫你當天再等一個收盤（當天已收）。")
+    mode = st.radio(
+        "版本", ["🛡️ 保守版（右側·隔日）", "⚡ 激進版（左側·當天）"],
+        horizontal=True, key="screen_mode",
+        help="保守=等收盤站穩、外資轉買再接(隔日、勝率高)；激進=不等確認、當天就左側分批接"
+             "(買得早便宜、但勝率較低、可能先套)。兩者用的是同一份收盤後資料。")
+    mode = "激進" if mode.startswith("⚡") else "保守"
     stored = None
     if db.db_enabled():
         try:
@@ -926,7 +971,7 @@ def render_screener_page():
             stored = None
     if stored and stored.get("cands"):
         _render_scan_result(stored.get("names", {}), stored["cands"],
-                            f"收盤後選股 · {stored.get('date', '')}")
+                            f"收盤後選股 · {stored.get('date', '')}", mode=mode)
     elif stored:
         st.info(f"最近一次掃描（{stored.get('date')}）沒有合適候選"
                 f"（清單 {stored.get('uni_n')} 檔、成功讀取 {stored.get('fetched_n')} 檔）。")
@@ -943,7 +988,7 @@ def render_screener_page():
             names, cands, uni_n, fetched_n = res
             if cands:
                 st.caption(f"（診斷：掃 {uni_n} 檔、成功讀取 {fetched_n} 檔歷史）")
-                _render_scan_result(names, cands, "即時掃描")
+                _render_scan_result(names, cands, "即時掃描", mode=mode)
             elif uni_n == 0:
                 st.error("抓不到市場清單（TWSE 沒回應）。稍後再試。")
             elif fetched_n == 0:

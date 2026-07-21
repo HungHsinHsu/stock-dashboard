@@ -60,6 +60,17 @@ def test_scan_item_carries_support_prices():
         assert k in out[0] and isinstance(out[0][k], (int, float))
 
 
+def test_scan_item_carries_tech_ready():
+    # 候選要帶 tech_ready(技術面到位、只差外資)，供『激進版』篩選當天可接的標的
+    out = scan(["2330"], fetch=lambda c: _pullback_hold_shrink(),
+               foreign_lookup=lambda c: {"stopped": True})
+    assert out and out[0].get("tech_ready") is True
+    # 外資仍賣超→保守版是觀望，但技術面到位、激進版仍可接 → tech_ready 仍為 True
+    out2 = scan(["2330"], fetch=lambda c: _pullback_hold_shrink(),
+                foreign_lookup=lambda c: {"stopped": False, "sold_streak": 3})
+    assert out2 and out2[0]["signal"] == "觀望" and out2[0].get("tech_ready") is True
+
+
 def test_scan_stocks_ranked_before_etfs():
     # 個股優先、ETF 分開放：就算 ETF 是『順勢偏多』(高分)，個股(即使只是觀望)也排在 ETF 前面
     data = {"0050": _vacuum_uptrend(), "8888": _vacuum_uptrend()}

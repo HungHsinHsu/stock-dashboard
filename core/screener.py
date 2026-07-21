@@ -102,6 +102,8 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0,
             # 三段支撐價（＝MA5/20/60），供「每日策略頁」算掛單價/停損線，免再抓一次
             "ma5": ind.get("ma5"), "ma20": ind.get("ma20"), "ma60": ind.get("ma60"),
             "ma20_slope5": ind.get("ma20_slope5"),
+            # 技術面四關到位、只差外資＝激進版(左側)可當天接；保守版(右側)要外資也停手才接
+            "tech_ready": setup.get("tech_ready"),
         }
         prelim.append((item, ind, code, etf, ceil))
     prelim.sort(key=lambda t: (-t[0]["score"],
@@ -130,6 +132,7 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0,
         s2 = entry_setup(ind, code, stopped)
         item["signal"] = _label(s2["ceiling"], etf)
         item["reason"] = s2["reason"]
+        item["tech_ready"] = s2.get("tech_ready")   # 用真實外資重判後的技術到位旗標
         item["_rank"] = _SIGNAL_BASE.get(s2["ceiling"], 100)
         kept.append(item)
     return _group_first(kept, limit, etf_limit)

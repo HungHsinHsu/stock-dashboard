@@ -131,9 +131,11 @@ def entry_setup(ind, code=None, foreign_stopped=None):
     vol_ok = vr is not None and vr < VOL_SHRINK            # 量縮
     hold_ok = prev is None or (close is not None and close >= prev)  # 止穩(收盤沒再破底)
 
-    def result(ceiling, at_batch, reason):
+    def result(ceiling, at_batch, reason, tech_ready=False):
+        # tech_ready＝技術面四關到位的『健康回檔』(到支撐+止穩+量縮+趨勢健康)，只差外資那關。
+        # 保守版(右側)要外資也停手(進場)才接；激進版(左側)只要 tech_ready 就當天接、不等外資。
         return {"ceiling": ceiling, "at_batch": at_batch, "vol_ok": vol_ok,
-                "hold_ok": hold_ok, "reason": reason}
+                "hold_ok": hold_ok, "reason": reason, "tech_ready": tech_ready}
 
     # 禁區
     if is_denied(code):
@@ -180,14 +182,17 @@ def entry_setup(ind, code=None, foreign_stopped=None):
             return result("觀望", at_batch,
                           f"已到{at_batch}、站穩量縮，但中期均線(月線MA20)走平/下彎、"
                           "趨勢轉弱(高檔回落)，非上升趨勢中的健康回檔→保守觀望，等月線重新翻揚再看")
-        # 進場 AND 第四條：外資停止倒貨。缺一或無法確認外資，一律保守 → 觀望，不給進場。
+        # 到這裡＝技術面『健康回檔』四關到位（tech_ready），只差外資那關 → 激進版可接。
+        # 進場 AND 第四條：外資停止倒貨。缺一或無法確認外資，保守版一律 → 觀望，不給進場。
         if foreign_stopped is True:
-            return result("進場", at_batch, base_reason + "，且外資已停止倒貨")
+            return result("進場", at_batch, base_reason + "，且外資已停止倒貨", tech_ready=True)
         if foreign_stopped is False:
-            return result("觀望", at_batch, base_reason + "，但外資仍在賣超→等外資停手")
+            return result("觀望", at_batch, base_reason + "，但外資仍在賣超→等外資停手",
+                          tech_ready=True)
         # None＝外資資料缺漏/無法確認 → 不當作進場（資料闕漏不放行）
         return result("觀望", at_batch,
-                      base_reason + "，但外資買賣超無法確認→保守觀望，確認外資已停手再進")
+                      base_reason + "，但外資買賣超無法確認→保守觀望，確認外資已停手再進",
+                      tech_ready=True)
 
     # 其餘：真空帶/未到價/未止穩/放量殺 → 等
     # 註：此清單為收盤後快照(當日一次)，「站穩」指的是隔日承接——隔日回到支撐、
