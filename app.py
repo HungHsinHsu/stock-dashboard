@@ -897,8 +897,8 @@ def _render_scan_result(names, cands, date_label, mode="保守"):
     # 逐列 checkbox：已追蹤者 disabled+打勾（灰色鎖定），其餘可勾。放在 form 內不會逐次 rerun。
     st.caption("『波段體質』欄：**多頭排列·站上季線**＝上升趨勢中的回檔(較好的波段承接)；"
                "**空頭排列·季線下**＝多半只是反彈，別當波段。")
-    stocks = [x for x in cands if x.get("kind") != "ETF"]
-    etfs = [x for x in cands if x.get("kind") == "ETF"]
+    act = [x for x in cands if _is_actionable(x, mode)]
+    rest = [x for x in cands if not _is_actionable(x, mode)]
     widths = [1.3, 1.2, 2, 2.4, 3.2]
 
     with st.form(f"scanform_{date_label}", border=False):
@@ -928,15 +928,15 @@ def _render_scan_result(names, cands, date_label, mode="保守"):
                 c[4].markdown(reason)
                 checks.append((code, disp, tracked, v))
 
-        st.markdown("#### 📈 個股（主）")
-        if stocks:
-            _rows(stocks)
+        st.markdown(f"#### 🎯 本版可接（{len(act)} 檔）")
+        if act:
+            _rows(act)
         else:
-            st.info("今日沒有合適的個股候選（可能都趨勢轉弱或資料不齊）。")
-        if etfs:
-            st.markdown("#### 📦 ETF（趨勢參考）")
-            st.caption("ETF 走的是另一套『趨勢框架』，不是個股回檔承接法；這裡只當大盤／族群趨勢的參考。")
-            _rows(etfs)
+            st.info("本版目前沒有『可接』的標的——切到另一版看看，或等下次收盤後重算。")
+        if rest:
+            st.markdown(f"#### 📋 其他候選（{len(rest)} 檔・觀望／避開，本版不建議接、供參考）")
+            st.caption("含 ETF（走另一套趨勢框架）與尚未到位的觀望股。")
+            _rows(rest)
         submitted = st.form_submit_button("➕ 加入勾選的到追蹤清單", type="primary")
     if submitted:
         to_add = [(code, disp) for code, disp, tracked, v in checks
