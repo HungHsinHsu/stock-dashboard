@@ -159,6 +159,27 @@ def test_stock_direction_not_aligned_to_market():
     assert out["direction"] == "跌"
 
 
+def test_today_playbook_levels_and_scenarios():
+    from core.predict import today_playbook
+    # 收盤 146 在所有均線之上 → 支撐取最近下方(週線144.5)、上方無均線壓力、停損季線
+    lines = today_playbook({"close": 146.0, "ma5": 144.5, "ma20": 141.7, "ma60": 127.54})
+    txt = "\n".join(lines)
+    assert "今日劇本" in txt
+    assert "支撐：週線MA5 144.5" in txt
+    assert "站上所有均線" in txt              # 壓力：上方無均線
+    assert "季線 127.5" in txt                # 停損季線
+    assert "守住 144.5" in txt and "跌破 144.5" in txt   # IF-THEN 情境
+    # 收盤 142 夾在均線間：週線144.5在上(壓力)、月線141.7在下(支撐)
+    t2 = "\n".join(today_playbook({"close": 142.0, "ma5": 144.5, "ma20": 141.7, "ma60": 127.5}))
+    assert "壓力：週線MA5 144.5" in t2
+    assert "支撐：月線MA20 141.7" in t2
+
+
+def test_today_playbook_empty_without_close():
+    from core.predict import today_playbook
+    assert today_playbook({"ma5": 100}) == []
+
+
 def test_make_prediction_includes_market():
     ind = {"close": 203.0, "ma20": 186.5}
     market = {"direction": "跌", "pct": -0.7, "above_ma20": False}

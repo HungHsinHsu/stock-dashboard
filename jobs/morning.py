@@ -5,7 +5,7 @@ from core.data import (
 from core.indicators import compute_indicators
 from core.predict import (
     make_prediction, format_prediction, PREDICTION_SCHEMA,  # noqa: F401
-    make_market_prediction, format_market_prediction,
+    make_market_prediction, format_market_prediction, playbook_levels,
 )
 from core.market import market_summary
 from core.llm import generate_json
@@ -28,9 +28,18 @@ def _stock_pred_digest(items, date):
     for name, p in items:
         conf = p.get("confidence")
         conf_txt = f"（{conf}）" if conf else ""
+        sup, _res, stop = playbook_levels(p.get("indicators") or {})
+        lv = []
+        if sup:
+            lv.append(f"支{sup[1]:.0f}")
+        if stop is not None:
+            lv.append(f"損{stop:.0f}")
+        lv_txt = f"｜{' '.join(lv)}" if lv else ""   # 附上今日劇本的支撐/停損（可直接照做）
         lines.append(
-            f"📈 {name}：{p.get('signal', '—')}｜預期{p.get('direction', '—')}{conf_txt}")
-    lines += ["", "詳細看網頁，或用 /預測 代號 即時試算", f"🔗 {DASHBOARD_URL}"]
+            f"📈 {name}：{p.get('signal', '—')}｜預期{p.get('direction', '—')}"
+            f"{conf_txt}{lv_txt}")
+    lines += ["", "（支＝支撐、損＝季線停損；詳細劇本用 /預測 代號）",
+              "詳細看網頁，或用 /預測 代號 即時試算", f"🔗 {DASHBOARD_URL}"]
     return "\n".join(lines)
 
 
