@@ -1437,9 +1437,12 @@ def render_holdings_page(owner):
         emoji, color = _ACT_STYLE.get(act, ("❓", "#888"))
         name = (rec.get("name") or by_code.get(code, {}).get("name")
                 or (it or {}).get("name") or code)
+        # 名稱可能已含「(代號)」（追蹤清單存的格式）→ 先去掉，避免顯示成「名稱 (代號) (代號)」
+        _base = re.sub(r"\s*\(" + re.escape(code) + r"\)\s*$", "", str(name)).strip()
+        _title = f"{_base} ({code})" if _base and _base != code else code
         with st.container(border=True):
             head = st.columns([3, 1])
-            head[0].markdown(f"#### {name} ({code})")
+            head[0].markdown(f"#### {_title}")
             head[1].markdown(
                 f"<div style='text-align:right'><span style='color:{color};font-weight:700;"
                 f"font-size:1.15rem'>{emoji} {act}</span></div>", unsafe_allow_html=True)
