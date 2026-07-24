@@ -9,6 +9,7 @@ from core.data import fetch_daily, fetch_foreign_flow, resolve_stocks
 from core.indicators import compute_indicators
 from core.holdings import (
     load_holdings, all_held_codes, holding_action, position_pct, effective_mode,
+    migrate_etf_default_long,
 )
 from core.positions import get_batches
 from core.barstore import dump_bars
@@ -135,6 +136,7 @@ def _compute_for_owner(owner, code_data, names):
 
 def run(notify=True, fetch=None, foreign_lookup=None):
     db.migrate_owner_data()
+    migrate_etf_default_long()          # 一次性：清掉早期誤寫在 ETF 上的『波段』→ 交回聰明預設(長期)
     date = str(now_tw().date())
     fetch = fetch or (lambda c: fetch_daily(c, months=12, workers=2))
     foreign_lookup = foreign_lookup or fetch_foreign_flow

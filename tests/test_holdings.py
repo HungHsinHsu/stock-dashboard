@@ -132,14 +132,17 @@ def test_swing_mode_still_hard_stops():
     assert holding_action(ind, code="0050", avg_cost=100, mode="波段")["action"] == "出場"
 
 
-# ── 儲存操作模式（給了就存、沒給沿用舊值、預設波段）──
+# ── 儲存操作模式：明確給才存 mode key；沒給不存(交給聰明預設)；重存不給沿用舊值 ──
 def test_store_mode(tmp_path):
     p = str(tmp_path / "h.json")
     set_holding("0050", 100, 100.0, mode="長期", owner="u", path=p)
     assert load_holdings("u", path=p)["0050"]["mode"] == "長期"
+    # 不給 mode（自動）→ 不寫 mode key，交給 effective_mode
     set_holding("2330", 10, 500.0, owner="u", path=p)
-    assert load_holdings("u", path=p)["2330"]["mode"] == "波段"
-    set_holding("0050", 200, 101.0, owner="u", path=p)     # 重存不給 mode
+    assert "mode" not in load_holdings("u", path=p)["2330"]
+    assert effective_mode("2330", load_holdings("u", path=p)["2330"]) == "波段"
+    # 重存不給 mode → 沿用舊的明確值
+    set_holding("0050", 200, 101.0, owner="u", path=p)
     assert load_holdings("u", path=p)["0050"]["mode"] == "長期"
 
 

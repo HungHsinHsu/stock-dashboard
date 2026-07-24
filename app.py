@@ -1334,6 +1334,12 @@ def render_daily_strategy(owner):
 
 
 # 深連結：?code=2344 → 直接開個股頁、選好該股
+def _apply_hold_mode(code, key, owner, shares, avg_cost):
+    """持股卡片模式切換的 on_change 回呼：只在使用者真的點選時才寫入（避免
+    widget 狀態殘留造成的誤寫）。"""
+    set_holding(code, shares, avg_cost, mode=st.session_state.get(key), owner=owner)
+
+
 def render_holdings_page(owner):
     """我的持股：輸入實際持有(代號/股數/成交均價)，讀每日掃描(hold_scan:<owner>)顯示每一檔的
     『出場／減碼／加倉／續抱』建議＋關鍵價位＋損益＋位階。損益用快照收盤×你目前的成交均價即時
@@ -1352,8 +1358,9 @@ def render_holdings_page(owner):
         cost_in = c[2].number_input("成交均價", min_value=0.0, value=0.0, step=0.05,
                                     format="%.2f", key="hold_cost")
         mode_in = st.radio(
-            "操作模式", ["波段", "長期"], horizontal=True, key="hold_mode",
-            help="長期＝定期定額/長投：不套個股季線停損，跌破季線視為逢低分批加碼區。"
+            "操作模式", ["自動", "波段", "長期"], horizontal=True, key="hold_mode",
+            help="自動＝ETF 當長期、個股當波段（推薦，多數情況直接用這個）。"
+                 "長期＝定期定額/長投：不套個股季線停損，跌破季線視為逢低分批加碼區。"
                  "波段＝回檔承接法：跌破季線就出場、跌破月線減碼。")
         submitted = st.form_submit_button("💾 儲存", type="primary")
     if submitted:
@@ -1367,7 +1374,8 @@ def render_holdings_page(owner):
                 st.warning("找不到這個代號/名稱（限上市）。可直接輸入數字代號。")
             else:
                 nm = matches[0][1] if matches else None
-                set_holding(code, shares_in, cost_in, name=nm, mode=mode_in, owner=owner)
+                mv = None if mode_in == "自動" else mode_in
+                set_holding(code, shares_in, cost_in, name=nm, mode=mv, owner=owner)
                 st.success(f"已存 {nm or code} ({code})｜{mode_in}：{int(shares_in)} 股 @ {cost_in:.2f}")
                 st.rerun()
 
@@ -1436,12 +1444,11 @@ def render_holdings_page(owner):
             else:
                 st.caption((it or {}).get("reason") or "尚未掃描到這檔（明早的掃描會更新）")
             ctl = st.columns([3, 1])
-            new_mode = ctl[0].radio(
+            mkey = f"holdmode_{code}"
+            ctl[0].radio(
                 "模式", ["波段", "長期"], index=(0 if mode == "波段" else 1),
-                horizontal=True, key=f"holdmode_{code}", label_visibility="collapsed")
-            if new_mode != mode:
-                set_holding(code, shares, avg_cost, mode=new_mode, owner=owner)
-                st.rerun()
+                horizontal=True, key=mkey, label_visibility="collapsed",
+                on_change=_apply_hold_mode, args=(code, mkey, owner, shares, avg_cost))
             if ctl[1].button("🗑 移除", key=f"holdrm_{code}"):
                 remove_holding(code, owner=owner)
                 st.rerun()

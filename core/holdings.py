@@ -61,12 +61,16 @@ def set_holding(code, shares, avg_cost, name=None, mode=None,
     rec = {
         "shares": float(shares),
         "avg_cost": float(avg_cost),
-        "mode": mode or old.get("mode") or "波段",
         "updated": now_tw().strftime("%Y-%m-%d"),
     }
     nm = name or old.get("name")
     if nm:
         rec["name"] = nm
+    # 只有『明確指定 長期/波段』時才存 mode key；否則不存 → 交給 effective_mode 聰明預設
+    # （避免把預設值寫死成 mode，害之後改不了聰明預設）。舊紀錄有明確 mode 則沿用。
+    m = mode if mode in ("長期", "波段") else old.get("mode")
+    if m in ("長期", "波段"):
+        rec["mode"] = m
     holdings[str(code)] = rec
     save_holdings(holdings, owner, path)
     return holdings
@@ -91,6 +95,26 @@ def effective_mode(code, rec=None):
     if is_leveraged_etf(code):
         return "波段"
     return "長期" if is_etf(code) else "波段"
+
+
+def migrate_etf_default_long():
+    """一次性清理：把『非槓桿 ETF 被誤存成波段』的 mode 拿掉，交回聰明預設(→長期)。
+    （早期版本的頁面切換鈕曾因 Streamlit widget 狀態把 ETF 誤寫成波段。）
+    以 app_state 旗標確保只跑一次；無 DB 則 no-op。"""
+    if not db.db_enabled() or db.get_state("holdmode_migrate_v1"):
+        return
+    for key, h in (db.get_states_by_prefix("hold:") or {}).items():
+        if not isinstance(h, dict):
+            continue
+        changed = False
+        for code, rec in list(h.items()):
+            if (isinstance(rec, dict) and rec.get("mode") == "波段"
+                    and is_etf(code) and not is_leveraged_etf(code)):
+                rec.pop("mode", None)
+                changed = True
+        if changed:
+            db.set_state(key, h)
+    db.set_state("holdmode_migrate_v1", True)
 
 
 def all_held_codes():
