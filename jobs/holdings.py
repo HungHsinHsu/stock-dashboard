@@ -5,7 +5,7 @@
 資料全走 GitHub Actions 乾淨 IP 抓（收盤/盤前資料，不被 TWSE 擋）；每檔只抓一次日線與外資，
 再對每個帳號用各自的成交均價/批數算建議。跟 jobs/watch 一樣順手把日線存 bars:<code> 供網頁讀。
 """
-from core.data import fetch_daily, fetch_foreign_flow
+from core.data import fetch_daily, fetch_foreign_flow, resolve_stocks
 from core.indicators import compute_indicators
 from core.holdings import (
     load_holdings, all_held_codes, holding_action, position_pct,
@@ -97,9 +97,10 @@ def _compute_for_owner(owner, code_data, names):
         cd = code_data.get(code)
         avg_cost = (rec or {}).get("avg_cost")
         shares = (rec or {}).get("shares")
+        nm = (rec or {}).get("name") or names.get(code, code)
         if not cd or cd.get("ind") is None:
             items.append({
-                "code": code, "name": names.get(code, code),
+                "code": code, "name": nm,
                 "shares": shares, "avg_cost": avg_cost, "close": None,
                 "action": "—", "reason": "抓不到日線資料（可能是上櫃股或暫時限流），無法試算",
                 "alerts": [], "levels": {}, "pnl_pct": None, "pos_pct": None,
@@ -113,7 +114,7 @@ def _compute_for_owner(owner, code_data, names):
             pos_pct=cd.get("pos_pct"))
         lv = act["levels"]
         items.append({
-            "code": code, "name": names.get(code, code),
+            "code": code, "name": nm,
             "shares": shares, "avg_cost": avg_cost, "close": ind.get("close"),
             "action": act["action"], "reason": act["reason"], "alerts": act["alerts"],
             "levels": {
@@ -139,6 +140,14 @@ def run(notify=True, fetch=None, foreign_lookup=None):
 
     # 1) 各帳號持股代號聯集 → 每檔只抓一次日線＋外資（順手存日線供網頁讀）
     codes = sorted(all_held_codes())
+    for c in codes:                       # 補名稱：追蹤清單沒有的，用證交所股票清單解析（乾淨 IP）
+        if c not in names:
+            try:
+                m = resolve_stocks(c)
+                if m and m[0][1]:
+                    names[c] = m[0][1]
+            except Exception:
+                pass
     code_data = {}
     for c in codes:
         try:

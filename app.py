@@ -1362,8 +1362,9 @@ def render_holdings_page(owner):
             if not code:
                 st.warning("找不到這個代號/名稱（限上市）。可直接輸入數字代號。")
             else:
-                set_holding(code, shares_in, cost_in, owner=owner)
-                st.success(f"已存 {code}：{int(shares_in)} 股 @ {cost_in:.2f}")
+                nm = matches[0][1] if matches else None
+                set_holding(code, shares_in, cost_in, name=nm, owner=owner)
+                st.success(f"已存 {nm or code} ({code})：{int(shares_in)} 股 @ {cost_in:.2f}")
                 st.rerun()
 
     holdings = load_holdings(owner)
@@ -1388,7 +1389,7 @@ def render_holdings_page(owner):
         it = by_code.get(code)
         act = (it or {}).get("action", "—")
         emoji, color = _ACT_STYLE.get(act, ("❓", "#888"))
-        name = (it or {}).get("name", code)
+        name = rec.get("name") or (it or {}).get("name") or code
         with st.container(border=True):
             head = st.columns([3, 1])
             head[0].markdown(f"#### {name} ({code})")

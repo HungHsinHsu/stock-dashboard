@@ -51,14 +51,20 @@ def save_holdings(holdings, owner=DEFAULT_OWNER, path=HOLDINGS_PATH):
         json.dump(holdings, f, ensure_ascii=False, indent=2)
 
 
-def set_holding(code, shares, avg_cost, owner=DEFAULT_OWNER, path=HOLDINGS_PATH):
-    """新增/更新一檔持股（股數＋成交均價）。回更新後的整份 holdings。"""
+def set_holding(code, shares, avg_cost, name=None, owner=DEFAULT_OWNER,
+                path=HOLDINGS_PATH):
+    """新增/更新一檔持股（股數＋成交均價＋名稱）。回更新後的整份 holdings。
+    name 給了就存；沒給則沿用舊紀錄既有的名稱（避免重存把名字洗掉）。"""
     holdings = load_holdings(owner, path)
-    holdings[str(code)] = {
+    rec = {
         "shares": float(shares),
         "avg_cost": float(avg_cost),
         "updated": now_tw().strftime("%Y-%m-%d"),
     }
+    nm = name or (holdings.get(str(code)) or {}).get("name")
+    if nm:
+        rec["name"] = nm
+    holdings[str(code)] = rec
     save_holdings(holdings, owner, path)
     return holdings
 
