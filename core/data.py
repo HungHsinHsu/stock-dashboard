@@ -1,3 +1,4 @@
+import re
 import time
 import pandas as pd
 import requests
@@ -438,9 +439,11 @@ def resolve_stocks(query, listing=None):
     if not q:
         return []
     listing = fetch_stock_list() if listing is None else listing
-    if q.isdigit():
-        name = listing.get(q) or fetch_stock_name(q)
-        return [(q, name)] if name else []
+    # 代號：純數字，或數字＋單一英文尾碼（ETF：00631L 正2、00632R 反1、00403A 主動式…）
+    if re.fullmatch(r"\d{4,6}[A-Za-z]?", q):
+        qq = q.upper()
+        name = listing.get(qq) or fetch_stock_name(qq)
+        return [(qq, name)] if name else []
     exact = [(c, n) for c, n in listing.items() if n == q]
     if exact:
         return exact

@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import streamlit as st
 import pandas as pd
@@ -23,7 +24,11 @@ from core.rules import (
 )
 from core.screener import scan as _scan
 from core.watchlist import effective_stocks, add_stock, remove_stock
-from core.holdings import load_holdings, set_holding, remove_holding, effective_mode
+from core.holdings import (
+    load_holdings, set_holding, remove_holding, effective_mode,
+    holding_action, position_pct,
+)
+from core.positions import get_batches
 from core.market import market_summary
 from core.store import load_history
 from core.review import hit_rate
@@ -1369,9 +1374,10 @@ def render_holdings_page(owner):
             st.warning("請填代號、股數(>0)、成交均價(>0)。")
         else:
             matches = resolve_stocks(q)
-            code = matches[0][0] if matches else (q if q.isdigit() else None)
+            code = (matches[0][0] if matches
+                    else (q.upper() if re.fullmatch(r"\d{4,6}[A-Za-z]?", q) else None))
             if not code:
-                st.warning("找不到這個代號/名稱（限上市）。可直接輸入數字代號。")
+                st.warning("找不到這個代號/名稱（限上市）。可直接輸入數字代號（含 ETF 尾碼，如 00403A）。")
             else:
                 nm = matches[0][1] if matches else None
                 mv = None if mode_in == "自動" else mode_in
@@ -1389,8 +1395,33 @@ def render_holdings_page(owner):
     except Exception:
         snap = {}
     by_code = {str(it["code"]): it for it in (snap.get("items") or [])}
-    st.caption(f"📅 操作建議掃描日：{snap.get('date') or '尚未掃描（明早會更新）'}"
-               "　｜　🕒 收盤/盤前快照、盤中不更新")
+    st.caption(f"📅 日線資料日：{snap.get('date') or '—'}"
+               "　｜　動作即時依你目前模式試算（讀每日盤後日線）、抓不到日線者顯示待掃描")
+    try:
+        _fsnap = db.get_state("foreign:latest") or {}
+    except Exception:
+        _fsnap = {}
+    _fmap = _fsnap.get("map") or {}
+
+    def _live(code, rec):
+        """用 DB 日線即時試算此持股動作（反映當下模式，不吃每日快照的落後）；抓不到日線回 None。"""
+        df = _db_bars_df(code)
+        if df is None or df.empty:
+            return None
+        ind = compute_indicators(df, {})
+        if ind.get("close") is None:
+            return None
+        fo = _fmap.get(str(code)) or {}
+        act = holding_action(
+            ind, code=code, foreign_stopped=fo.get("stopped"),
+            batches=get_batches(code, owner), avg_cost=rec.get("avg_cost"),
+            pos_pct=position_pct(df), mode=effective_mode(code, rec))
+        return {
+            "code": str(code), "action": act["action"], "reason": act["reason"],
+            "alerts": act["alerts"], "levels": act["levels"], "pos_pct": act["pos_pct"],
+            "close": ind.get("close"), "name": rec.get("name"),
+            "foreign_date": fo.get("date") or _fsnap.get("date"),
+        }
 
     _ACT_STYLE = {"出場": ("🛑", "#e34a4a"), "減碼": ("✂️", "#e39a2a"),
                   "加倉": ("➕", "#3aa95a"), "續抱": ("✋", "#888"),
@@ -1400,7 +1431,7 @@ def render_holdings_page(owner):
         code = str(code)
         avg_cost, shares = rec.get("avg_cost"), rec.get("shares")
         mode = effective_mode(code, rec)
-        it = by_code.get(code)
+        it = _live(code, rec) or by_code.get(code)
         act = (it or {}).get("action", "—")
         emoji, color = _ACT_STYLE.get(act, ("❓", "#888"))
         name = rec.get("name") or (it or {}).get("name") or code

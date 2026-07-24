@@ -258,3 +258,13 @@ def test_fetch_margin_parses_balances(monkeypatch):
     assert out["margin_bal"] == 1200
     assert out["margin_chg"] == 200          # 1200 - 1000
     assert out["short_bal"] == 280
+
+
+def test_resolve_alphanumeric_etf_codes():
+    """ETF 代號帶英文尾碼（00403A 主動式、00631L 正2、00632R 反1）也要能解析。"""
+    from core.data import resolve_stocks
+    listing = {"00403A": "主動式ETF", "00631L": "元大台灣50正2", "0050": "元大台灣50"}
+    assert resolve_stocks("00403A", listing=listing) == [("00403A", "主動式ETF")]
+    assert resolve_stocks("00403a", listing=listing) == [("00403A", "主動式ETF")]
+    assert resolve_stocks("00631L", listing=listing) == [("00631L", "元大台灣50正2")]
+    assert resolve_stocks("0050", listing=listing) == [("0050", "元大台灣50")]
