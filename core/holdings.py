@@ -15,7 +15,7 @@ from core import db
 from core.rules import (
     exit_setup, entry_setup, etf_setup, is_etf, is_leveraged_etf, NEAR_PCT,
 )
-from core.predict import playbook_levels
+from core.levels import playbook_levels
 from core.tz import now_tw
 
 HOLDINGS_PATH = "holdings.json"
