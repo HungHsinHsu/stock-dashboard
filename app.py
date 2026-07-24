@@ -23,6 +23,7 @@ from core.rules import (
 )
 from core.screener import scan as _scan
 from core.watchlist import effective_stocks, add_stock, remove_stock
+from core.holdings import load_holdings, set_holding, remove_holding
 from core.market import market_summary
 from core.store import load_history
 from core.review import hit_rate
@@ -1333,9 +1334,108 @@ def render_daily_strategy(owner):
 
 
 # 深連結：?code=2344 → 直接開個股頁、選好該股
+def render_holdings_page(owner):
+    """我的持股：輸入實際持有(代號/股數/成交均價)，讀每日掃描(hold_scan:<owner>)顯示每一檔的
+    『出場／減碼／加倉／續抱』建議＋關鍵價位＋損益＋位階。損益用快照收盤×你目前的成交均價即時
+    重算（改均價馬上反映）；動作/價位/位階來自每日盤後掃描。"""
+    st.markdown("### 💼 我的持股（每日操作建議）")
+    st.caption(
+        "輸入你實際持有的部位，系統每天用『回檔承接法』告訴你每一檔該**出場／減碼／加倉／續抱**，"
+        "並在早上推一則到 Telegram。**建議是規則＋價位的決策輔助、方向不保證；停損一律看收盤跌破季線。**")
+
+    st.markdown("#### ➕ 新增／更新持股")
+    with st.form("hold_add_form", border=True):
+        c = st.columns([2, 1, 1, 1])
+        code_in = c[0].text_input("代號或名稱", key="hold_code", placeholder="例如 2408 或 南亞科")
+        shares_in = c[1].number_input("股數", min_value=0, value=0, step=1, key="hold_shares")
+        cost_in = c[2].number_input("成交均價", min_value=0.0, value=0.0, step=0.05,
+                                    format="%.2f", key="hold_cost")
+        c[3].markdown("&nbsp;", unsafe_allow_html=True)
+        submitted = c[3].form_submit_button("💾 儲存", type="primary")
+    if submitted:
+        q = (code_in or "").strip()
+        if not q or shares_in <= 0 or cost_in <= 0:
+            st.warning("請填代號、股數(>0)、成交均價(>0)。")
+        else:
+            matches = resolve_stocks(q)
+            code = matches[0][0] if matches else (q if q.isdigit() else None)
+            if not code:
+                st.warning("找不到這個代號/名稱（限上市）。可直接輸入數字代號。")
+            else:
+                set_holding(code, shares_in, cost_in, owner=owner)
+                st.success(f"已存 {code}：{int(shares_in)} 股 @ {cost_in:.2f}")
+                st.rerun()
+
+    holdings = load_holdings(owner)
+    if not holdings:
+        st.info("還沒有持股。用上面表單輸入你實際持有的部位。")
+        return
+
+    try:
+        snap = db.get_state(f"hold_scan:{owner}") or {}
+    except Exception:
+        snap = {}
+    by_code = {str(it["code"]): it for it in (snap.get("items") or [])}
+    st.caption(f"📅 操作建議掃描日：{snap.get('date') or '尚未掃描（明早會更新）'}"
+               "　｜　🕒 收盤/盤前快照、盤中不更新")
+
+    _ACT_STYLE = {"出場": ("🛑", "#e34a4a"), "減碼": ("✂️", "#e39a2a"),
+                  "加倉": ("➕", "#3aa95a"), "續抱": ("✋", "#888"),
+                  "—": ("❓", "#888")}
+    for code, rec in sorted(holdings.items()):
+        code = str(code)
+        avg_cost, shares = rec.get("avg_cost"), rec.get("shares")
+        it = by_code.get(code)
+        act = (it or {}).get("action", "—")
+        emoji, color = _ACT_STYLE.get(act, ("❓", "#888"))
+        name = (it or {}).get("name", code)
+        with st.container(border=True):
+            head = st.columns([3, 1])
+            head[0].markdown(f"#### {name} ({code})")
+            head[1].markdown(
+                f"<div style='text-align:right'><span style='color:{color};font-weight:700;"
+                f"font-size:1.15rem'>{emoji} {act}</span></div>", unsafe_allow_html=True)
+            close = (it or {}).get("close")
+            m = st.columns(4)
+            m[0].metric("股數", f"{int(shares)}" if shares else "—")
+            m[1].metric("成交均價", f"{avg_cost:.2f}" if avg_cost else "—")
+            if close is not None and avg_cost:
+                pnl_pct = (close - avg_cost) / avg_cost * 100
+                pnl_amt = (close - avg_cost) * (shares or 0)
+                m[2].metric("現價", f"{close:.2f}")
+                m[3].metric("損益", f"{pnl_amt:+,.0f}", f"{pnl_pct:+.1f}%")
+            else:
+                m[2].metric("現價", "—")
+                m[3].metric("損益", "—")
+            if it and act not in (None, "—"):
+                lv = it.get("levels") or {}
+                sup, res, stop = lv.get("support"), lv.get("resistance"), lv.get("stop")
+                parts = []
+                if sup:
+                    parts.append(f"🟩 支撐 {sup[0]} {sup[1]:.1f}")
+                if res:
+                    parts.append(f"🟥 壓力 {res[0]} {res[1]:.1f}")
+                if stop is not None:
+                    parts.append(f"🛑 停損 季線 {stop:.1f}")
+                if it.get("pos_pct") is not None:
+                    parts.append(f"📊 位階 {it['pos_pct']:.0f}%")
+                if parts:
+                    st.markdown("　".join(parts))
+                st.markdown(f"**理由：** {it.get('reason', '')}")
+                for a in it.get("alerts") or []:
+                    st.markdown(f"- {a}")
+                if it.get("foreign_date"):
+                    st.caption(f"外資資料日：{it['foreign_date']}")
+            else:
+                st.caption((it or {}).get("reason") or "尚未掃描到這檔（明早的掃描會更新）")
+            if st.button("🗑 移除這檔", key=f"holdrm_{code}"):
+                remove_holding(code, owner=owner)
+                st.rerun()
+
+
 _qp_code = st.query_params.get("code")
 _page = st.radio("頁面",
-                 ["🌐 大盤", "📈 個股", "📋 每日策略", "📅 預測歷史",
+                 ["🌐 大盤", "📈 個股", "📋 每日策略", "💼 我的持股", "📅 預測歷史",
                   "🔎 每日推薦", "⭐ 管理追蹤"],
                  index=(1 if _qp_code else 0),
                  horizontal=True, label_visibility="collapsed")
@@ -1399,6 +1499,10 @@ if _page == "🌐 大盤":
 # ──────────────────────────── 每日策略頁 ────────────────────────────
 elif _page == "📋 每日策略":
     render_daily_strategy(_dash_owner())
+
+# ──────────────────────────── 我的持股頁 ────────────────────────────
+elif _page == "💼 我的持股":
+    render_holdings_page(_dash_owner())
 
 # ──────────────────────────── 預測歷史頁 ────────────────────────────
 elif _page == "📅 預測歷史":
