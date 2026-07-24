@@ -94,6 +94,46 @@ def test_leveraged_etf_warning():
     assert any("再平衡耗損" in a for a in r["alerts"])
 
 
+# ── 長期模式：不套個股季線停損，跌破季線不叫出場 ──
+def test_long_mode_no_hard_stop_below_season():
+    ind = _ind(85, 95, 95, 90, align="糾結")   # close 85 < 季線90
+    r = holding_action(ind, code="0050", avg_cost=100, mode="長期")
+    assert r["action"] != "出場"
+    assert r["levels"]["stop"] is None
+    assert any("加碼" in a for a in r["alerts"])
+
+
+# ── 長期模式：回檔到月線之下 → 逢低加碼 ──
+def test_long_mode_add_on_dip():
+    ind = _ind(94, 95, 95, 90, align="糾結")   # close 94 <= 月線95
+    r = holding_action(ind, code="0050", avg_cost=100, mode="長期")
+    assert r["action"] == "加倉"
+
+
+# ── 長期模式：站在月線之上（相對貴）→ 續抱、不追 ──
+def test_long_mode_hold_when_extended():
+    ind = _ind(105, 104, 100, 90, align="多頭排列")   # close 105 > 月線100
+    r = holding_action(ind, code="0050", avg_cost=100, mode="長期")
+    assert r["action"] == "續抱"
+
+
+# ── 波段模式（預設）：仍套硬停損，跌破季線＝出場 ──
+def test_swing_mode_still_hard_stops():
+    ind = _ind(85, 95, 95, 90)
+    assert holding_action(ind, code="0050", avg_cost=100, mode="波段")["action"] == "出場"
+
+
+# ── 儲存操作模式（給了就存、沒給沿用舊值、預設波段）──
+def test_store_mode(tmp_path):
+    p = str(tmp_path / "h.json")
+    set_holding("0050", 100, 100.0, mode="長期", owner="u", path=p)
+    assert load_holdings("u", path=p)["0050"]["mode"] == "長期"
+    set_holding("2330", 10, 500.0, owner="u", path=p)
+    assert load_holdings("u", path=p)["2330"]["mode"] == "波段"
+    set_holding("0050", 200, 101.0, owner="u", path=p)     # 重存不給 mode
+    assert load_holdings("u", path=p)["0050"]["mode"] == "長期"
+
+
 # ── 位階計算 ──
 def test_position_pct():
     df = pd.DataFrame({"Close": list(range(1, 11))})   # 1..10，現價=10=最高

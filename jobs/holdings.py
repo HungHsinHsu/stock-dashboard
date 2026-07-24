@@ -54,7 +54,8 @@ def _lvl_line(levels):
 
 def _item_lines(it):
     emoji = _ACT_EMOJI.get(it["action"], "・")
-    lines = [f"{emoji} {it['name']} ({it['code']})｜{it['action']}"]
+    tag = f"〔{it.get('mode', '波段')}〕"
+    lines = [f"{emoji} {it['name']} ({it['code']}){tag}｜{it['action']}"]
     pnl = it.get("pnl_pct")
     if pnl is not None and it.get("avg_cost") and it.get("close") is not None:
         sign = "+" if pnl >= 0 else ""
@@ -98,9 +99,10 @@ def _compute_for_owner(owner, code_data, names):
         avg_cost = (rec or {}).get("avg_cost")
         shares = (rec or {}).get("shares")
         nm = (rec or {}).get("name") or names.get(code, code)
+        mode = (rec or {}).get("mode") or "波段"
         if not cd or cd.get("ind") is None:
             items.append({
-                "code": code, "name": nm,
+                "code": code, "name": nm, "mode": mode,
                 "shares": shares, "avg_cost": avg_cost, "close": None,
                 "action": "—", "reason": "抓不到日線資料（可能是上櫃股或暫時限流），無法試算",
                 "alerts": [], "levels": {}, "pnl_pct": None, "pos_pct": None,
@@ -111,10 +113,10 @@ def _compute_for_owner(owner, code_data, names):
         act = holding_action(
             ind, code=code, foreign_stopped=cd.get("foreign_stopped"),
             batches=get_batches(code, owner), avg_cost=avg_cost,
-            pos_pct=cd.get("pos_pct"))
+            pos_pct=cd.get("pos_pct"), mode=mode)
         lv = act["levels"]
         items.append({
-            "code": code, "name": nm,
+            "code": code, "name": nm, "mode": mode,
             "shares": shares, "avg_cost": avg_cost, "close": ind.get("close"),
             "action": act["action"], "reason": act["reason"], "alerts": act["alerts"],
             "levels": {

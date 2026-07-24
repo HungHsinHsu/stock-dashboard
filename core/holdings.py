@@ -51,17 +51,20 @@ def save_holdings(holdings, owner=DEFAULT_OWNER, path=HOLDINGS_PATH):
         json.dump(holdings, f, ensure_ascii=False, indent=2)
 
 
-def set_holding(code, shares, avg_cost, name=None, owner=DEFAULT_OWNER,
-                path=HOLDINGS_PATH):
-    """新增/更新一檔持股（股數＋成交均價＋名稱）。回更新後的整份 holdings。
-    name 給了就存；沒給則沿用舊紀錄既有的名稱（避免重存把名字洗掉）。"""
+def set_holding(code, shares, avg_cost, name=None, mode=None,
+                owner=DEFAULT_OWNER, path=HOLDINGS_PATH):
+    """新增/更新一檔持股（股數＋成交均價＋名稱＋操作模式）。回更新後的整份 holdings。
+    name/mode 給了就存；沒給則沿用舊紀錄既有值（避免重存把名字/模式洗掉）。
+    mode ∈ {"長期", "波段"}，預設沿用舊值、再沒有就 "波段"。"""
     holdings = load_holdings(owner, path)
+    old = holdings.get(str(code)) or {}
     rec = {
         "shares": float(shares),
         "avg_cost": float(avg_cost),
+        "mode": mode or old.get("mode") or "波段",
         "updated": now_tw().strftime("%Y-%m-%d"),
     }
-    nm = name or (holdings.get(str(code)) or {}).get("name")
+    nm = name or old.get("name")
     if nm:
         rec["name"] = nm
     holdings[str(code)] = rec
@@ -107,17 +110,21 @@ def position_pct(df, window=120):
 
 
 def holding_action(ind, code=None, foreign_stopped=None, batches=None,
-                   avg_cost=None, pos_pct=None):
+                   avg_cost=None, pos_pct=None, mode="波段"):
     """給『已持有部位』的每日操作建議。回 dict：
        {action, reason, alerts:list, levels:{support,resistance,stop}, pnl_pct, pos_pct}
        action ∈ {"出場", "減碼", "加倉", "續抱"}。
 
-    出場/減碼/續抱沿用 exit_setup（季線停損/月線減碼/站穩續抱）；加倉沿用 entry_setup
-    /etf_setup（真的四關到位＋外資停手才建議、且批數未滿、位階不過高）。另附停損接近預警、
-    到壓力＋高位階分批了結、槓桿 ETF 勿長抱等提醒。"""
+    mode 決定用哪套紀律：
+      ・"長期"（定期定額/長投）：不套個股季線停損，跌破季線＝短期轉弱／逢低分批加碼參考，
+        絕不叫『全數出場』；動作只在 續抱／加倉(逢低) 之間。
+      ・"波段"（預設）：走回檔承接法——出場(跌破季線)／減碼(跌破月線)／加倉(四關到位＋外資
+        停手＋批數未滿＋位階不過高)／續抱，附停損接近預警、到壓力分批了結、槓桿ETF勿長抱。"""
     close = ind.get("close")
+    ma20 = ind.get("ma20")
     ma60 = ind.get("ma60")
     etf = is_etf(code)
+    lev = is_leveraged_etf(code)
     sup, res, stop = playbook_levels(ind)
     alerts = []
 
@@ -125,7 +132,23 @@ def holding_action(ind, code=None, foreign_stopped=None, batches=None,
     if avg_cost and close is not None:
         pnl_pct = (close - avg_cost) / avg_cost * 100
 
-    # 主建議：出場 / 減碼 / 續抱
+    # ── 長期（定期定額/長投）：逢低加碼、順勢續抱，不套個股季線停損、不叫全出 ──
+    if mode == "長期":
+        if close is not None and ma20 is not None and close <= ma20:
+            action = "加倉"
+            reason = "回檔到月線之下＝相對便宜，長期定額的逢低分批加碼區（不套個股停損）"
+        else:
+            action = "續抱"
+            reason = "站在月線之上、順勢——長期續抱；等回檔到均線再分批加碼"
+        if close is not None and ma60 is not None and close < ma60:
+            alerts.append(f"跌破季線 {ma60:.1f}（短期偏弱）；長期定額不當停損，反而是逢低分批加碼參考區")
+        if lev:
+            alerts.append("⚠️ 槓桿/反向 ETF 有每日再平衡耗損，不適合長期抱——建議改短打或換原型")
+        return {"action": action, "reason": reason, "alerts": alerts,
+                "levels": {"support": sup, "resistance": res, "stop": None},
+                "pnl_pct": pnl_pct, "pos_pct": pos_pct}
+
+    # ── 波段：回檔承接法（含硬停損）：出場 / 減碼 / 續抱 ──
     ex = exit_setup(ind, batches)
     action = ex["action"] or "續抱"
     reason = ex["reason"]
@@ -135,9 +158,9 @@ def holding_action(ind, code=None, foreign_stopped=None, batches=None,
         setup = etf_setup(ind, code) if etf else entry_setup(ind, code, foreign_stopped)
         if setup.get("ceiling") == "進場":
             if etf:
-                if not is_leveraged_etf(code):
+                if not lev:
                     action = "加倉"
-                    reason = setup["reason"] + "（ETF 順勢，可加碼或定期定額）"
+                    reason = setup["reason"] + "（ETF 順勢，可加碼）"
             elif pos_pct is not None and pos_pct >= HIGH_POS_PCT:
                 alerts.append(f"到支撐但位階偏高（約 {pos_pct:.0f}%）→ 不建議追加、續抱即可")
             elif batches is None or batches < 3:
@@ -162,7 +185,7 @@ def holding_action(ind, code=None, foreign_stopped=None, batches=None,
                       "→ 可分批獲利了結")
 
     # 槓桿/反向 ETF 長抱警告
-    if is_leveraged_etf(code):
+    if lev:
         alerts.append("⚠️ 槓桿/反向 ETF 有每日再平衡耗損，只宜短打、不宜長抱")
 
     return {"action": action, "reason": reason, "alerts": alerts,

@@ -1340,18 +1340,22 @@ def render_holdings_page(owner):
     重算（改均價馬上反映）；動作/價位/位階來自每日盤後掃描。"""
     st.markdown("### 💼 我的持股（每日操作建議）")
     st.caption(
-        "輸入你實際持有的部位，系統每天用『回檔承接法』告訴你每一檔該**出場／減碼／加倉／續抱**，"
-        "並在早上推一則到 Telegram。**建議是規則＋價位的決策輔助、方向不保證；停損一律看收盤跌破季線。**")
+        "輸入你實際持有的部位＋操作模式（長期/波段），系統每天用**對應的紀律**告訴你每一檔該"
+        "**出場／減碼／加倉／續抱**，並在早上推一則到 Telegram。"
+        "**建議是規則＋價位的決策輔助、方向不保證。**")
 
     st.markdown("#### ➕ 新增／更新持股")
     with st.form("hold_add_form", border=True):
-        c = st.columns([2, 1, 1, 1])
+        c = st.columns([2, 1, 1])
         code_in = c[0].text_input("代號或名稱", key="hold_code", placeholder="例如 2408 或 南亞科")
         shares_in = c[1].number_input("股數", min_value=0, value=0, step=1, key="hold_shares")
         cost_in = c[2].number_input("成交均價", min_value=0.0, value=0.0, step=0.05,
                                     format="%.2f", key="hold_cost")
-        c[3].markdown("&nbsp;", unsafe_allow_html=True)
-        submitted = c[3].form_submit_button("💾 儲存", type="primary")
+        mode_in = st.radio(
+            "操作模式", ["波段", "長期"], horizontal=True, key="hold_mode",
+            help="長期＝定期定額/長投：不套個股季線停損，跌破季線視為逢低分批加碼區。"
+                 "波段＝回檔承接法：跌破季線就出場、跌破月線減碼。")
+        submitted = st.form_submit_button("💾 儲存", type="primary")
     if submitted:
         q = (code_in or "").strip()
         if not q or shares_in <= 0 or cost_in <= 0:
@@ -1363,8 +1367,8 @@ def render_holdings_page(owner):
                 st.warning("找不到這個代號/名稱（限上市）。可直接輸入數字代號。")
             else:
                 nm = matches[0][1] if matches else None
-                set_holding(code, shares_in, cost_in, name=nm, owner=owner)
-                st.success(f"已存 {nm or code} ({code})：{int(shares_in)} 股 @ {cost_in:.2f}")
+                set_holding(code, shares_in, cost_in, name=nm, mode=mode_in, owner=owner)
+                st.success(f"已存 {nm or code} ({code})｜{mode_in}：{int(shares_in)} 股 @ {cost_in:.2f}")
                 st.rerun()
 
     holdings = load_holdings(owner)
@@ -1383,9 +1387,11 @@ def render_holdings_page(owner):
     _ACT_STYLE = {"出場": ("🛑", "#e34a4a"), "減碼": ("✂️", "#e39a2a"),
                   "加倉": ("➕", "#3aa95a"), "續抱": ("✋", "#888"),
                   "—": ("❓", "#888")}
-    for code, rec in sorted(holdings.items()):
+
+    def _card(code, rec):
         code = str(code)
         avg_cost, shares = rec.get("avg_cost"), rec.get("shares")
+        mode = rec.get("mode") or "波段"
         it = by_code.get(code)
         act = (it or {}).get("action", "—")
         emoji, color = _ACT_STYLE.get(act, ("❓", "#888"))
@@ -1429,9 +1435,26 @@ def render_holdings_page(owner):
                     st.caption(f"外資資料日：{it['foreign_date']}")
             else:
                 st.caption((it or {}).get("reason") or "尚未掃描到這檔（明早的掃描會更新）")
-            if st.button("🗑 移除這檔", key=f"holdrm_{code}"):
+            ctl = st.columns([3, 1])
+            new_mode = ctl[0].radio(
+                "模式", ["波段", "長期"], index=(0 if mode == "波段" else 1),
+                horizontal=True, key=f"holdmode_{code}", label_visibility="collapsed")
+            if new_mode != mode:
+                set_holding(code, shares, avg_cost, mode=new_mode, owner=owner)
+                st.rerun()
+            if ctl[1].button("🗑 移除", key=f"holdrm_{code}"):
                 remove_holding(code, owner=owner)
                 st.rerun()
+
+    tab_long, tab_swing = st.tabs(["📈 長期（定期定額）", "⚡ 波段"])
+    for tab, want in ((tab_long, "長期"), (tab_swing, "波段")):
+        with tab:
+            subset = [(cc, rr) for cc, rr in sorted(holdings.items())
+                      if (rr.get("mode") or "波段") == want]
+            if not subset:
+                st.caption("這個分頁還沒有持股（用上面表單新增，或在另一頁把某檔切成這個模式）。")
+            for cc, rr in subset:
+                _card(cc, rr)
 
 
 _qp_code = st.query_params.get("code")
