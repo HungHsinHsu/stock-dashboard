@@ -81,6 +81,18 @@ def remove_holding(code, owner=DEFAULT_OWNER, path=HOLDINGS_PATH):
     return existed
 
 
+def effective_mode(code, rec=None):
+    """該持股的操作模式：使用者明確設定優先；沒設定時給聰明預設——
+    ETF（00 開頭原型）預設『長期』（定期定額），個股預設『波段』（回檔承接法）；
+    槓桿/反向 ETF 會耗損、不預設長期。"""
+    m = (rec or {}).get("mode")
+    if m in ("長期", "波段"):
+        return m
+    if is_leveraged_etf(code):
+        return "波段"
+    return "長期" if is_etf(code) else "波段"
+
+
 def all_held_codes():
     """所有帳號持股的代號聯集，供每日 job『每檔只算一次、順手存日線』。"""
     codes = set()

@@ -2,8 +2,17 @@ import pandas as pd
 
 from core.holdings import (
     set_holding, load_holdings, remove_holding, holding_action, position_pct,
-    HIGH_POS_PCT,
+    effective_mode, HIGH_POS_PCT,
 )
+
+
+# ── 聰明預設模式：ETF→長期、個股→波段、槓桿→波段、明確設定優先 ──
+def test_effective_mode_defaults():
+    assert effective_mode("0050", {}) == "長期"
+    assert effective_mode("00830", None) == "長期"
+    assert effective_mode("2330", {}) == "波段"
+    assert effective_mode("00631L", {}) == "波段"       # 槓桿不預設長期
+    assert effective_mode("0050", {"mode": "波段"}) == "波段"   # 明確設定優先
 
 
 # ── 儲存（無 DB → 走 json 檔，用 tmp path 隔離）──

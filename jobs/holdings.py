@@ -8,7 +8,7 @@
 from core.data import fetch_daily, fetch_foreign_flow, resolve_stocks
 from core.indicators import compute_indicators
 from core.holdings import (
-    load_holdings, all_held_codes, holding_action, position_pct,
+    load_holdings, all_held_codes, holding_action, position_pct, effective_mode,
 )
 from core.positions import get_batches
 from core.barstore import dump_bars
@@ -99,7 +99,7 @@ def _compute_for_owner(owner, code_data, names):
         avg_cost = (rec or {}).get("avg_cost")
         shares = (rec or {}).get("shares")
         nm = (rec or {}).get("name") or names.get(code, code)
-        mode = (rec or {}).get("mode") or "波段"
+        mode = effective_mode(code, rec)
         if not cd or cd.get("ind") is None:
             items.append({
                 "code": code, "name": nm, "mode": mode,

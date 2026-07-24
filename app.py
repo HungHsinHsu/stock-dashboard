@@ -23,7 +23,7 @@ from core.rules import (
 )
 from core.screener import scan as _scan
 from core.watchlist import effective_stocks, add_stock, remove_stock
-from core.holdings import load_holdings, set_holding, remove_holding
+from core.holdings import load_holdings, set_holding, remove_holding, effective_mode
 from core.market import market_summary
 from core.store import load_history
 from core.review import hit_rate
@@ -1391,7 +1391,7 @@ def render_holdings_page(owner):
     def _card(code, rec):
         code = str(code)
         avg_cost, shares = rec.get("avg_cost"), rec.get("shares")
-        mode = rec.get("mode") or "波段"
+        mode = effective_mode(code, rec)
         it = by_code.get(code)
         act = (it or {}).get("action", "—")
         emoji, color = _ACT_STYLE.get(act, ("❓", "#888"))
@@ -1450,7 +1450,7 @@ def render_holdings_page(owner):
     for tab, want in ((tab_long, "長期"), (tab_swing, "波段")):
         with tab:
             subset = [(cc, rr) for cc, rr in sorted(holdings.items())
-                      if (rr.get("mode") or "波段") == want]
+                      if effective_mode(cc, rr) == want]
             if not subset:
                 st.caption("這個分頁還沒有持股（用上面表單新增，或在另一頁把某檔切成這個模式）。")
             for cc, rr in subset:
