@@ -1419,7 +1419,8 @@ def render_holdings_page(owner):
         return {
             "code": str(code), "action": act["action"], "reason": act["reason"],
             "alerts": act["alerts"], "levels": act["levels"], "pos_pct": act["pos_pct"],
-            "close": ind.get("close"), "name": rec.get("name"),
+            "close": ind.get("close"),
+            "name": rec.get("name") or by_code.get(str(code), {}).get("name"),
             "foreign_date": fo.get("date") or _fsnap.get("date"),
         }
 
@@ -1434,7 +1435,8 @@ def render_holdings_page(owner):
         it = _live(code, rec) or by_code.get(code)
         act = (it or {}).get("action", "—")
         emoji, color = _ACT_STYLE.get(act, ("❓", "#888"))
-        name = rec.get("name") or (it or {}).get("name") or code
+        name = (rec.get("name") or by_code.get(code, {}).get("name")
+                or (it or {}).get("name") or code)
         with st.container(border=True):
             head = st.columns([3, 1])
             head[0].markdown(f"#### {name} ({code})")
