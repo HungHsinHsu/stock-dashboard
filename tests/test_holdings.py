@@ -2,7 +2,7 @@ import pandas as pd
 
 from core.holdings import (
     set_holding, load_holdings, remove_holding, holding_action, position_pct,
-    effective_mode, HIGH_POS_PCT,
+    effective_mode, display_name, HIGH_POS_PCT,
 )
 
 
@@ -45,6 +45,36 @@ def test_action_exit_below_season():
     r = holding_action(ind, code="2330", batches=2, avg_cost=100)
     assert r["action"] == "出場"
     assert r["pnl_pct"] < 0
+
+
+# ── 出場守門：當日漲停但收盤仍在季線下 → 不出場（強勢反彈非趨勢轉壞）──
+# 真實案例：南亞科(2408) 2026-07-31 漲停 +9.91% 收 360.5、季線約 381，舊規則判「出場」＝
+# 在鎖死漲停的隔天叫人認賠。與 entry_setup 的漲停守門對稱。
+def test_no_exit_on_surge_day_below_season():
+    ind = _ind(360.5, 340, 375, 381.06, prev=328.0)
+    r = holding_action(ind, code="2408", batches=1, avg_cost=418.0)
+    assert r["action"] != "出場"
+    assert "漲停" in r["reason"] or "大漲" in r["reason"]
+
+
+# ── 出場守門只擋當根：隔天沒再大漲、收盤仍在季線下 → 照樣出場 ──
+def test_exit_resumes_next_day_without_surge():
+    ind = _ind(358.0, 345, 374, 381.06, prev=360.5)
+    assert holding_action(ind, code="2408", batches=1, avg_cost=418.0)["action"] == "出場"
+
+
+# ── 同一道守門也用在減碼：漲停但收盤仍在月線下 → 不減碼 ──
+def test_no_trim_on_surge_day_below_ma20():
+    ind = _ind(96, 92, 98, 90, prev=88, align="糾結")
+    assert holding_action(ind, code="2330", batches=3, avg_cost=100)["action"] != "減碼"
+
+
+# ── 顯示名稱：名稱已含「(代號)」不再重複附加 ──
+def test_display_name():
+    assert display_name("元大台灣50 (0050)", "0050") == "元大台灣50 (0050)"
+    assert display_name("南亞科", "2408") == "南亞科 (2408)"
+    assert display_name("0050", "0050") == "0050"
+    assert display_name(None, "2330") == "2330"
 
 
 # ── 續抱：站穩月線、無進場訊號 ──

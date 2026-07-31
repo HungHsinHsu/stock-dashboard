@@ -9,7 +9,7 @@ from core.data import fetch_daily, fetch_foreign_flow, resolve_stocks
 from core.indicators import compute_indicators
 from core.holdings import (
     load_holdings, all_held_codes, holding_action, position_pct, effective_mode,
-    migrate_etf_default_long,
+    migrate_etf_default_long, display_name,
 )
 from core.positions import get_batches
 from core.barstore import dump_bars
@@ -56,7 +56,7 @@ def _lvl_line(levels):
 def _item_lines(it):
     emoji = _ACT_EMOJI.get(it["action"], "・")
     tag = f"〔{it.get('mode', '波段')}〕"
-    lines = [f"{emoji} {it['name']} ({it['code']}){tag}｜{it['action']}"]
+    lines = [f"{emoji} {display_name(it['name'], it['code'])}{tag}｜{it['action']}"]
     pnl = it.get("pnl_pct")
     if pnl is not None and it.get("avg_cost") and it.get("close") is not None:
         sign = "+" if pnl >= 0 else ""

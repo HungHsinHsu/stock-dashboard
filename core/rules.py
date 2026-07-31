@@ -221,17 +221,36 @@ def exit_setup(ind, batches=None):
       ・站穩月線之上 → 續抱：趨勢未壞，讓獲利奔跑。
 
     batches=None（例：網頁把追蹤清單全當持有、不知實際批數）→ 跌破月線一律當『減碼』警訊。
+
+    當日動態守門（與 entry_setup 對稱）：出場/減碼講的是『趨勢確認轉壞』，但這個判斷原本
+    只比對「收盤 vs 均線」這種**靜態位置**，看不到那根 K 棒的方向。結果一根大漲/漲停、
+    收盤還沒追回季線的強勢反彈棒，會被判成「跌破季線→全數出場」——在最強的一天叫人認賠。
+    這是 entry_setup 那條教訓（漲停被誤判成『回檔到支撐』）的鏡像：同樣是方向盲。
+    故當日漲幅 ≥ SURGE_PCT 時不在該根執行出場/減碼，改續抱、等下一根收盤確認。
     """
     close = ind.get("close")
     ma20 = ind.get("ma20")
     ma60 = ind.get("ma60")
+    prev = ind.get("prev_close")
     if close is None:
         return {"action": None, "reason": "無現價資料，無法判定出場"}
+    day_chg = ((close - prev) / prev * 100) if prev else None
+    surged = day_chg is not None and day_chg >= SURGE_PCT
     if ma60 is not None and close < ma60:
+        if surged:
+            return {"action": "續抱",
+                    "reason": f"收盤雖仍在季線(MA60{ma60:.1f})之下，但當日大漲/漲停"
+                              f"(+{day_chg:.1f}%)＝強勢反彈、非趨勢確認轉壞→這根不執行出場，"
+                              "等下一根收盤再確認（下一根收盤仍在季線下才出場）"}
         return {"action": "出場",
                 "reason": "收盤跌破季線(MA60)＝趨勢確認轉壞，依紀律全數出場"
                           "（移動停利/停損：季線隨股價墊高，漲越多鎖越多）"}
     if ma20 is not None and close < ma20:
+        if surged:
+            return {"action": "續抱",
+                    "reason": f"收盤雖在月線(MA20{ma20:.1f})之下，但當日大漲/漲停"
+                              f"(+{day_chg:.1f}%)＝強勢反彈、非短線轉弱→這根不減碼，"
+                              "等下一根收盤再確認"}
         if batches is not None and batches < 3:
             return {"action": "續抱",
                     "reason": "跌破月線(MA20)但建倉未滿三批：月線是加碼支撐(支撐2)、"

@@ -26,7 +26,7 @@ from core.screener import scan as _scan
 from core.watchlist import effective_stocks, add_stock, remove_stock
 from core.holdings import (
     load_holdings, set_holding, remove_holding, effective_mode,
-    holding_action, position_pct,
+    holding_action, position_pct, display_name,
 )
 from core.positions import get_batches
 from core.market import market_summary
@@ -1437,9 +1437,7 @@ def render_holdings_page(owner):
         emoji, color = _ACT_STYLE.get(act, ("❓", "#888"))
         name = (rec.get("name") or by_code.get(code, {}).get("name")
                 or (it or {}).get("name") or code)
-        # 名稱可能已含「(代號)」（追蹤清單存的格式）→ 先去掉，避免顯示成「名稱 (代號) (代號)」
-        _base = re.sub(r"\s*\(" + re.escape(code) + r"\)\s*$", "", str(name)).strip()
-        _title = f"{_base} ({code})" if _base and _base != code else code
+        _title = display_name(name, code)   # 名稱可能已含「(代號)」→ 共用函式去重，避免「(代號) (代號)」
         with st.container(border=True):
             head = st.columns([3, 1])
             head[0].markdown(f"#### {_title}")

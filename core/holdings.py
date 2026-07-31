@@ -10,6 +10,7 @@
 """
 import json
 import os
+import re
 
 from core import db
 from core.rules import (
@@ -127,6 +128,18 @@ def all_held_codes():
     else:
         codes |= {str(c) for c in load_holdings().keys()}
     return codes
+
+
+def display_name(name, code):
+    """顯示用標題「名稱 (代號)」。追蹤清單(wl:*)存的名稱本身可能已經含「(代號)」
+    （例：'元大台灣50 (0050)'），直接再接一次會變成「元大台灣50 (0050) (0050)」——
+    先把結尾的「(代號)」剝掉再組。名稱空白或本身就是代號時只回代號。
+
+    放在這裡是因為網頁(app.py)與每日推播(jobs/holdings.py)都要用；先前只在網頁修過一次、
+    推播那份漏掉，就是複製兩份各修各的下場——共用同一支才不會再修一半。"""
+    code = str(code)
+    base = re.sub(r"\s*\(" + re.escape(code) + r"\)\s*$", "", str(name or "")).strip()
+    return f"{base} ({code})" if base and base != code else code
 
 
 def position_pct(df, window=120):
