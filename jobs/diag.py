@@ -62,8 +62,50 @@ def _yahoo_last_bars(symbol, n=4):
         return f"抓不到 {symbol}: {e}"
 
 
+def _taifex_endpoints():
+    """列出 TAIFEX openapi 實際存在的路徑，並看日盤資料裡 TradingSession 有哪些值。
+
+    背景：DailyMarketReportFutAH 這個路徑不存在，但 openapi 對未知路徑回 200＋Swagger UI
+    的 HTML（不是 404），所以「網址打錯」跟「該場尚未發布」外觀完全一樣、無法分辨。
+    要找回夜盤只有兩條路：正確的 endpoint 名稱，或同一支資料裡用 TradingSession 分場。"""
+    for spec in ("https://openapi.taifex.com.tw/swagger/v1/swagger.json",
+                 "https://openapi.taifex.com.tw/swagger/docs/v1"):
+        try:
+            res = requests.get(spec, headers=HEADERS, timeout=20)
+            j = res.json()
+        except Exception as e:
+            print(f"  規格 {spec} → {type(e).__name__} {e}")
+            continue
+        paths = sorted(j.get("paths") or {})
+        print(f"  規格 {spec} → {len(paths)} 個路徑")
+        for p in paths:
+            if "fut" in p.lower() or "daily" in p.lower():
+                print("     ", p)
+        break
+
+    print("\n  --- 日盤資料裡的 TradingSession 有哪些值 ---")
+    try:
+        data = requests.get(
+            "https://openapi.taifex.com.tw/v1/DailyMarketReportFut",
+            headers=HEADERS, timeout=25).json()
+        sessions = {}
+        for r in data:
+            sessions.setdefault(str(r.get("TradingSession")), 0)
+            sessions[str(r.get("TradingSession"))] += 1
+        print("     全部：", sessions)
+        for r in data:
+            if str(r.get("Contract")).strip().upper() == "TX":
+                print(f"     TX：session={r.get('TradingSession')} date={r.get('Date')} "
+                      f"月份={r.get('ContractMonth(Week)')} 漲跌%={r.get('%')} "
+                      f"量={r.get('Volume')}")
+    except Exception as e:
+        print("     失敗：", type(e).__name__, e)
+
+
 def run():
     print("now_tw:", now_tw(), " today_tw:", today_tw())
+    print("\n===== TAIFEX 可用 endpoint / 場別欄位 =====")
+    _taifex_endpoints()
     print("\n===== 美股隔夜 fetch_us_overnight() =====")
     print(json.dumps(fetch_us_overnight(), ensure_ascii=False))
     print("--- 各指數 Yahoo 最後幾根(日期,收盤) 看有沒有放假日缺一天/最後一天是幾號 ---")
