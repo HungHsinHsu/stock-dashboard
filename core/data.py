@@ -101,10 +101,16 @@ def fetch_us_overnight(with_date=False):
     return out, _yahoo_last_date("^GSPC")   # 四大指數同一交易日曆，取一個即可
 
 
-TAIFEX_URLS = (
-    "https://openapi.taifex.com.tw/v1/DailyMarketReportFutAH",  # 盤後(夜盤)，已反映美股隔夜
-    "https://openapi.taifex.com.tw/v1/DailyMarketReportFut",    # 一般交易時段(備援)
+# (場別, API)。夜盤(盤後)才是隔日開盤的領先指標——它發生在台股收盤『之後』、已反映美股隔夜；
+# 日盤是跟台股同一場，抓到它＝拿台股自己剛漲完的幅度當「明天會漲」的理由，會重複計算。
+# 故場別必須跟著資料一起傳下去，不能只回 pct/date 就把來源丟掉（丟掉的下場見 fetch_taifex_detail）。
+TAIFEX_SOURCES = (
+    ("夜盤", "https://openapi.taifex.com.tw/v1/DailyMarketReportFutAH"),  # 盤後，已反映美股隔夜
+    ("日盤", "https://openapi.taifex.com.tw/v1/DailyMarketReportFut"),    # 一般交易時段(備援)
 )
+TAIFEX_URLS = tuple(u for _, u in TAIFEX_SOURCES)   # 舊名保留
+
+TAIFEX_SANE_PCT = 6.0   # 單場漲跌達此幅度＝異常大(期貨漲跌幅上限10%)，記警告供人工查核
 
 
 def _num(v):
@@ -174,32 +180,52 @@ def _taifex_change(data):
     return pct
 
 
+def _taifex_stale(session, d, min_date):
+    """該場台指期資料相對『台股上一個交易日 min_date』算不算已消化/過時。
+
+    分場判斷是關鍵——兩種場別跟台股收盤的時間關係不同：
+      ・夜盤：D 那場在台股 D 收盤『之後』開始(當晚~隔日清晨)，所以 date==min_date 是
+        正常的隔夜新訊息；只有 date<min_date 才是還沒發布新場、抓到舊的。
+      ・日盤：D 那場跟台股 D 是『同一場』，date==min_date 代表台股自己剛走完的那段行情，
+        拿它當隔日領先指標＝把同一段漲跌重算一次 → 必須連『等於』一起丟。
+    （原本兩場共用美股那套『用 < 不用 <=』的規則，那套只對美股成立，套到日盤就會漏接。）"""
+    if not (min_date and d):
+        return False
+    return d <= str(min_date) if session == "日盤" else d < str(min_date)
+
+
 def fetch_taifex_detail(min_date=None):
     """台指期(TX)近月：優先夜盤(盤後，已含美股隔夜)，其次一般盤。
-    回 {'pct': float, 'date': 'YYYY-MM-DD'|None}；抓不到回 None。
+    回 {'pct': float, 'date': 'YYYY-MM-DD'|None, 'session': '夜盤'|'日盤'}；抓不到回 None。
 
-    新鮮度防呆：給了 min_date 時，若報表日期可解析且『早於 min_date』(抓到的是
-    上一場舊資料，今早那場還沒發布)，視為過時 → 丟棄不用。寧可回報無資料，
-    也不要拿一個過時的漲/跌方向去誤導今天的預測。"""
-    for url in TAIFEX_URLS:
+    新鮮度防呆(依場別)：見 _taifex_stale。寧可回報無資料，也不要拿一個過時/已消化的
+    漲跌方向去誤導今天的預測。session 一定要一起回傳——呼叫端才知道這筆是不是真的夜盤。"""
+    for session, url in TAIFEX_SOURCES:
         try:
             data = requests.get(url, headers=HEADERS, timeout=15).json()
-        except Exception:
+        except Exception as e:
+            print(f"[taifex] {session} 抓取失敗（{url.split('/')[-1]}）：{type(e).__name__} {e}")
             continue
         if not isinstance(data, list) or not data:
+            print(f"[taifex] {session} 回應空/非清單（{url.split('/')[-1]}）：{type(data).__name__}")
             continue
         row = _taifex_pick_row(data)
         if row is None:
+            print(f"[taifex] {session} 找不到 TX 契約（共 {len(data)} 列）")
             continue
         pct = _row_change_pct(row)
         if pct is None:
-            print("台指期解析失敗，樣本欄位：", list(row.keys()))
+            print(f"[taifex] {session} 解析漲跌失敗，樣本欄位：", list(row.keys()))
             continue
         d = _row_date(row)
-        if min_date and d and d < str(min_date):
-            print(f"台指期資料過時({d} < {min_date})，丟棄不用：{url.split('/')[-1]}")
+        if _taifex_stale(session, d, min_date):
+            print(f"[taifex] {session} 資料已消化/過時（{d} vs 台股上一交易日 {min_date}），丟棄不用")
             continue
-        return {"pct": pct, "date": d}
+        if abs(pct) >= TAIFEX_SANE_PCT:
+            print(f"[taifex] ⚠️ {session} 單場漲跌 {pct:+.2f}% 異常大（≥{TAIFEX_SANE_PCT}%），"
+                  "請確認是否抓到日盤或雜訊")
+        print(f"[taifex] 採用 {session} {pct:+.2f}% @ {d}")
+        return {"pct": pct, "date": d, "session": session}
     return None
 
 

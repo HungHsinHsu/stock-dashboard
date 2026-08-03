@@ -314,30 +314,47 @@ _MARKET_SYSTEM = (
 )
 
 
+TAIFEX_BIG_PCT = 6.0      # 台指期單場漲跌達此幅度＝異常大(期貨漲跌幅上限10%)，要跟美股對得起來
+TAIFEX_US_RATIO = 3.0     # 且不得超過美股隔夜最大指數幅度的這個倍數，否則視為背離
+
+
 def _taifex_conflicts_us(taifex_night, us_overnight):
-    """台指期與美股隔夜是否『嚴重背離』：美股(費半)大動作卻和台指期方向相反。
-    是 → 台指期多半過時/雜訊，應丟棄不用（避免誤導，例如費半崩、台指期卻顯示漲）。"""
+    """台指期與美股隔夜是否『背離』→ 是的話台指期多半過時/抓錯場/雜訊，應丟棄不用。
+
+    兩種背離：
+      ①方向背離：美股(費半)大動作卻和台指期反向（例：費半崩、台指期卻顯示漲）。
+      ②幅度背離：台指期單場異常大(≥TAIFEX_BIG_PCT)，但美股隔夜根本沒那麼大動作。
+        真實案例 2026-08-03：美股 費半+0.07/Nasdaq+1.0，台指期卻是 +8.42%——那個 8.42
+        其實是台股 7/31 日盤自己漲完的幅度(大盤+3186點≈+8%)被當成夜盤餵進來。
+        原本只檢查方向，兩者同為正就一路放行；幅度差到 8 倍也照收，等於重算一次已發生的漲幅。"""
     if taifex_night is None:
         return False
-    sox = (us_overnight or {}).get("費半SOX")
-    if sox is None:
-        return False
-    return (sox <= -2 and taifex_night >= 0) or (sox >= 2 and taifex_night <= 0)
+    us = us_overnight or {}
+    sox = us.get("費半SOX")
+    if sox is not None and ((sox <= -2 and taifex_night >= 0)
+                            or (sox >= 2 and taifex_night <= 0)):
+        return True
+    moves = [abs(v) for v in us.values() if isinstance(v, (int, float))]
+    return bool(moves and abs(taifex_night) >= TAIFEX_BIG_PCT
+                and abs(taifex_night) > max(moves) * TAIFEX_US_RATIO)
 
 
 def make_market_prediction(index_indicators, us_overnight, market_data,
                            taifex_night=None, llm=generate_json, lessons="",
-                           taifex_asof=None, us_asof=None, tw_last=None):
-    # 台指期與美股嚴重背離（費半大跌卻顯示漲等）→ 台指期多半過時/雜訊，丟棄不用
+                           taifex_asof=None, us_asof=None, tw_last=None,
+                           taifex_session=None):
+    # 台指期與美股背離（方向相反、或幅度差太多）→ 台指期多半過時/抓錯場/雜訊，丟棄不用
     tf_conflict = _taifex_conflicts_us(taifex_night, us_overnight)
     if tf_conflict:
         taifex_night, taifex_asof = None, None
     us_txt = (f"{json.dumps(us_overnight, ensure_ascii=False)}（{us_asof} 收盤）"
               if us_asof else json.dumps(us_overnight, ensure_ascii=False))
-    tf_txt = (f"{taifex_night}（{taifex_asof} 那一場）" if taifex_asof
+    _sess = f"{taifex_session}" if taifex_session else "場別不明"
+    tf_txt = (f"{taifex_night}（{taifex_asof} 那一場・{_sess}）" if taifex_asof
               else json.dumps(taifex_night, ensure_ascii=False))
     if taifex_night is None:
-        tf_txt = ("無（台指期與美股隔夜嚴重背離、多半過時，本次不納入；純以美股隔夜與技術面判斷）"
+        tf_txt = ("無（台指期與美股隔夜背離：方向相反或幅度不相稱、多半過時/抓錯場，"
+                  "本次不納入；純以美股隔夜與技術面判斷）"
                   if tf_conflict else "無（抓不到或資料過時，本次不納入判斷）")
     # 已消化偵測：美股/台指期資料日期若『早於台股上一個交易日』，代表台股已反映過，
     # 屬舊訊息(例：週五美股放假→週一還是拿週四美股，而台股週五早已反映)，不可重複計入。
@@ -350,9 +367,12 @@ def make_market_prediction(index_indicators, us_overnight, market_data,
             f"美股隔夜為 {us_asof} 收盤，早於台股上一個交易日 {tw_last}——台股上個交易日"
             "已反映過這波美股(多半因美股放假沒新盤)，屬『已消化的舊訊息』，"
             "不可再當今日新的利多/利空重複計入；今日方向請以台股自身技術面與籌碼為主。")
-    if taifex_night is not None and taifex_asof and tw_last and taifex_asof < tw_last:
+    # 台指期要分場：日盤 D 那場＝台股 D 自己那場，日期『等於』上一交易日就已消化（不是只有早於）。
+    if (taifex_night is not None and taifex_asof and tw_last
+            and (taifex_asof <= tw_last if taifex_session == "日盤" else taifex_asof < tw_last)):
         digested.append(
-            f"台指期為 {taifex_asof} 那場，早於台股上一個交易日 {tw_last}，同屬已消化、勿重複計入。")
+            f"台指期為 {taifex_asof} 那場（{taifex_session or '場別不明'}），"
+            f"相對台股上一個交易日 {tw_last} 屬已消化、勿重複計入。")
     user = (
         f"美股隔夜漲跌(%)：{us_txt}\n"
         f"台指期夜盤漲跌(%)：{tf_txt}\n"
@@ -369,6 +389,7 @@ def make_market_prediction(index_indicators, us_overnight, market_data,
     out["us_digested"] = bool(us_asof and tw_last and us_asof < tw_last)
     out["taifex_night"] = taifex_night
     out["taifex_date"] = taifex_asof
+    out["taifex_session"] = taifex_session if taifex_night is not None else None
     out["market_data"] = market_data
     return out
 

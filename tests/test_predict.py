@@ -231,6 +231,58 @@ def test_market_drops_taifex_when_conflicts_with_us():
     assert out["taifex_night"] is None        # 記錄裡也標記為未採用
 
 
+def test_market_drops_taifex_when_magnitude_absurd_vs_us():
+    # 真實案例 2026-08-03：美股幾乎持平(費半+0.07/Nasdaq+1.0)，台指期卻 +8.42%——
+    # 那 8.42 其實是台股 7/31 日盤自己漲完的幅度被當夜盤餵進來。舊規則只比方向，
+    # 兩邊同為正就放行 → 等於把已發生的漲幅再算一次。
+    seen = {}
+
+    def _spy(system, user, schema, client=None):
+        seen["user"] = user
+        return {"direction": "漲", "confidence": "高", "drivers": [], "reason": "x"}
+
+    out = make_market_prediction(
+        {"ma20": 45000},
+        {"費半SOX": 0.07, "Nasdaq": 1.0, "標普500": 0.7, "道瓊": 0.53},
+        {"direction": "漲", "pct": 8.0}, taifex_night=8.42,
+        llm=_spy, taifex_asof="2026-07-31", taifex_session="日盤",
+        tw_last="2026-07-31")
+    assert "8.42" not in seen["user"]         # 幅度不相稱的台指期不餵進提示
+    assert "背離" in seen["user"]
+    assert out["taifex_night"] is None
+    assert out["taifex_session"] is None
+
+
+def test_market_keeps_taifex_when_big_but_us_also_big():
+    # 台指期單場 -7%，但美股也崩(費半 -9%)→ 幅度相稱，不該誤殺
+    seen = {}
+
+    def _spy(system, user, schema, client=None):
+        seen["user"] = user
+        return {"direction": "跌", "confidence": "高", "drivers": [], "reason": "x"}
+
+    make_market_prediction(
+        {"ma20": 45000}, {"費半SOX": -9.0, "Nasdaq": -4.0},
+        {"direction": "跌", "pct": -1.0}, taifex_night=-7.0,
+        llm=_spy, taifex_asof="2026-07-02", taifex_session="夜盤")
+    assert "-7.0" in seen["user"]
+
+
+def test_market_flags_digested_taifex_day_session_same_date():
+    # 日盤 D 那場＝台股 D 同一場：日期相等就該標「已消化」（幅度沒問題、僅場別/日期問題）
+    seen = {}
+
+    def _spy(system, user, schema, client=None):
+        seen["user"] = user
+        return {"direction": "漲", "confidence": "中", "drivers": [], "reason": "x"}
+
+    make_market_prediction(
+        {"ma20": 45000}, {"費半SOX": 1.0}, {"direction": "漲", "pct": 0.5},
+        taifex_night=1.1, llm=_spy, taifex_asof="2026-07-31",
+        taifex_session="日盤", tw_last="2026-07-31")
+    assert "已消化" in seen["user"] and "日盤" in seen["user"]
+
+
 def test_market_keeps_taifex_when_consistent():
     # 費半與台指期同向（都跌）→ 台指期正常納入
     seen = {}

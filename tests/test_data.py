@@ -58,6 +58,44 @@ def test_taifex_change_picks_tx_front_month():
     assert _taifex_change(rows) == 0.85
 
 
+# ── 新鮮度分場判斷：日盤跟台股是同一場，日期『等於』上一交易日就是已消化 ──
+# 真實案例 2026-08-03：夜盤那支沒回可用資料 → 掉到日盤備援，抓到 7/31 日盤 +8.42%
+#（＝台股 7/31 自己漲完的 +3186 點），日期正好等於台股上一交易日，舊的『<』放行了它。
+def test_taifex_stale_day_session_rejects_same_date():
+    from core.data import _taifex_stale
+    assert _taifex_stale("日盤", "2026-07-31", "2026-07-31") is True    # 同一場＝已消化
+    assert _taifex_stale("日盤", "2026-08-03", "2026-07-31") is False   # 更新的一場才算數
+    assert _taifex_stale("夜盤", "2026-07-31", "2026-07-31") is False   # 夜盤在收盤後，相等是新的
+    assert _taifex_stale("夜盤", "2026-07-30", "2026-07-31") is True    # 夜盤更舊＝還沒發布新場
+    assert _taifex_stale("日盤", None, "2026-07-31") is False           # 無日期不判定
+    assert _taifex_stale("日盤", "2026-07-31", None) is False
+
+
+# ── 抓回來一定要標明場別，呼叫端才知道這筆是不是真的夜盤 ──
+def test_fetch_taifex_detail_reports_session(monkeypatch):
+    import core.data as data
+
+    class _Res:
+        def __init__(self, payload):
+            self._p = payload
+
+        def json(self):
+            return self._p
+
+    # 夜盤空清單（該場尚未發布）→ 掉到日盤備援，且必須標成「日盤」而非冒充夜盤
+    def _get(url, **kw):
+        if url.endswith("FutAH"):
+            return _Res([])
+        return _Res([{"Contract": "TX", "%Change": "8.42", "Volume": "9",
+                      "Date": "2026-07-31"}])
+
+    monkeypatch.setattr(data.requests, "get", _get)
+    assert data.fetch_taifex_detail() == {"pct": 8.42, "date": "2026-07-31",
+                                          "session": "日盤"}
+    # 帶上台股上一交易日 7/31 → 日盤同日視為已消化，整筆丟棄
+    assert data.fetch_taifex_detail(min_date="2026-07-31") is None
+
+
 def test_taifex_change_computes_from_change_price():
     from core.data import _taifex_change
     # 沒有 %Change 欄位時，用 漲跌價/收盤回推：(100/(20050-100))*100 ≈ 0.5

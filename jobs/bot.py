@@ -212,10 +212,12 @@ def _forecast_market():
     tf_detail = fetch_taifex_detail(min_date=tf_floor)
     tf = tf_detail["pct"] if tf_detail else None
     tf_asof = tf_detail["date"] if tf_detail else None
+    tf_session = tf_detail.get("session") if tf_detail else None
     ind = compute_indicators(idx_df, {})
     mpred = make_market_prediction(ind, us, market, tf,
                                    lessons=lessons_prompt(load_history(), "大盤"),
-                                   taifex_asof=tf_asof)
+                                   taifex_asof=tf_asof, taifex_session=tf_session,
+                                   tw_last=tf_floor)
     card = format_market_prediction(str(idx_df.index[-1].date()), mpred,
                                     forecast=True)
     return "🔮 即時試算\n\n" + card

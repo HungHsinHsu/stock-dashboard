@@ -57,13 +57,14 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
     market = market_summary(index_df)
     _u = fetch_us(with_date=True)
     us, us_asof = _u if isinstance(_u, tuple) else (_u, None)
-    # 台指期新鮮度防呆：報表日期不得早於大盤最近收盤日，否則視為過時、丟棄不用。
+    # 台指期新鮮度防呆(依場別)：夜盤不得早於、日盤不得早於或等於大盤最近收盤日，否則已消化、丟棄。
     tw_last = str(index_df.index[-1].date()) if not index_df.empty else None
     tf_detail = fetch_tf(min_date=tw_last)
     taifex = tf_detail["pct"] if tf_detail else None
     taifex_asof = tf_detail["date"] if tf_detail else None
-    print("美股隔夜:", us, "@", us_asof, "| 台指期(夜盤):", taifex, "@", taifex_asof,
-          "| 台股上一交易日:", tw_last)
+    taifex_session = tf_detail.get("session") if tf_detail else None
+    print("美股隔夜:", us, "@", us_asof, "| 台指期:", taifex, "@", taifex_asof,
+          f"({taifex_session or '無'})", "| 台股上一交易日:", tw_last)
     records = load_history(HISTORY_PATH)
     produced, skipped, failed, market_done = [], [], [], False
     stock_summ = []      # (name, prediction) 供結束後發一則個股預測總表
@@ -78,6 +79,7 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
             mpred = make_market_prediction(idx_ind, us, market, taifex, llm=llm,
                                            lessons=lessons_prompt(records, "大盤"),
                                            taifex_asof=taifex_asof,
+                                           taifex_session=taifex_session,
                                            us_asof=us_asof, tw_last=tw_last)
             records = upsert_record(records, {
                 "date": run_date, "stock": "大盤",
