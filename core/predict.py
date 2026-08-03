@@ -367,9 +367,9 @@ def make_market_prediction(index_indicators, us_overnight, market_data,
             f"美股隔夜為 {us_asof} 收盤，早於台股上一個交易日 {tw_last}——台股上個交易日"
             "已反映過這波美股(多半因美股放假沒新盤)，屬『已消化的舊訊息』，"
             "不可再當今日新的利多/利空重複計入；今日方向請以台股自身技術面與籌碼為主。")
-    # 台指期要分場：日盤 D 那場＝台股 D 自己那場，日期『等於』上一交易日就已消化（不是只有早於）。
-    if (taifex_night is not None and taifex_asof and tw_last
-            and (taifex_asof <= tw_last if taifex_session == "日盤" else taifex_asof < tw_last)):
+    # 台指期兩場都用 `<=`：夜盤(盤後) D 跑在日盤 D『之前』(實測 7/30收→盤後→7/31日盤)，
+    # 兩場到台股 D 收盤時都已反映完畢，日期『等於』上一交易日就是已消化。美股那條 `<` 不適用。
+    if (taifex_night is not None and taifex_asof and tw_last and taifex_asof <= tw_last):
         digested.append(
             f"台指期為 {taifex_asof} 那場（{taifex_session or '場別不明'}），"
             f"相對台股上一個交易日 {tw_last} 屬已消化、勿重複計入。")
