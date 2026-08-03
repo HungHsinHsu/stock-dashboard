@@ -93,11 +93,16 @@ def _taifex_endpoints():
             sessions.setdefault(str(r.get("TradingSession")), 0)
             sessions[str(r.get("TradingSession"))] += 1
         print("     全部：", sessions)
+        # 近月(202608)兩場的完整價格列——用來判定「盤後 D」到底是 D-1 晚(在 D 日盤之前、
+        # 早被消化) 還是 D 晚(在 D 收盤之後、才是真領先指標)。看收盤價落在哪就知道：
+        # 若盤後 Last 接近『日盤 Open 之下』＝前者；若明顯高於『日盤 Last』＝後者。
         for r in data:
-            if str(r.get("Contract")).strip().upper() == "TX":
-                print(f"     TX：session={r.get('TradingSession')} date={r.get('Date')} "
-                      f"月份={r.get('ContractMonth(Week)')} 漲跌%={r.get('%')} "
-                      f"量={r.get('Volume')}")
+            if (str(r.get("Contract")).strip().upper() == "TX"
+                    and str(r.get("ContractMonth(Week)")).strip() == "202608"):
+                print(f"     TX {r.get('TradingSession')} date={r.get('Date')} "
+                      f"Open={r.get('Open')} High={r.get('High')} Low={r.get('Low')} "
+                      f"Last={r.get('Last')} Change={r.get('Change')} %={r.get('%')} "
+                      f"量={r.get('Volume')} 結算={r.get('SettlementPrice')}")
     except Exception as e:
         print("     失敗：", type(e).__name__, e)
 
