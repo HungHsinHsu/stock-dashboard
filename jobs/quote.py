@@ -10,6 +10,7 @@
 import os
 from core.data import fetch_daily, fetch_foreign_flow, fetch_intraday
 from core.indicators import compute_indicators
+from core.holdings import position_pct, HIGH_POS_PCT
 from core.tz import now_tw
 
 DEFAULT = ["2408", "2884", "2883", "2881"]
@@ -58,6 +59,13 @@ def run(codes=None):
         print(f"  支撐3 MA60: {ind.get('ma60')}")
         print(f"  量比={ind.get('vol_ratio')} 排列={ind.get('ma_align')} "
               f"月線斜率(ma20_slope5)={ind.get('ma20_slope5')}")
+        # 位階：判斷「貴不貴」的關鍵。同樣的進場訊號，位階 30% 跟 85% 的風險報酬天差地遠，
+        # 所以決定掛單價時一定要跟均線一起看（≥HIGH_POS_PCT 時承接法連加碼都會擋下來）。
+        pos = position_pct(df)
+        if pos is None:
+            print("  位階     : 無法計算（資料不足 120 日，可能是新上市）")
+        else:
+            print(f"  位階     : {pos:.1f}%（近120日收盤區間；≥{HIGH_POS_PCT:.0f}% 算中上緣）")
         # 最近 7 根收盤，看近期走勢(噴高→回落 or 續強)
         tail = df.tail(7)
         print("  近7日收盤:", ", ".join(f"{d.date()}={round(float(v), 2)}"
