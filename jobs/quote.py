@@ -93,6 +93,65 @@ def _print_extremes(df):
               f"　最低(收盤) {float(df['Close'].loc[lo]):.2f} @ {lo.date()}")
 
 
+def volume_profile(df, days=45, bands=8):
+    """簡易籌碼分布：把近 days 天依收盤價切成 bands 段，統計每段的成交量與天數。
+
+    為什麼要用量而不是天數：判斷「上方壓力多重」時，我一開始用「幾天收在這個價格帶」
+    當代理，但那把成交 2 萬張的一天跟 8 萬張的一天算成一樣重——套牢的張數差 4 倍。
+    壓力的本質是「有多少張被套在那裡」，所以要用量加權。
+
+    回 [(下界, 上界, 量, 天數), ...]（由高價到低價）；資料不足回 []。"""
+    cols = getattr(df, "columns", [])
+    if "Close" not in cols or "Volume" not in cols:
+        return []
+    d = df.tail(days)
+    closes, vols = d["Close"].astype(float), d["Volume"].astype(float)
+    lo, hi = float(closes.min()), float(closes.max())
+    if not (hi > lo):
+        return []
+    step = (hi - lo) / bands
+    out = []
+    for b in range(bands - 1, -1, -1):
+        b_lo = lo + step * b
+        # 最高那一段用閉區間，否則最高價那根會落在所有區間之外被漏掉
+        b_hi = lo + step * (b + 1)
+        sel = (closes >= b_lo) & (closes <= b_hi if b == bands - 1 else closes < b_hi)
+        out.append((b_lo, b_hi, float(vols[sel].sum()), int(sel.sum())))
+    return out
+
+
+def _print_volume_profile(df, days=45, bands=8):
+    prof = volume_profile(df, days=days, bands=bands)
+    if not prof:
+        return
+    cur = float(df["Close"].iloc[-1])
+    total = sum(p[2] for p in prof) or 1.0
+    print(f"  籌碼分布  : 近 {min(days, len(df))} 天依收盤價分 {bands} 段"
+          f"（量加權；現價 {cur:.1f}）")
+    peak = max(p[2] for p in prof)
+    for b_lo, b_hi, vol, n in prof:
+        bar = "█" * max(1, round(vol / peak * 20)) if vol else ""
+        here = " ←現價" if b_lo <= cur <= b_hi else ""
+        print(f"    {b_lo:7.1f}~{b_hi:7.1f}  {vol:10.0f} 張 ({vol / total * 100:4.1f}%) "
+              f"{n:2d}天 {bar}{here}")
+
+
+def _print_recent_volume(df, n=12):
+    """近 n 根的收盤與量——判斷『這波反彈是帶量攻擊還是量縮反彈』的最直接證據。"""
+    cols = getattr(df, "columns", [])
+    if "Close" not in cols or "Volume" not in cols:
+        return
+    d = df.tail(n)
+    avg = float(df["Volume"].tail(60).mean()) if len(df) >= 20 else None
+    print(f"  近{len(d)}日量  : （括號＝與近60日均量的倍數）")
+    parts = []
+    for dt, c, v in zip(d.index, d["Close"].astype(float), d["Volume"].astype(float)):
+        r = f"×{v / avg:.2f}" if avg else "—"
+        parts.append(f"{dt.date()} 收{c:.0f} 量{v:.0f}({r})")
+    for i in range(0, len(parts), 3):
+        print("             " + "、".join(parts[i:i + 3]))
+
+
 def ma20_roll(df, n=8, window=20):
     """月線斜率接下來會翻正還是續跌——列出「即將滾出 window 日窗口的舊價」。
 
@@ -193,6 +252,8 @@ def run(codes=None):
         tail = df.tail(ntail)
         print(f"  近{ntail}日收盤:", ", ".join(f"{d.date()}={round(float(v), 2)}"
               for d, v in tail["Close"].items()))
+        _print_recent_volume(df)
+        _print_volume_profile(df, days=ntail)
         _print_ma20_roll(df)
         # 外資買賣超(T86)：判斷賣壓有沒有停、是承接法第四關
         try:
