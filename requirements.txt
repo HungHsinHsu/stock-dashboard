@@ -1,4 +1,5 @@
-# 2026-06-29 強制 Streamlit Cloud 重裝相依
+# 2026-08-03 強制 Streamlit Cloud 重裝相依（動 app.py 只重跑主腳本，sys.modules 裡的
+# 舊 core.* 不會重載；要讓「app.py 新版 + core.* 舊版」的 ImportError 消失得重建容器）
 streamlit>=1.30
 pandas>=2.0
 plotly>=5.18
