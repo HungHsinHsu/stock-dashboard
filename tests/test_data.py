@@ -324,3 +324,45 @@ def test_resolve_alphanumeric_etf_codes():
     assert resolve_stocks("00403a", listing=listing) == [("00403A", "主動式ETF")]
     assert resolve_stocks("00631L", listing=listing) == [("00631L", "元大台灣50正2")]
     assert resolve_stocks("0050", listing=listing) == [("0050", "元大台灣50")]
+
+
+# ── 盤中即時報價：欄位解析與退回順序 ──
+# MIS 的成交價 z 在沒有最新成交時是 '-'，必須依序退到 pz(前筆成交) → b(最佳買價)，
+# 並標明來源；否則會把「掛單價」當成「成交價」報給人看。
+def test_fetch_intraday_parses_and_falls_back(monkeypatch):
+    import core.data as data
+
+    class _R:
+        def json(self):
+            return {"msgArray": [
+                {"c": "2618", "n": "長榮航", "z": "44.20", "y": "43.70",
+                 "o": "43.80", "h": "44.50", "l": "43.75", "v": "12345",
+                 "t": "11:30:00"},
+                {"c": "2408", "n": "南亞科", "z": "-", "pz": "402.00",
+                 "y": "396.50", "t": "11:30:00"},
+                {"c": "2630", "n": "亞航", "z": "-", "pz": "-",
+                 "b": "36.00_35.95_", "y": "36.20", "t": "11:30:00"},
+            ]}
+
+    monkeypatch.setattr(data.requests, "get", lambda url, **kw: _R())
+    out = data.fetch_intraday(["2618", "2408", "2630"])
+    assert out["2618"]["price"] == 44.2 and out["2618"]["source"] == "成交"
+    assert out["2618"]["chg_pct"] == round((44.2 - 43.7) / 43.7 * 100, 2)
+    assert out["2408"]["price"] == 402.0 and out["2408"]["source"] == "前筆成交"
+    assert out["2630"]["price"] == 36.0 and out["2630"]["source"] == "最佳買價"
+
+
+def test_fetch_intraday_empty_and_bad_response(monkeypatch):
+    import core.data as data
+
+    class _R:
+        def __init__(self, p):
+            self._p = p
+
+        def json(self):
+            return self._p
+
+    assert data.fetch_intraday([]) == {}
+    monkeypatch.setattr(data.requests, "get",
+                        lambda url, **kw: _R({"rtcode": "5001", "rtmessage": "no data"}))
+    assert data.fetch_intraday(["2618"]) == {}

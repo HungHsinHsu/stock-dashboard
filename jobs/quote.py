@@ -8,16 +8,38 @@
   QUOTE_CODES=2330,2454 python -m jobs.quote
 """
 import os
-from core.data import fetch_daily, fetch_foreign_flow
+from core.data import fetch_daily, fetch_foreign_flow, fetch_intraday
 from core.indicators import compute_indicators
+from core.tz import now_tw
 
 DEFAULT = ["2408", "2884", "2883", "2881"]
+
+
+def _print_intraday(codes):
+    """盤中即時報價（唯一的盤中資料來源）。⚠️ 只供人工看『現在到哪了』——
+    紀律判斷一律看收盤，盤中影線會把均線規則洗成雜訊。"""
+    print(f"===== 盤中即時（查詢時間 {now_tw():%Y-%m-%d %H:%M:%S} 台灣）=====")
+    quotes = fetch_intraday(codes)
+    if not quotes:
+        print("  抓不到盤中報價（非交易時段、或 MIS 未回應）")
+        return
+    for c in codes:
+        q = quotes.get(str(c))
+        if not q:
+            print(f"  {c}: 無報價")
+            continue
+        chg = f"{q['chg_pct']:+.2f}%" if q.get("chg_pct") is not None else "—"
+        print(f"  {q.get('name') or c} ({c}): {q.get('price')} {chg}"
+              f"（昨收 {q.get('prev_close')}｜開 {q.get('open')} 高 {q.get('high')} "
+              f"低 {q.get('low')}｜量 {q.get('volume')}｜{q.get('at')}｜{q.get('source')}）")
+    print()
 
 
 def run(codes=None):
     if codes is None:
         env = [c.strip() for c in os.environ.get("QUOTE_CODES", "").split(",") if c.strip()]
         codes = env or DEFAULT
+    _print_intraday(codes)
     for c in codes:
         try:
             df = fetch_daily(c, months=5)

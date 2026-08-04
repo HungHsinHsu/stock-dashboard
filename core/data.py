@@ -635,3 +635,72 @@ def fetch_index(months=6, today=None, workers=6):
     )
     df["MA20"] = df["Close"].rolling(20).mean()
     return df
+
+
+# ── 盤中即時報價（TWSE MIS）────────────────────────────────────────────────
+# ⚠️ 這是本專案唯一的盤中資料來源，只供人工「看現在到哪了」。
+# 紀律判斷（停損/進場/出場）一律看**收盤**，不可拿盤中價觸價就動作——盤中上下影線
+# 會把任何均線規則洗成雜訊，這也是排程都排在收盤後的原因。
+MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
+MIS_HEADERS = {**HEADERS, "Referer": "https://mis.twse.com.tw/stock/fibest.jsp"}
+
+
+def _mis_num(v):
+    """MIS 欄位可能是 '-'、''、或 '43.70_43.75_'（多檔報價）→ 取第一個數字；失敗回 None。"""
+    if v is None:
+        return None
+    s = str(v).split("_")[0].strip()
+    if s in ("", "-"):
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def fetch_intraday(codes):
+    """盤中即時報價。回 {code: {name, price, prev_close, chg_pct, open, high, low,
+    volume, at, source}}；抓不到的代號不會出現在回傳裡。
+
+    上市(tse_)與上櫃(otc_)前綴都問一次，讓 API 自己回哪個存在。
+    成交價 z 在沒有最新成交時會是 '-'，依序退到 前一筆成交價(pz) → 最佳買價(b)，
+    並用 source 標明是哪一種，避免把「掛單價」當成「成交價」講。"""
+    codes = [str(c).strip() for c in codes if str(c).strip()]
+    if not codes:
+        return {}
+    ch = "|".join(f"{p}_{c}.tw" for c in codes for p in ("tse", "otc"))
+    try:
+        j = requests.get(MIS_URL, params={"ex_ch": ch, "json": "1", "delay": "0"},
+                         headers=MIS_HEADERS, timeout=15).json()
+    except Exception as e:
+        print(f"[intraday] 抓取失敗：{type(e).__name__} {e}")
+        return {}
+    if not isinstance(j, dict) or not j.get("msgArray"):
+        print(f"[intraday] 回應無 msgArray：rtcode={(j or {}).get('rtcode')} "
+              f"rtmessage={(j or {}).get('rtmessage')}")
+        return {}
+    out = {}
+    for r in j["msgArray"]:
+        code = str(r.get("c") or "").strip()
+        if not code:
+            continue
+        price, source = _mis_num(r.get("z")), "成交"
+        if price is None:
+            price, source = _mis_num(r.get("pz")), "前筆成交"
+        if price is None:
+            price, source = _mis_num(r.get("b")), "最佳買價"
+        prev = _mis_num(r.get("y"))
+        out[code] = {
+            "name": (r.get("n") or "").strip(),
+            "price": price,
+            "prev_close": prev,
+            "chg_pct": (round((price - prev) / prev * 100, 2)
+                        if price is not None and prev else None),
+            "open": _mis_num(r.get("o")),
+            "high": _mis_num(r.get("h")),
+            "low": _mis_num(r.get("l")),
+            "volume": _mis_num(r.get("v")),      # 累積成交量(張)
+            "at": (r.get("t") or "").strip(),    # 該筆資料的台灣時間 HH:MM:SS
+            "source": source,
+        }
+    return out
