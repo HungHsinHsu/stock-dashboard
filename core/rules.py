@@ -143,7 +143,16 @@ def entry_setup(ind, code=None, foreign_stopped=None):
 
     # 停損：收盤跌破長期均線(支撐3)
     if d3 is not None and d3 < 0:
-        return result("避開", None, "收盤跌破支撐3(長期均線)＝停損區，全數出場")
+        # 措辭刻意不寫「全數出場」：這是『進場』判斷，講的是「別買」，不是叫人賣。
+        # 出場歸 exit_setup 管，而 exit_setup 有漲停守門（大漲那根不執行出場）。兩邊用同一句
+        # 話會直接打架——實例：華邦電 2026-08-04 漲停 +9.8%、外資投信雙買，收盤仍在季線下，
+        # 持股頁判「續抱」、選股清單卻寫「全數出場」。同一天同一檔，一個叫抱一個叫賣。
+        ma60 = ind.get("ma60")
+        lv = f"季線 {ma60:.1f}" if isinstance(ma60, (int, float)) else "季線"
+        chg = f"（今日 {day_chg:+.1f}%）" if day_chg is not None else ""
+        return result("避開", None,
+                      f"收盤仍在{lv}之下{chg}→ 不買進，等收盤站回季線再看"
+                      "（此為進場判斷；已持有請看持股頁的出場紀律）")
 
     def near(dpct):
         return dpct is not None and -NEAR_PCT <= dpct <= NEAR_PCT

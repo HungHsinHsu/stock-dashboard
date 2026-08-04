@@ -194,3 +194,21 @@ def test_foreign_stopped_allows_entry():
     final, note = constrain_signal({"signal": "進場"}, _ENTRY_IND,
                                    foreign_stopped=True)
     assert final == "進場" and "外資已停止倒貨" in note
+
+
+def test_below_season_reason_is_entry_wording_not_exit_order():
+    """跌破季線的『避開』理由不能寫成出場指令。
+
+    實例（2026-08-04 華邦電）：漲停 +9.8%、外資投信雙買，收盤仍在季線下。
+    持股頁的 exit_setup 有漲停守門、判「續抱」；選股清單若寫「全數出場」，
+    同一檔同一天就會一個叫抱、一個叫賣。避開＝別買，不是叫人賣。
+    """
+    from core.rules import entry_setup
+    ind = {"close": 157.0, "prev_close": 143.0, "ma20": 156.68, "ma60": 162.77,
+           "dist_support1_pct": 15.7, "dist_support3_pct": -3.5, "vol_ratio": 1.02}
+    r = entry_setup(ind, code="2344")
+    assert r["ceiling"] == "避開"
+    assert "全數出場" not in r["reason"]      # 進場判斷不下出場指令
+    assert "不買進" in r["reason"]
+    assert "162.8" in r["reason"]             # 標明季線價位
+    assert "+9.8%" in r["reason"]             # 標明當日漲跌，否則看不出今天是漲停

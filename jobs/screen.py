@@ -80,12 +80,25 @@ def _order_hint(x):
     return "　" + "｜".join(parts)
 
 
+def _day_chg_txt(x):
+    """當日漲跌%。沒有這個，一行『空頭排列·季線下』完全看不出它今天是漲停還是續跌——
+    實例：華邦電 2026-08-04 漲停 +9.8%，清單上跟一路下跌的股票長得一模一樣。
+    『跌破季線』講的是位置，『今天漲跌』講的是方向，兩個都要有才讀得懂。"""
+    c, p = x.get("close"), x.get("prev_close")
+    if not isinstance(c, (int, float)) or not isinstance(p, (int, float)) or not p:
+        return ""
+    return f" {(c - p) / p * 100:+.1f}%"
+
+
 def _line(x, names):
     nm = names.get(x["code"], x["code"])
     where = x.get("at_batch") or x["kind"]
     trend = x.get("trend", "")
     trend_txt = f"〔{trend}〕" if trend else ""
-    out = f"・[{x['signal']}] {nm} ({x['code']}){trend_txt}：{where}｜{x['reason']}"
+    close_txt = (f"　收{x['close']:g}{_day_chg_txt(x)}"
+                 if isinstance(x.get("close"), (int, float)) else "")
+    out = (f"・[{x['signal']}] {nm} ({x['code']}){trend_txt}{close_txt}"
+           f"：{where}｜{x['reason']}")
     # 只有「進場」才給掛單價：觀望/避開給價格等於變相鼓勵進場，方向就反了。
     if x.get("signal") == "進場":
         hint = _order_hint(x)
