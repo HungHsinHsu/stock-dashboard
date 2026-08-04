@@ -6,6 +6,7 @@
 from core.data import fetch_top_turnover, fetch_daily, fetch_foreign_flow
 from core.screener import scan
 from core.rules import NEAR_PCT
+from core.fundamentals import fetch_valuation, valuation_notes
 from core.config import DASHBOARD_URL
 from core.tz import now_tw
 import core.telegram as tg
@@ -93,15 +94,101 @@ def _line(x, names):
     return out
 
 
-def _digest(date, cands, names, top):
+MAX_STOP_PCT = 8.0     # 掛單價到季線停損的距離上限；超過代表這筆的風險報酬已經不划算
+MAX_POS_PCT = 70.0     # 位階上限（與 core.holdings.HIGH_POS_PCT 同義：中上緣就不追）
+
+
+def _limit_price(x):
+    """該候選的掛單上限＝所在支撐 ×(1+NEAR_PCT%)。算不出來回 (None, None, None)。
+    回 (掛單價, 支撐值, 支撐名)。"""
+    at = str(x.get("at_batch") or "")
+    key = next((k for tag, k in _BATCH_MA if at.startswith(tag)), None)
+    sup = x.get(key) if key else None
+    if not isinstance(sup, (int, float)):
+        return None, None, None
+    return sup * (1 + NEAR_PCT / 100), sup, at.split("(")[0]
+
+
+def _stop_pct(limit_price, ma60):
+    """掛單價到季線停損要承受的跌幅%；算不出或掛單價已在季線之下回 None。"""
+    if not isinstance(ma60, (int, float)) or not limit_price or limit_price <= ma60:
+        return None
+    return (limit_price - ma60) / limit_price * 100
+
+
+def _top_pick(cands, names, valuation=None):
+    """從『進場』候選裡挑一檔今日首選，直接給開盤掛單價。回 list[str]。
+
+    這一段的存在理由：使用者要的是「明天掛多少」，不是一份要自己再篩一次的清單。
+    但『最優秀』不能是黑箱，所以用可解釋的硬門檻先濾、再用風險報酬排序，並把
+    估值數字原樣附上——不打分，因為本益比在不同產業/循環位置的意義完全相反。
+
+    硬門檻（缺一不取）：
+      ・訊號＝進場、且是個股（ETF 走另一套框架）
+      ・月線 MA20 斜率 > 0：承接法只接「上升趨勢中的回檔」
+      ・位階 < MAX_POS_PCT：中上緣不追
+      ・掛單價到季線停損 < MAX_STOP_PCT：停損太遠的單，期望值會被吃掉
+    排序：停損距離小 → 位階低 → 量比小（風險報酬優先，不是漲得快優先）
+    """
+    valuation = valuation or {}
+    ok, rejected = [], []
+    for x in cands:
+        if x.get("signal") != "進場" or x.get("kind") == "ETF":
+            continue
+        lp, sup, sup_name = _limit_price(x)
+        slope = x.get("ma20_slope5")
+        pos = x.get("pos_pct")
+        stop_pct = _stop_pct(lp, x.get("ma60"))
+        nm = names.get(x["code"], x["code"])
+        if lp is None or stop_pct is None:
+            rejected.append(f"{nm}（算不出掛單價/停損）")
+        elif not (isinstance(slope, (int, float)) and slope > 0):
+            rejected.append(f"{nm}（月線走平/下彎，非上升趨勢中的回檔）")
+        elif isinstance(pos, (int, float)) and pos >= MAX_POS_PCT:
+            rejected.append(f"{nm}（位階 {pos:.0f}% 偏高）")
+        elif stop_pct >= MAX_STOP_PCT:
+            rejected.append(f"{nm}（停損要 −{stop_pct:.1f}%，太遠）")
+        else:
+            ok.append((stop_pct, pos if isinstance(pos, (int, float)) else 50.0,
+                       x.get("vol_ratio") or 9.9, x, lp, sup, sup_name))
+    lines = ["", "──── ⭐ 今日首選（明日開盤前掛單）────"]
+    if not ok:
+        lines.append("・今天沒有同時通過『月線上揚＋位階不高＋停損夠近』的進場標的 → 不出手。")
+        if rejected:
+            lines.append("　被刷掉的：" + "、".join(rejected[:6]))
+        return lines
+    ok.sort(key=lambda t: (t[0], t[1], t[2]))
+    stop_pct, pos, vr, x, lp, sup, sup_name = ok[0]
+    code = x["code"]
+    nm = names.get(code, code)
+    lines.append(f"🥇 {nm} ({code})　{x.get('trend', '')}")
+    lines.append(f"　💰 掛單 ≤{lp:.2f}（{sup_name} {sup:.2f} 的 +{NEAR_PCT:.0f}% 內）")
+    lines.append(f"　🛑 停損 {x['ma60']:.2f}（季線）｜風險 −{stop_pct:.1f}%")
+    meta = [f"位階 {pos:.0f}%", f"量比 {vr}", f"月線斜率 +{x['ma20_slope5']:.2f}"]
+    lines.append("　📊 " + "｜".join(meta))
+    notes = valuation_notes(valuation.get(code))
+    lines.append("　💵 " + "｜".join(notes) if notes
+                 else "　💵 （今日無估值資料，本益比/殖利率請自行確認）")
+    lines.append(f"　理由：{x.get('reason')}")
+    if len(ok) > 1:
+        alts = "、".join(f"{names.get(t[3]['code'], t[3]['code'])}(−{t[0]:.1f}%)"
+                         for t in ok[1:4])
+        lines.append(f"　次選：{alts}")
+    lines.append("　⚠️ 估值只有本益比/殖利率/淨值比（TWSE 每日公布）；營收年增、毛利率、"
+                 "訂單能見度需人工查證，未納入。")
+    return lines
+
+
+def _digest(date, cands, names, top, valuation=None):
     stocks = [x for x in cands if x.get("kind") != "ETF"]
     etfs = [x for x in cands if x.get("kind") == "ETF"]
     lines = [
         f"🔎 今日收盤後選股（回檔承接法・前 {top} 大成交股）— {date}",
         "📏 評選：訊號 進場>觀望>避開 ＞ 回檔到支撐 ＞ 收盤站穩 ＞ 量縮 ＞ 離均線近；禁區/槓桿不列。",
         "",
-        "📈 個股（主）：",
     ]
+    lines += _top_pick(cands, names, valuation)     # 首選擺最前面：這是唯一要立刻動作的一行
+    lines += ["", "📈 個股（主）："]
     lines += [_line(x, names) for x in stocks] or ["・（今日沒有合適個股）"]
     if etfs:
         lines += ["", "📦 ETF（趨勢參考，走另一套框架，非個股承接法）："]
@@ -129,8 +216,17 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
 
     cands = scan([c for c, _ in uni], fetch=_f, foreign_lookup=fetch_foreign_flow,
                  limit=limit, pause=pause) if uni else []
+    # 估值（本益比/殖利率/淨值比）：一次呼叫拿全市場，抓不到就降級成「無估值資料」，
+    # 不因此擋掉整份推播——技術面本來就能獨立成立。
+    try:
+        valuation = fetch_valuation((today or now_tw()).strftime("%Y%m%d"))
+    except Exception as e:
+        print("[screen] 估值抓取失敗：", type(e).__name__, e)
+        valuation = {}
     result = {"date": date, "top": top, "uni_n": len(uni),
-              "fetched_n": got["ok"], "names": names, "cands": cands}
+              "fetched_n": got["ok"], "names": names, "cands": cands,
+              "valuation": {c: valuation[c] for c in
+                            (x["code"] for x in cands) if c in valuation}}
     # 只有真的抓到市場清單才覆寫；TWSE 沒回應(清單=0)時保留上一份好結果，不要洗成空的。
     if uni:
         try:
@@ -152,7 +248,7 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
               f"{x.get('at_batch') or x['kind']} | 量比{x.get('vol_ratio')}")
     if notify:
         if cands:
-            tg.send(_digest(date, cands, names, top))
+            tg.send(_digest(date, cands, names, top, valuation))
         elif not uni:
             tg.send("🔎 收盤後選股：抓不到市場清單（TWSE 沒回應），稍後系統會再試。")
         else:

@@ -10,6 +10,7 @@ from core.indicators import compute_indicators
 from core.rules import (
     entry_setup, etf_setup, is_etf, is_denied, is_leveraged_etf, ETF_SIGNAL_LABEL,
 )
+from core.holdings import position_pct
 
 # 一律排名列出：進場最優、觀望次之、避開(跌破季線/趨勢偏弱)墊底但仍列出。
 # 只有禁區/槓桿股永遠不列（本來就不玩）。
@@ -102,6 +103,9 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0,
             # 三段支撐價（＝MA5/20/60），供「每日策略頁」算掛單價/停損線，免再抓一次
             "ma5": ind.get("ma5"), "ma20": ind.get("ma20"), "ma60": ind.get("ma60"),
             "ma20_slope5": ind.get("ma20_slope5"),
+            # 位階：同樣的進場訊號，位階 30% 與 85% 的風險報酬天差地遠。存進候選裡，
+            # 「今日首選」才有辦法把『貴不貴』納入篩選（資料不足 120 日時為 None）。
+            "pos_pct": position_pct(df),
             # 技術面四關到位、只差外資＝激進版(左側)可當天接；保守版(右側)要外資也停手才接
             "tech_ready": setup.get("tech_ready"),
         }
