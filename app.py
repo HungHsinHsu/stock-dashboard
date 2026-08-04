@@ -36,7 +36,9 @@ from core.auth import hash_password, verify_password
 from core import db
 from core.tz import now_tw
 
-# （部署觸發：確保 Streamlit Cloud 乾淨重載 core.rules 等模組）
+# （部署觸發：確保 Streamlit Cloud 乾淨重載 core.* 模組。Streamlit 重跑主腳本時不會重新
+#  載入已在 sys.modules 的 core.*，所以「app.py 是新版、core.holdings 還是舊版」會炸出
+#  ImportError；動到本檔即可強制重新部署。最近一次：2026-08-03 新增 display_name）
 st.set_page_config(page_title="台股觀察儀表板", layout="wide", page_icon="📊")
 st.title("📊 台股觀察儀表板")
 if db.db_enabled():
