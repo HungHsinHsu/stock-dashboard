@@ -183,9 +183,15 @@ def run(codes=None):
             print("  位階     : 無法計算（資料不足 120 日，可能是新上市）")
         else:
             print(f"  位階     : {pos:.1f}%（近120日收盤區間；≥{HIGH_POS_PCT:.0f}% 算中上緣）")
-        # 最近 7 根收盤，看近期走勢(噴高→回落 or 續強)
-        tail = df.tail(7)
-        print("  近7日收盤:", ", ".join(f"{d.date()}={round(float(v), 2)}"
+        # 最近 N 根收盤，看近期走勢(噴高→回落 or 續強)。
+        # 預設 7 根夠看「昨天到今天」，但要判斷底部/頭部型態（W 底的第一隻腳在哪、
+        # 是不是破底後 V 轉）7 根遠遠不夠——少幾根就只能猜。用 QUOTE_TAIL 拉長。
+        try:
+            ntail = max(2, int(os.environ.get("QUOTE_TAIL", "").strip() or 7))
+        except ValueError:
+            ntail = 7
+        tail = df.tail(ntail)
+        print(f"  近{ntail}日收盤:", ", ".join(f"{d.date()}={round(float(v), 2)}"
               for d, v in tail["Close"].items()))
         _print_ma20_roll(df)
         # 外資買賣超(T86)：判斷賣壓有沒有停、是承接法第四關

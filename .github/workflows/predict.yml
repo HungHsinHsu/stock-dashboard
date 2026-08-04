@@ -30,6 +30,10 @@ on:
         description: "quote 用：回溯幾個月（留空＝5；查前高/前低要拉長）"
         required: false
         default: ""
+      quote_tail:
+        description: "quote 用：列出最近幾根收盤（留空＝7；判底部/頭部型態要拉長）"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -79,6 +83,7 @@ jobs:
           ADMIN_ACTION: ${{ github.event.inputs.admin_action }}
           QUOTE_CODES: ${{ github.event.inputs.quote_codes }}
           QUOTE_MONTHS: ${{ github.event.inputs.quote_months }}
+          QUOTE_TAIL: ${{ github.event.inputs.quote_tail }}
         run: python -m jobs.${{ steps.which.outputs.job }}
       - name: Commit history（僅 JSON 模式；設了 DATABASE_URL 就走 DB、跳過）
         env:
