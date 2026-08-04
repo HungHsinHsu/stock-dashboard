@@ -65,3 +65,12 @@ def test_valuation_notes_flags_cheap_and_rich():
     assert "偏高" in "".join(valuation_notes({"pe": 55.0}))
     assert "假便宜" in "".join(valuation_notes({"pe": 6.0}))
     assert valuation_notes(None) == []
+
+
+def test_top_pick_rejects_unknown_position():
+    """位階算不出來(None)時要刷掉，不能當成『位階低』放行。
+
+    硬門檻缺一不取——把 None 視為通過，等於資料不足的標的自動繞過位階上限。"""
+    out = "\n".join(_top_pick([_c("9999", pos_pct=None)], {"9999": "測試股"}))
+    assert "🥇" not in out
+    assert "位階算不出來" in out

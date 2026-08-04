@@ -144,10 +144,17 @@ def display_name(name, code):
 
 def position_pct(df, window=120):
     """位階：現價(收盤)落在近 window 個交易日收盤高低區間的百分位（0=最低、100=最高）。
-    純用收盤，抓不到或區間為 0 回 None。"""
+    純用收盤，抓不到、資料不足 window 根或區間為 0 回 None。
+
+    ⚠️ 一定要湊滿 window 根才算：`tail(window)` 在資料不夠時會安靜地用「有幾根算幾根」，
+    於是 5 個月(~100 根)的 df 算出來的數字，會被當成「近 120 日位階」拿去跟 70% 門檻比。
+    實例：3037 用 5 個月算出 73.0%、用 36 個月算出 78.4%——同一天、同一支、差 5.4 個百分點，
+    而且短視窗那份還漏掉了區間裡的高點。窗口不同的百分位根本不能比大小，寧可回 None。"""
     try:
         closes = df["Close"].dropna().tail(window)
     except Exception:
+        return None
+    if len(closes) < window:
         return None
     if len(closes) < 2:
         return None

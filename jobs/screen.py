@@ -155,6 +155,9 @@ def _top_pick(cands, names, valuation=None):
         nm = names.get(x["code"], x["code"])
         if lp is None or stop_pct is None:
             rejected.append(f"{nm}（算不出掛單價/停損）")
+        elif not isinstance(pos, (int, float)):
+            # 算不出位階就不能放行：硬門檻缺一不取，「沒資料」不等於「位階低」。
+            rejected.append(f"{nm}（位階算不出來，資料不足 120 日）")
         elif not (isinstance(slope, (int, float)) and slope > 0):
             rejected.append(f"{nm}（月線走平/下彎，非上升趨勢中的回檔）")
         elif isinstance(pos, (int, float)) and pos >= MAX_POS_PCT:
@@ -222,7 +225,9 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
     got = {"ok": 0}
 
     def _f(c):
-        df = (fetch or (lambda x: fetch_daily(x, months=5, workers=2)))(c)
+        # 7 個月(~145 個交易日)：位階要滿 120 根才算得出來，5 個月(~100 根)不夠，
+        # 會讓 _top_pick 的位階門檻整條失效（見 position_pct 的註解）。
+        df = (fetch or (lambda x: fetch_daily(x, months=7, workers=2)))(c)
         if df is not None and not getattr(df, "empty", True):
             got["ok"] += 1
         return df

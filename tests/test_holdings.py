@@ -179,7 +179,18 @@ def test_store_mode(tmp_path):
 # ── 位階計算 ──
 def test_position_pct():
     df = pd.DataFrame({"Close": list(range(1, 11))})   # 1..10，現價=10=最高
-    assert position_pct(df) == 100.0
+    assert position_pct(df, window=10) == 100.0
     df2 = pd.DataFrame({"Close": [10, 20, 15]})         # 15 在 [10,20] 的一半
-    assert abs(position_pct(df2) - 50.0) < 1e-6
-    assert position_pct(pd.DataFrame({"Close": [5]})) is None
+    assert abs(position_pct(df2, window=3) - 50.0) < 1e-6
+    assert position_pct(pd.DataFrame({"Close": [5]}), window=1) is None
+
+
+def test_position_pct_requires_full_window():
+    """資料不足 window 根一律回 None。
+
+    舊行為是 tail(window) 有幾根算幾根，於是 5 個月的 df 會算出一個「近 100 日位階」，
+    卻被當成 120 日位階拿去跟 70% 門檻比——窗口不同的百分位不能比大小。"""
+    short = pd.DataFrame({"Close": list(range(1, 120))})   # 119 根，差 1 根
+    assert position_pct(short) is None
+    full = pd.DataFrame({"Close": list(range(1, 121))})    # 剛好 120 根
+    assert position_pct(full) == 100.0
