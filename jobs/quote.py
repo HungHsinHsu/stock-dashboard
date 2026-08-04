@@ -93,6 +93,30 @@ def _print_extremes(df):
               f"　最低(收盤) {float(df['Close'].loc[lo]):.2f} @ {lo.date()}")
 
 
+def _print_ma20_roll(df, n=8):
+    """月線斜率接下來會翻正還是續跌——把「即將滾出 20 日窗口的舊價」跟「現價」對比。
+
+    MA20 明天的變化 ＝ (明天收盤 − 20 天前那根收盤) / 20。所以只要看那根「要掉出去的
+    舊價」比現價高還低，就知道均線是會被拉上來還是壓下去，不必等它自己翻。
+    這正是 CLAUDE.md 那條教訓要問的：是價格漲過去、還是均線追上來？"""
+    if "Close" not in getattr(df, "columns", []) or len(df) < 21:
+        return
+    closes = df["Close"].dropna()
+    if len(closes) < 21:
+        return
+    cur = float(closes.iloc[-1])
+    print(f"  月線換手  : 未來 {n} 天要滾出 20 日窗口的舊價（比現價 {cur:.2f} 低者＝會把月線往下拉）")
+    rows = []
+    for k in range(n):
+        i = len(closes) - 20 - k          # 第 k 天後將掉出窗口的那根
+        if i < 0:
+            break
+        old = float(closes.iloc[i])
+        mark = "↑拉升" if cur > old else "↓拖累"
+        rows.append(f"{closes.index[i].date()}={old:.1f}({mark})")
+    print("             " + "、".join(rows))
+
+
 def _print_window(code, df, since):
     r = _best_trade(df, since)
     if not r:
@@ -149,6 +173,7 @@ def run(codes=None):
         tail = df.tail(7)
         print("  近7日收盤:", ", ".join(f"{d.date()}={round(float(v), 2)}"
               for d, v in tail["Close"].items()))
+        _print_ma20_roll(df)
         # 外資買賣超(T86)：判斷賣壓有沒有停、是承接法第四關
         try:
             fo = fetch_foreign_flow(c)
