@@ -6,6 +6,7 @@
 用法：
   python -m jobs.quote                    # 預設四檔（南亞科/玉山金/凱基金/富邦金）
   QUOTE_CODES=2330,2454 python -m jobs.quote
+  QUOTE_MONTHS=24 python -m jobs.quote    # 拉長回溯期，用來確認「前高／前低到底在哪」
 """
 import os
 from core.data import fetch_daily, fetch_foreign_flow, fetch_intraday
@@ -71,6 +72,27 @@ def _best_trade(df, since):
     return out
 
 
+def _print_extremes(df):
+    """整段抓到的資料裡的最高／最低（含日期）。
+
+    教訓：只抓 5 個月就斷言「1130 是前高、1200 算創新高」——那只是視窗內的高點，
+    不是歷史高點。談壓力/前高之前，先把回溯期印出來，讓「這是多久以來的高點」
+    是看得到的事實，而不是預設值造成的錯覺。"""
+    if df is None or getattr(df, "empty", True):
+        return
+    print(f"  回溯期   : {df.index[0].date()} ~ {df.index[-1].date()}"
+          f"（{len(df)} 個交易日）")
+    for tag, col, fn in (("最高", "High", "idxmax"), ("最低", "Low", "idxmin")):
+        if col not in df.columns:
+            continue
+        i = getattr(df[col], fn)()
+        print(f"    區間{tag}(盤中) {float(df[col].loc[i]):.2f} @ {i.date()}")
+    if "Close" in df.columns:
+        hi, lo = df["Close"].idxmax(), df["Close"].idxmin()
+        print(f"    區間最高(收盤) {float(df['Close'].loc[hi]):.2f} @ {hi.date()}"
+              f"　最低(收盤) {float(df['Close'].loc[lo]):.2f} @ {lo.date()}")
+
+
 def _print_window(code, df, since):
     r = _best_trade(df, since)
     if not r:
@@ -89,9 +111,13 @@ def run(codes=None):
         env = [c.strip() for c in os.environ.get("QUOTE_CODES", "").split(",") if c.strip()]
         codes = env or DEFAULT
     _print_intraday(codes)
+    try:
+        months = max(1, int(os.environ.get("QUOTE_MONTHS", "").strip() or 5))
+    except ValueError:
+        months = 5
     for c in codes:
         try:
-            df = fetch_daily(c, months=5)
+            df = fetch_daily(c, months=months)
         except Exception as e:
             print(f"{c}: 抓取失敗 {type(e).__name__}: {e}")
             continue
@@ -100,6 +126,7 @@ def run(codes=None):
             continue
         ind = compute_indicators(df, {})
         print(f"===== {c} =====")
+        _print_extremes(df)
         # 起算日沿用 admin_date 這個既有輸入欄，避免為一次性分析去改 workflow
         since = os.environ.get("ADMIN_DATE", "").strip()
         if since:
