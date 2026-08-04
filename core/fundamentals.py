@@ -50,11 +50,22 @@ def fetch_valuation(date=None):
     """
     ymd = date or now_tw().strftime("%Y%m%d")
     for url in BWIBBU_URLS:
+        tag = url.split("/")[-1]
         try:
-            j = requests.get(url, params={"response": "json", "date": ymd},
-                             headers=HEADERS, timeout=20).json()
+            # selectType 是必帶的：不給的話 TWSE 回的是錯誤頁(HTML)而非 JSON，
+            # .json() 會丟 JSONDecodeError——跟「當日尚未發布」外觀完全一樣、無法分辨。
+            res = requests.get(url, params={"response": "json", "date": ymd,
+                                            "selectType": "ALL"},
+                               headers=HEADERS, timeout=20)
         except Exception as e:
-            print(f"[valuation] {url.split('/')[-1]} 抓取失敗：{type(e).__name__} {e}")
+            print(f"[valuation] {tag} 連線失敗：{type(e).__name__} {e}")
+            continue
+        try:
+            j = res.json()
+        except Exception as e:
+            # 把回應開頭印出來，否則「網址/參數錯」與「當日無資料」永遠分不出來
+            print(f"[valuation] {tag} 回應非 JSON（HTTP {res.status_code}、"
+                  f"{len(res.content)} bytes）：{type(e).__name__}；前 200 字：{res.text[:200]!r}")
             continue
         if str(j.get("stat")) != "OK":
             print(f"[valuation] {url.split('/')[-1]} 非 OK：{j.get('stat')}（date={ymd}）")

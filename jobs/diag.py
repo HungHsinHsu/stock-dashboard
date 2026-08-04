@@ -75,7 +75,10 @@ def _valuation_probe():
     except Exception as e:
         print("  抓大盤失敗，改用今天：", e)
         last = None
-    for ymd in [d for d in (last, now_tw().strftime("%Y%m%d")) if d]:
+    import datetime as _dt
+    # 抓不到大盤時退而求其次：往前試幾天，避開「今天盤中尚未發布」被誤判成 API 壞掉
+    fallback = [(now_tw() - _dt.timedelta(days=i)).strftime("%Y%m%d") for i in range(0, 5)]
+    for ymd in [d for d in ([last] + fallback) if d]:
         val = fetch_valuation(ymd)
         print(f"  date={ymd} → {len(val)} 檔")
         for code in ("2408", "2618", "1476", "0050"):
