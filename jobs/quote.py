@@ -36,6 +36,54 @@ def _print_intraday(codes):
     print()
 
 
+def _best_trade(df, since):
+    """區間內『買在最低、之後賣在最高』的最佳單筆。回 dict 或 None。
+
+    關鍵：賣必須晚於買。若最高點出現在最低點之前，那組合根本做不到（除非放空），
+    所以用「每個日期之後的最高價」去配，不能直接拿區間 max 減 min。
+
+    同時給兩個版本：
+      ・盤中(High/Low)：理論極限，實務上抓不到
+      ・收盤價：至少是收盤後看得到的價，比較接近人做得到的上限
+    """
+    d = df[df.index >= since]
+    if len(d) < 2:
+        return None
+    out = {"first": str(d.index[0].date()), "last": str(d.index[-1].date()), "n": len(d)}
+    for tag, lo_col, hi_col in (("盤中", "Low", "High"), ("收盤", "Close", "Close")):
+        if lo_col not in d.columns or hi_col not in d.columns:
+            continue
+        best = None
+        for i in range(len(d) - 1):
+            buy = float(d[lo_col].iloc[i])
+            if buy <= 0:
+                continue
+            after = d[hi_col].iloc[i + 1:]
+            j = int(after.values.argmax())
+            sell = float(after.iloc[j])
+            gain = sell / buy - 1
+            if best is None or gain > best["gain"]:
+                best = {"gain": gain, "buy": buy, "sell": sell,
+                        "buy_date": str(d.index[i].date()),
+                        "sell_date": str(after.index[j].date())}
+        if best:
+            out[tag] = best
+    return out
+
+
+def _print_window(code, df, since):
+    r = _best_trade(df, since)
+    if not r:
+        print(f"  區間分析：{since} 起資料不足")
+        return
+    print(f"  區間 {r['first']} ~ {r['last']}（{r['n']} 個交易日）")
+    for tag in ("盤中", "收盤"):
+        b = r.get(tag)
+        if b:
+            print(f"    最佳單筆({tag})：{b['buy_date']} 買 {b['buy']:.2f} → "
+                  f"{b['sell_date']} 賣 {b['sell']:.2f}　＝ {b['gain'] * 100:+.1f}%")
+
+
 def run(codes=None):
     if codes is None:
         env = [c.strip() for c in os.environ.get("QUOTE_CODES", "").split(",") if c.strip()]
@@ -52,6 +100,10 @@ def run(codes=None):
             continue
         ind = compute_indicators(df, {})
         print(f"===== {c} =====")
+        # 起算日沿用 admin_date 這個既有輸入欄，避免為一次性分析去改 workflow
+        since = os.environ.get("ADMIN_DATE", "").strip()
+        if since:
+            _print_window(c, df, since)
         print(f"  資料日   : {df.index[-1].date()}")
         print(f"  收盤/前收: {ind.get('close')} / {ind.get('prev_close')}")
         print(f"  支撐1 MA5 : {ind.get('ma5')}")
