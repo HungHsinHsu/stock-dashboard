@@ -93,28 +93,42 @@ def _print_extremes(df):
               f"　最低(收盤) {float(df['Close'].loc[lo]):.2f} @ {lo.date()}")
 
 
-def _print_ma20_roll(df, n=8):
-    """月線斜率接下來會翻正還是續跌——把「即將滾出 20 日窗口的舊價」跟「現價」對比。
+def ma20_roll(df, n=8, window=20):
+    """月線斜率接下來會翻正還是續跌——列出「即將滾出 window 日窗口的舊價」。
 
-    MA20 明天的變化 ＝ (明天收盤 − 20 天前那根收盤) / 20。所以只要看那根「要掉出去的
-    舊價」比現價高還低，就知道均線是會被拉上來還是壓下去，不必等它自己翻。
-    這正是 CLAUDE.md 那條教訓要問的：是價格漲過去、還是均線追上來？"""
-    if "Close" not in getattr(df, "columns", []) or len(df) < 21:
-        return
+    MA20 明天的變化 ＝ (明天收盤 − 即將滾出的那根收盤) / 20。所以只要看那根舊價
+    比現價高還低，就知道均線會被帶上去還是壓下來，不必等它自己翻。
+    這正是 CLAUDE.md 那條教訓要問的：是價格漲過去、還是均線追上來？
+
+    回 (現價, [(日期, 舊價, 會不會拉升), ...])；資料不足回 (None, [])。
+
+    ⚠️ 索引方向踩過坑：目前窗口涵蓋最後 window 根，其中最舊的那根（index len-window）
+    明天first掉出去，後天換 len-window+1……所以要 **+k 往未來走**。寫成 −k 會列出
+    「過去幾天已經掉出去的」，方向剛好相反，看起來卻一樣合理。"""
+    if "Close" not in getattr(df, "columns", []):
+        return None, []
     closes = df["Close"].dropna()
-    if len(closes) < 21:
-        return
+    if len(closes) <= window:
+        return None, []
     cur = float(closes.iloc[-1])
-    print(f"  月線換手  : 未來 {n} 天要滾出 20 日窗口的舊價（比現價 {cur:.2f} 低者＝會把月線往下拉）")
     rows = []
     for k in range(n):
-        i = len(closes) - 20 - k          # 第 k 天後將掉出窗口的那根
-        if i < 0:
+        i = len(closes) - window + k      # 第 k+1 天後將掉出窗口的那根
+        if i >= len(closes):
             break
         old = float(closes.iloc[i])
-        mark = "↑拉升" if cur > old else "↓拖累"
-        rows.append(f"{closes.index[i].date()}={old:.1f}({mark})")
-    print("             " + "、".join(rows))
+        rows.append((closes.index[i].date(), old, cur > old))
+    return cur, rows
+
+
+def _print_ma20_roll(df, n=8):
+    cur, rows = ma20_roll(df, n=n)
+    if not rows:
+        return
+    print(f"  月線換手  : 未來 {len(rows)} 天要滾出 20 日窗口的舊價"
+          f"（比現價 {cur:.2f} 低＝滾掉後月線被帶上去；比現價高＝月線被壓下來）")
+    print("             " + "、".join(
+        f"{d}={old:.1f}({'↑拉升' if up else '↓拖累'})" for d, old, up in rows))
 
 
 def _print_window(code, df, since):
