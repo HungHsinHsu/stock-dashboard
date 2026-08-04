@@ -7,6 +7,7 @@ from core.data import (
     fetch_us_overnight, fetch_taifex_detail, fetch_index, HEADERS, US_INDICES,
     TAIFEX_URL, TAIFEX_SESSIONS, _taifex_pick_row, _row_change_pct, _row_date,
 )
+from core.fundamentals import fetch_valuation, valuation_notes
 from core.tz import now_tw, today_tw
 
 
@@ -65,8 +66,29 @@ def _yahoo_last_bars(symbol, n=4):
         return f"抓不到 {symbol}: {e}"
 
 
+def _valuation_probe():
+    """驗證 TWSE 估值(本益比/殖利率/淨值比) API 與解析。用『上一個交易日』打，
+    因為當日收盤後才發布——拿今天去打在盤中一定是非 OK，會誤判成 API 壞掉。"""
+    try:
+        idx = fetch_index()
+        last = idx.index[-1].strftime("%Y%m%d") if not idx.empty else None
+    except Exception as e:
+        print("  抓大盤失敗，改用今天：", e)
+        last = None
+    for ymd in [d for d in (last, now_tw().strftime("%Y%m%d")) if d]:
+        val = fetch_valuation(ymd)
+        print(f"  date={ymd} → {len(val)} 檔")
+        for code in ("2408", "2618", "1476", "0050"):
+            v = val.get(code)
+            print(f"    {code}: {v}　{'｜'.join(valuation_notes(v)) if v else '(無)'}")
+        if val:
+            break
+
+
 def run():
     print("now_tw:", now_tw(), " today_tw:", today_tw())
+    print("\n===== TWSE 估值 API（本益比/殖利率/淨值比）=====")
+    _valuation_probe()
     print("\n===== 美股隔夜 fetch_us_overnight() =====")
     print(json.dumps(fetch_us_overnight(), ensure_ascii=False))
     print("--- 各指數 Yahoo 最後幾根(日期,收盤) 看有沒有放假日缺一天/最後一天是幾號 ---")
