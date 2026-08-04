@@ -5,6 +5,7 @@
 """
 from core.data import fetch_top_turnover, fetch_daily, fetch_foreign_flow
 from core.screener import scan
+from core.rules import NEAR_PCT
 from core.config import DASHBOARD_URL
 from core.tz import now_tw
 import core.telegram as tg
@@ -51,12 +52,45 @@ def _store_foreign_snapshot(db, date, cands, lookup=None):
         print("[screen] 外資快照：這次一檔都沒抓到，保留上一份。")
 
 
+# 「支撐N」對應的均線欄位。訊號說「回檔到支撐2」，掛單價就要用該支撐的均線去算。
+_BATCH_MA = (("支撐1", "ma5"), ("支撐2", "ma20"), ("支撐3", "ma60"))
+
+
+def _order_hint(x):
+    """把『進場訊號』翻成『明天掛多少』。回一行字串；算不出來回 None。
+
+    存在的理由（實際踩過的坑）：這份清單是收盤後算的，隔天開盤才能下單。原本推播
+    只有訊號與理由、一個價格都沒有，使用者早上根本不知道要掛什麼價——等到盤中問完
+    再掛，好價位早就過去了。訊號沒有價格，就不是可執行的動作。
+
+    掛單上限＝支撐 ×(1+NEAR_PCT%)，也就是『到價區』的上緣：買在這個價之上，就已經
+    不符合「回檔到支撐」的定義，那是追高不是承接。"""
+    at = str(x.get("at_batch") or "")
+    key = next((k for tag, k in _BATCH_MA if at.startswith(tag)), None)
+    sup = x.get(key) if key else None
+    if not isinstance(sup, (int, float)):
+        return None
+    hi = sup * (1 + NEAR_PCT / 100)
+    parts = [f"💰 明日掛單 ≤{hi:.2f}（{at.split('(')[0]} {sup:.2f} 的 +{NEAR_PCT:.0f}% 內）"]
+    stop = x.get("ma60")
+    if isinstance(stop, (int, float)) and hi > stop:
+        parts.append(f"🛑停損 {stop:.2f}（季線）")
+        parts.append(f"風險 −{(hi - stop) / hi * 100:.1f}%")
+    return "　" + "｜".join(parts)
+
+
 def _line(x, names):
     nm = names.get(x["code"], x["code"])
     where = x.get("at_batch") or x["kind"]
     trend = x.get("trend", "")
     trend_txt = f"〔{trend}〕" if trend else ""
-    return f"・[{x['signal']}] {nm} ({x['code']}){trend_txt}：{where}｜{x['reason']}"
+    out = f"・[{x['signal']}] {nm} ({x['code']}){trend_txt}：{where}｜{x['reason']}"
+    # 只有「進場」才給掛單價：觀望/避開給價格等於變相鼓勵進場，方向就反了。
+    if x.get("signal") == "進場":
+        hint = _order_hint(x)
+        if hint:
+            out += "\n" + hint
+    return out
 
 
 def _digest(date, cands, names, top):
