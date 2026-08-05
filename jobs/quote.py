@@ -10,6 +10,7 @@
 """
 import os
 from core.data import fetch_daily, fetch_foreign_flow, fetch_intraday
+from core.fundamentals import fetch_valuation, valuation_notes
 from core.indicators import compute_indicators
 from core.holdings import position_pct, HIGH_POS_PCT
 from core.tz import now_tw
@@ -212,6 +213,13 @@ def run(codes=None):
         months = max(1, int(os.environ.get("QUOTE_MONTHS", "").strip() or 5))
     except ValueError:
         months = 5
+    # 估值：每日「選一檔最優秀標的」時要同時看基本面，逐檔查太慢也容易被限流，
+    # 一次抓全市場再查表。抓不到就留空——寧可標明沒有，也不要給看起來像基本面的猜測。
+    try:
+        valuation = fetch_valuation()
+    except Exception as e:
+        print(f"[valuation] 取得失敗，本次不附估值：{type(e).__name__} {e}")
+        valuation = {}
     for c in codes:
         try:
             df = fetch_daily(c, months=months)
@@ -255,6 +263,9 @@ def run(codes=None):
         _print_recent_volume(df)
         _print_volume_profile(df, days=ntail)
         _print_ma20_roll(df)
+        v = valuation.get(str(c))
+        notes = valuation_notes(v)
+        print(f"  估值     : {'｜'.join(notes) if notes else '（無資料：當日尚未發布、或非上市股）'}")
         # 外資買賣超(T86)：判斷賣壓有沒有停、是承接法第四關
         try:
             fo = fetch_foreign_flow(c)
