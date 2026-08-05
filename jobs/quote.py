@@ -227,7 +227,11 @@ def run(codes=None):
             print(f"{c}: 抓取失敗 {type(e).__name__}: {e}")
             continue
         if df is None or getattr(df, "empty", True):
-            print(f"{c}: 無資料（可能限流或代號錯）")
+            # 別把三種原因混成一句。日線只走 TWSE STOCK_DAY（上市），上櫃股一定回空，
+            # 重抓幾次都一樣——寫「可能限流」會讓人一直重試，浪費時間又找不到真因。
+            # 實例：波若威 3163（上櫃）連抓兩次都空，其實是資料源根本不涵蓋。
+            print(f"{c}: 抓不到日線。日線來源是 TWSE STOCK_DAY，只涵蓋『上市』；"
+                  f"若 {c} 是上櫃(TPEx)股，這裡永遠會是空的，不是限流也不是代號錯。")
             continue
         ind = compute_indicators(df, {})
         print(f"===== {c} =====")
