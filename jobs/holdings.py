@@ -53,6 +53,32 @@ def _lvl_line(levels):
     return "　".join(parts)
 
 
+def _price_tag(d):
+    """資料日 → 價格標籤：'2026-08-04' → '8/04收'；無日期回 '收'。
+
+    刻意不寫「現」。這份是收盤/盤前快照，而 GitHub Actions 的排程誤點 1~4 小時是常態
+    （實例：07:40 的開盤預測班實際 11:29 才跑）。一旦遲到，盤中推出一份標著「現」的
+    昨收價，看起來就像數據全錯——其實數據是對的，是標籤在說謊。標日期才不會騙人。"""
+    try:
+        _, m, dd = str(d).split("-")
+        return f"{int(m)}/{dd}收"
+    except (ValueError, AttributeError):
+        return "收"
+
+
+def _stale_note(items, now=None):
+    """資料日比今天舊、且現在已開盤 → 明講這是舊價。開盤前推昨收是正常的，不警告。"""
+    now = now or now_tw()
+    dates = {it.get("date") for it in items if it.get("date")}
+    if not dates:
+        return None
+    newest = max(dates)
+    if newest >= str(now.date()) or now.hour < 9:
+        return None
+    return (f"⚠️ 本篇價格為 {newest} 收盤，但現在已是 {now:%m/%d %H:%M}（開盤後）"
+            "——排程遲到所致，即時價請以看盤軟體為準。")
+
+
 def _item_lines(it):
     emoji = _ACT_EMOJI.get(it["action"], "・")
     tag = f"〔{it.get('mode', '波段')}〕"
@@ -60,7 +86,8 @@ def _item_lines(it):
     pnl = it.get("pnl_pct")
     if pnl is not None and it.get("avg_cost") and it.get("close") is not None:
         sign = "+" if pnl >= 0 else ""
-        lines.append(f"　損益 {sign}{pnl:.1f}%（均價 {it['avg_cost']:.2f} → 現 {it['close']:.2f}）")
+        lines.append(f"　損益 {sign}{pnl:.1f}%（均價 {it['avg_cost']:.2f} → "
+                     f"{_price_tag(it.get('date'))} {it['close']:.2f}）")
     lvl = _lvl_line(it.get("levels") or {})
     if lvl:
         lines.append("　" + lvl)
@@ -77,6 +104,9 @@ def _item_lines(it):
 
 def _digest(date, items):
     lines = [f"💼 我的持股・今日操作（{date}）", ""]
+    stale = _stale_note(items)
+    if stale:
+        lines += [stale, ""]
     if not items:
         lines.append("（還沒設定持股——用網頁『我的持股』輸入代號/股數/成交均價）")
     for it in items:
