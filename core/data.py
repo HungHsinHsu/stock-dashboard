@@ -658,6 +658,16 @@ def _mis_num(v):
         return None
 
 
+def _mis_price(v):
+    """同 _mis_num，但只接受正數——股價不可能 ≤0。
+
+    分開寫是因為 _mis_num 也用在成交量上，而量為 0 是合法的（尚未成交）。
+    價格欄位則不同：MIS 在漲停/跌停鎖死時可能回 "0.0000"，那不是「價格為零」，
+    是「這個欄位現在沒有意義」，必須往下一個來源退，否則會算出 −100% 的假跌停。"""
+    n = _mis_num(v)
+    return n if (n is not None and n > 0) else None
+
+
 def fetch_intraday(codes):
     """盤中即時報價。回 {code: {name, price, prev_close, chg_pct, open, high, low,
     volume, at, source}}；抓不到的代號不會出現在回傳裡。
@@ -684,11 +694,17 @@ def fetch_intraday(codes):
         code = str(r.get("c") or "").strip()
         if not code:
             continue
-        price, source = _mis_num(r.get("z")), "成交"
+        # ⚠️ 用 _mis_price（只收 >0）而非 _mis_num：漲停鎖死時 MIS 的最佳買賣價欄位
+        # 可能回 "0.0000"，_mis_num 會當成合法的 0.0 → 價格 0、漲跌 −100%，推播上
+        # 看起來像跌停。實例：南亞科 2408 於 2026-08-10 漲停時就是這樣顯示的。
+        # 股價不可能是 0，所以非正數一律視為「沒有這個欄位」，往下一個來源退。
+        price, source = _mis_price(r.get("z")), "成交"
         if price is None:
-            price, source = _mis_num(r.get("pz")), "前筆成交"
+            price, source = _mis_price(r.get("pz")), "前筆成交"
         if price is None:
-            price, source = _mis_num(r.get("b")), "最佳買價"
+            price, source = _mis_price(r.get("b")), "最佳買價"
+        if price is None:
+            price, source = _mis_price(r.get("a")), "最佳賣價"
         prev = _mis_num(r.get("y"))
         out[code] = {
             "name": (r.get("n") or "").strip(),
