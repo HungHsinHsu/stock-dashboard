@@ -1,7 +1,12 @@
 """估值面資料（本益比／殖利率／股價淨值比）。
 
-來源：TWSE 每日「個股日本益比、殖利率及股價淨值比」(BWIBBU_d)。一次呼叫拿到全市場，
+來源：上市走 TWSE 每日「個股日本益比、殖利率及股價淨值比」(BWIBBU_d)，
+上櫃走 TPEx OpenAPI（見 core/tpex.py），兩份合併成同一張表。都是一次呼叫拿到全市場，
 不必逐檔打，對限流友善。跑在 GitHub Actions 的乾淨 IP（Streamlit/本機 sandbox 會被擋）。
+
+⚠️ 兩邊的「當日」不同步：TWSE 那支吃 date 參數、當日收盤後一段時間才發布（15:35 的
+選股班常常還抓不到）；TPEx OpenAPI 沒有 date 參數，它就是「最新一日」，非交易日會是
+上一個交易日。所以同一份回傳裡，上市與上櫃的資料日有可能差一天。
 
 刻意只做這三個數字，因為它們是每天公布、格式穩定、不必解財報的。營收年增率、毛利率、
 訂單能見度那些要另外的來源（MOPS/法說），目前沒有乾淨的免費 API，不在這裡假裝有——
@@ -92,9 +97,22 @@ def fetch_valuation(date=None):
                 "yield": _f(r[i_yd]) if i_yd is not None and i_yd < len(r) else None,
                 "pb": _f(r[i_pb]) if i_pb is not None and i_pb < len(r) else None,
             }
+        out.update(_otc_valuation())
         print(f"[valuation] {ymd} 取得 {len(out)} 檔估值")
         return out
-    return {}
+    # 上市那份沒到（當日尚未發布/限流）時，上櫃這份仍可能有——別因為一邊缺就整個回空
+    return _otc_valuation()
+
+
+def _otc_valuation():
+    """上櫃估值。BWIBBU_d 只涵蓋上市，不補這塊的話上櫃股永遠顯示『無估值資料』，
+    而首選是要看基本面的——沒有本益比就等於閉著眼睛選。"""
+    try:
+        from core.tpex import fetch_tpex_valuation
+        return fetch_tpex_valuation() or {}
+    except Exception as e:
+        print(f"[valuation] 上櫃取得失敗：{type(e).__name__} {e}")
+        return {}
 
 
 def valuation_notes(val):

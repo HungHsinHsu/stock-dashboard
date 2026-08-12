@@ -351,6 +351,17 @@ def fetch_foreign_flow(code, today=None, max_back=8):
         d -= timedelta(days=1)
         time.sleep(TWSE_DELAY)
     if not nets:
+        # T86 只涵蓋上市。抓不到有兩種可能：真的限流／或這是上櫃股。先問 TPEx，
+        # 有拿到就用——否則承接法第四關（外資停止倒貨）在上櫃股上永遠是 None，
+        # 保守版會把所有上櫃股一律夾成觀望，等於納入了也選不到。
+        try:
+            from core.tpex import fetch_tpex_insti    # 延遲匯入：tpex 反向依賴 data
+            otc = fetch_tpex_insti(code)
+        except Exception as e:
+            print(f"[tpex] 法人查詢失敗({code})：{type(e).__name__} {e}")
+            otc = None
+        if otc and otc.get("stopped") is not None:
+            return otc
         print(f"法人資料抓不到({code})：{dbg}")
         return {"net": None, "sold_streak": 0, "stopped": None, "date": None,
                 "trust_net": None, "dealer_net": None, "total_net": None}
@@ -419,8 +430,23 @@ def fetch_margin(code, today=None, max_back=8):
     return {"margin_bal": None, "margin_chg": None, "short_bal": None, "date": None}
 
 
+def _tpex_names():
+    """上櫃代號→名稱。沒有這塊的話，上櫃股在追蹤清單/持股頁只會顯示代號，
+    而且 /add 用中文名搜尋一律查無此股。"""
+    try:
+        from core.tpex import fetch_tpex_quotes       # 延遲匯入：tpex 反向依賴 data
+        return {str(r.get("SecuritiesCompanyCode") or "").strip():
+                str(r.get("CompanyName") or "").strip()
+                for r in fetch_tpex_quotes()
+                if isinstance(r, dict) and r.get("SecuritiesCompanyCode")
+                and r.get("CompanyName")}
+    except Exception as e:
+        print(f"[tpex] 名稱表取得失敗：{type(e).__name__} {e}")
+        return {}
+
+
 def fetch_stock_list():
-    """全部上市股票對照 {code: name}；雙來源備援，失敗回 {}。"""
+    """全部上市＋上櫃股票對照 {code: name}；雙來源備援，失敗回 {}。"""
     out = {}
     # 1) OpenAPI 每日快照（節假日通常仍回最後交易日）
     try:
@@ -435,6 +461,7 @@ def fetch_stock_list():
     except Exception:
         pass
     if out:
+        out.update(_tpex_names())
         return out
     # 2) 後備：www data-rows（row[0]=代號, row[1]=名稱）
     try:
@@ -451,19 +478,26 @@ def fetch_stock_list():
                 out[c] = n
     except Exception:
         pass
+    out.update(_tpex_names())
     return out
 
 
-def fetch_top_turnover(n=150):
+def fetch_top_turnover(n=150, include_otc=True):
     """當日成交金額前 n 檔（一般個股 4 碼 + ETF 00 開頭），回 [(code, name), ...]。
-    用 STOCK_DAY_ALL 單次抓全市場，便宜；抓不到回 []。"""
+    用 STOCK_DAY_ALL 單次抓全市場，便宜；抓不到回 []。
+
+    include_otc=True 時把上櫃(TPEx)一起納入後**重新排序**。刻意不做成
+    「上市前 n ＋ 上櫃前 n 接起來」——那會變成 2n 檔、而且上櫃第 150 名的成交金額
+    可能只有上市第 150 名的零頭，混進來就不是『前 n 大成交股』了。
+    兩邊的金額單位都是元（TWSE TradeValue／TPEx TransactionAmount），可直接比。
+    """
     try:
         data = requests.get(
             "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
             headers=HEADERS, timeout=20,
         ).json()
     except Exception:
-        return []
+        data = []
     rows = []
     for r in data if isinstance(data, list) else []:
         code = str(r.get("Code") or "").strip()
@@ -474,6 +508,13 @@ def fetch_top_turnover(n=150):
         if not ((code.isdigit() and len(code) == 4) or code.startswith("00")):
             continue                       # 排除權證等非個股/ETF
         rows.append((tv, code, name))
+    if include_otc:
+        try:
+            from core.tpex import fetch_tpex_top_turnover   # 延遲匯入
+            # 多要一些再一起排序：上櫃可能有數十檔擠進合併後的前 n
+            rows += [(amt, c, nm) for c, nm, amt in fetch_tpex_top_turnover(n)]
+        except Exception as e:
+            print(f"[tpex] 母體併入失敗，本次只用上市：{type(e).__name__} {e}")
     rows.sort(reverse=True)
     return [(c, nm) for _, c, nm in rows[:n]]
 
@@ -551,7 +592,21 @@ def fetch_daily(code, months=6, today=None, workers=6):
     """
     today = today or now_tw()
     dates = [today - relativedelta(months=i) for i in range(months)]
-    frames = []
+    # 先探當月一個請求決定走上市還是上櫃。不先探的話，上櫃股會在 TWSE 白跑 months 次
+    # （每次還帶重試退避），months=12 時要等很久才等到一片空。
+    probe = _fetch_stock_month(code, today)
+    if probe:
+        frames = list(probe)
+        dates = dates[1:]        # 當月已在 probe 拿到，別再抓一次（選股掃 150 檔會差 150 次請求）
+    else:
+        from core.tpex import fetch_tpex_daily        # 延遲匯入：tpex 反向依賴 data
+        df = fetch_tpex_daily(code, months=months, today=today, workers=workers)
+        if not getattr(df, "empty", True):
+            return df
+        # 兩邊都空。可能是月初當月還沒有交易日，也可能是當月被限流漏抓——後者若就這樣
+        # 跳過當月，日線最後一根會停在上月底、把過期價當現價顯示（正是 _fetch_stock_month
+        # 內建重試要防的事）。所以把當月留在 dates 裡照原路再抓一輪，不省這一次。
+        frames = []
     if workers and workers > 1 and months > 1:
         with ThreadPoolExecutor(max_workers=min(workers, months)) as ex:
             for fr in ex.map(lambda d: _fetch_stock_month(code, d), dates):

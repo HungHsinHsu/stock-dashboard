@@ -15,6 +15,8 @@ def test_run_does_not_overwrite_when_universe_empty(monkeypatch):
     # TWSE 沒回應(清單=0) → 不可覆寫 DB，保留上一份好結果
     calls = []
     monkeypatch.setattr(db, "set_state", lambda k, v: calls.append((k, v)))
+    # 清單為空仍會走到估值那行（它在 if uni 之外），不 mock 就會真的打網路
+    monkeypatch.setattr(screen, "fetch_valuation", lambda *a, **k: {})
     r = screen.run(uni_fetch=lambda n: [], notify=False)
     assert r["cands"] == [] and calls == []
 
@@ -25,6 +27,11 @@ def test_run_overwrites_when_universe_present(monkeypatch):
     monkeypatch.setattr(db, "set_state", lambda k, v: calls.append((k, v)))
     monkeypatch.setattr(db, "get_states_by_prefix", lambda p: {})
     monkeypatch.setattr(screen, "fetch_foreign_flow", lambda c: {"stopped": True})
+    # 這兩支不 mock 的話會真的去打外部 API，在沒有外網的環境要等連線逾時與重試
+    # （實測單支 50 秒），而且測到的是網路通不通、不是選股邏輯。
+    monkeypatch.setattr(screen, "fetch_valuation", lambda *a, **k: {})
+    # screen.run 收尾會順手跑追蹤清單掃描，那支自己會抓日線與法人
+    monkeypatch.setattr("jobs.watch.run", lambda **k: None)
     r = screen.run(uni_fetch=lambda n: [("8888", "測試")],
                    fetch=lambda c: _df(), notify=False)
     keys = [k for k, _ in calls]
@@ -41,6 +48,11 @@ def test_run_stores_foreign_snapshot_for_watchlist(monkeypatch):
                         lambda p: {"wl:admin": {"2344": {"name": "華邦電 (2344)"}}})
     monkeypatch.setattr(screen, "fetch_foreign_flow",
                         lambda c: {"stopped": False, "sold_streak": 2, "net": -100})
+    # 這兩支不 mock 的話會真的去打外部 API，在沒有外網的環境要等連線逾時與重試
+    # （實測單支 50 秒），而且測到的是網路通不通、不是選股邏輯。
+    monkeypatch.setattr(screen, "fetch_valuation", lambda *a, **k: {})
+    # screen.run 收尾會順手跑追蹤清單掃描，那支自己會抓日線與法人
+    monkeypatch.setattr("jobs.watch.run", lambda **k: None)
     screen.run(uni_fetch=lambda n: [("8888", "測試")],
                fetch=lambda c: _df(), notify=False)
     snap = stored.get("foreign:latest")

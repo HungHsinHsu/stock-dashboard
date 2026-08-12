@@ -135,7 +135,8 @@ def _compute_for_owner(owner, code_data, names):
             items.append({
                 "code": code, "name": nm, "mode": mode,
                 "shares": shares, "avg_cost": avg_cost, "close": None,
-                "action": "—", "reason": "抓不到日線資料（可能是上櫃股或暫時限流），無法試算",
+                # 上櫃已接上（core/tpex.py），所以不再是「可能是上櫃股」——講錯方向會誤導排查
+                "action": "—", "reason": "上市與上櫃都抓不到日線（代號錯／已下市／限流），無法試算",
                 "alerts": [], "levels": {}, "pnl_pct": None, "pos_pct": None,
                 "foreign_date": None, "date": None,
             })

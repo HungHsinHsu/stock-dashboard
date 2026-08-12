@@ -275,11 +275,11 @@ def run(codes=None):
             print(f"{c}: 抓取失敗 {type(e).__name__}: {e}")
             continue
         if df is None or getattr(df, "empty", True):
-            # 別把三種原因混成一句。日線只走 TWSE STOCK_DAY（上市），上櫃股一定回空，
-            # 重抓幾次都一樣——寫「可能限流」會讓人一直重試，浪費時間又找不到真因。
-            # 實例：波若威 3163（上櫃）連抓兩次都空，其實是資料源根本不涵蓋。
-            print(f"{c}: 抓不到日線。日線來源是 TWSE STOCK_DAY，只涵蓋『上市』；"
-                  f"若 {c} 是上櫃(TPEx)股，這裡永遠會是空的，不是限流也不是代號錯。")
+            # 上櫃已於 core/tpex.py 接上（TWSE 抓不到會自動改問 TPEx），所以走到這裡
+            # 代表兩邊都沒有——原本那句「上櫃永遠會是空的」現在是錯的，留著會把人
+            # 引去查早就修好的方向。剩下的可能性只有這三個。
+            print(f"{c}: 上市(TWSE)與上櫃(TPEx)都抓不到日線。可能是代號錯、"
+                  f"已下市/暫停交易，或兩邊同時限流——隔幾分鐘再試一次可分辨。")
             continue
         ind = compute_indicators(df, {})
         print(f"===== {c} =====")
