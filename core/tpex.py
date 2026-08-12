@@ -168,18 +168,22 @@ def fetch_tpex_insti(code):
     回 {'net','sold_streak','stopped','date','trust_net','dealer_net','total_net'}，
     形狀對齊 core.data.fetch_foreign_flow，讓呼叫端不必分上市/上櫃。
 
+    ⚠️ 找不到該股一律回 **None**，不回「net=0、stopped=True」。
+    這個區別是這支最重要的一件事：0 的意思是「法人今天沒買賣它」，None 的意思是
+    「這檔不在上櫃名單、我不知道」。混為一談會把『不知道』當成『外資已停止倒貨』，
+    直接放行承接法第四關——那是用無知去產生進場訊號。
+    TPEx 連不到時同樣回 None（讓呼叫端去走上市那條路），不要假裝有答案。
+
     ⚠️ sold_streak 永遠是 0 或 1：OpenAPI 只給最新一日，拿不到歷史，
     所以「連續賣超幾天」在上櫃股上算不出來。承接法第四關只看 stopped
     （最近一日有沒有停止賣超），那一關仍然成立；但別把 sold_streak
     當成跟上市股同等意義的數字。
     """
-    empty = {"net": None, "sold_streak": 0, "stopped": None, "date": None,
-             "trust_net": None, "dealer_net": None, "total_net": None}
     # 快取：呼叫端是逐檔問的，這份卻是全市場一份 860KB
     data = _cached("insti",
                    lambda: _get_json(f"{OPENAPI}/tpex_3insti_daily_trading"))
     if not isinstance(data, list):
-        return empty
+        return None
     for r in data:
         if not isinstance(r, dict):
             continue
@@ -196,8 +200,7 @@ def fetch_tpex_insti(code):
             "trust_net": v["trust"], "dealer_net": v["dealer"],
             "total_net": v["total"],
         }
-    # 有回資料但這檔不在名單 → 當日法人沒動它（與 T86 的處理一致）
-    return {**empty, "net": 0, "stopped": True}
+    return None      # 不在上櫃名單＝這不是上櫃股，交給上市那條路
 
 
 # ── 單檔歷史日線 ────────────────────────────────────────────────

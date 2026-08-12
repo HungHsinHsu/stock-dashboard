@@ -323,6 +323,22 @@ def fetch_foreign_flow(code, today=None, max_back=8):
         "trust_net": 投信最近一日, "dealer_net": 自營商, "total_net": 三大法人合計}。
     stopped=外資最近一日是否未賣超(>=0)。抓不到回相關值 None。
     """
+    # 先問上櫃，不能等 T86 失敗才問。原因：T86 對上櫃股**不會失敗**——它會正常回一份
+    # 上市的買賣超表，該股不在裡面，_foreign_net_from_t86 就回 0（語意是「當日沒買賣」），
+    # 於是「抓不到再退到 TPEx」這條路永遠不會被走到，而 0 會被讀成 stopped=True，
+    # 承接法第四關（外資停止倒貨）就對每一檔上櫃股默默通過。
+    # 實例：世界先進 5347 於 2026-08-12 外資實際賣超 4,031,611 股（stopped 應為 False），
+    # 系統卻顯示 net=0、stopped=True。
+    # fetch_tpex_insti 找不到就回 None（不是上櫃股／TPEx 連不到），此時才走下面的 T86。
+    try:
+        from core.tpex import fetch_tpex_insti      # 延遲匯入：tpex 反向依賴 data
+        otc = fetch_tpex_insti(code)
+    except Exception as e:
+        print(f"[tpex] 法人查詢失敗({code})：{type(e).__name__} {e}")
+        otc = None
+    if otc:
+        return otc
+
     today = today or now_tw()
     nets, last_date, dbg, extra = [], None, None, {}
     d, checked = today, 0
@@ -351,17 +367,6 @@ def fetch_foreign_flow(code, today=None, max_back=8):
         d -= timedelta(days=1)
         time.sleep(TWSE_DELAY)
     if not nets:
-        # T86 只涵蓋上市。抓不到有兩種可能：真的限流／或這是上櫃股。先問 TPEx，
-        # 有拿到就用——否則承接法第四關（外資停止倒貨）在上櫃股上永遠是 None，
-        # 保守版會把所有上櫃股一律夾成觀望，等於納入了也選不到。
-        try:
-            from core.tpex import fetch_tpex_insti    # 延遲匯入：tpex 反向依賴 data
-            otc = fetch_tpex_insti(code)
-        except Exception as e:
-            print(f"[tpex] 法人查詢失敗({code})：{type(e).__name__} {e}")
-            otc = None
-        if otc and otc.get("stopped") is not None:
-            return otc
         print(f"法人資料抓不到({code})：{dbg}")
         return {"net": None, "sold_streak": 0, "stopped": None, "date": None,
                 "trust_net": None, "dealer_net": None, "total_net": None}

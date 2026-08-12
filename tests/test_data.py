@@ -170,6 +170,9 @@ def test_fetch_foreign_flow_streak_and_stopped(monkeypatch):
 
     monkeypatch.setattr(data, "TWSE_DELAY", 0)
     monkeypatch.setattr(data.requests, "get", fake_get)
+    # 這支測的是 T86 的連續賣超判斷。fetch_foreign_flow 會先問上櫃，而 tpex 用的是
+    # 同一個 requests 模組，不擋掉的話它的重試會把上面那個 seq 的游標吃掉、序列錯位。
+    monkeypatch.setattr("core.tpex.fetch_tpex_insti", lambda c: None)
     out = data.fetch_foreign_flow("2344", today=__import__("datetime").datetime(2026, 6, 30))
     assert out["net"] == 500000 and out["stopped"] is True and out["sold_streak"] == 0
 

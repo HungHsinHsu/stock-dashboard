@@ -96,6 +96,89 @@ REAL_INSTI = {
 }
 
 
+def test_insti_returns_none_when_code_not_listed(monkeypatch):
+    """找不到該股要回 None（『不知道』），不能回 net=0/stopped=True（『法人沒動』）。
+
+    混為一談的後果是實際發生過的：世界先進 5347 於 2026-08-12 外資賣超 4,031,611 股，
+    系統卻顯示 net=0、stopped=True，承接法第四關就這樣被放行。
+    """
+    import core.tpex as tpex
+    tpex._cache.clear()
+    monkeypatch.setattr(tpex, "_get_json", lambda *a, **k: [REAL_INSTI])
+    assert tpex.fetch_tpex_insti("9999") is None
+    tpex._cache.clear()
+
+
+def test_insti_returns_none_when_tpex_unreachable(monkeypatch):
+    """連不到也要回 None——假裝有答案比沒答案危險。"""
+    import core.tpex as tpex
+    tpex._cache.clear()
+    monkeypatch.setattr(tpex, "_get_json", lambda *a, **k: None)
+    assert tpex.fetch_tpex_insti("5347") is None
+    tpex._cache.clear()
+
+
+def test_insti_reports_selling_as_not_stopped(monkeypatch):
+    """外資賣超 → stopped=False。這是承接法第四關真正在讀的欄位。"""
+    import core.tpex as tpex
+    tpex._cache.clear()
+    row = dict(REAL_INSTI)
+    row["Foreign Investors include Mainland Area Investors "
+        "(Foreign Dealers excluded)-Difference"] = "-4031611"
+    monkeypatch.setattr(tpex, "_get_json", lambda *a, **k: [row])
+    got = tpex.fetch_tpex_insti("5347")
+    assert got["net"] == -4_031_611
+    assert got["stopped"] is False and got["sold_streak"] == 1
+    assert got["date"] == "2026-08-12"
+    tpex._cache.clear()
+
+
+def test_foreign_flow_asks_otc_first_not_after_t86(monkeypatch):
+    """必須先問上櫃。T86 對上櫃股不會失敗——它回一份上市的表，該股不在裡面就變成 0，
+    於是『抓不到再退到 TPEx』永遠不會被走到，0 又被讀成 stopped=True。"""
+    import core.data as data
+
+    class _R:
+        status_code = 200
+        text = "ok"
+
+        def json(self):
+            # 一份正常的上市 T86，裡面沒有 5347 → 舊邏輯會回 net=0/stopped=True
+            return {"stat": "OK",
+                    "fields": ["證券代號", "外陸資買賣超股數(不含外資自營商)"],
+                    "data": [["2330", "1,000"]]}
+
+    monkeypatch.setattr(data, "TWSE_DELAY", 0)
+    monkeypatch.setattr(data.requests, "get", lambda *a, **k: _R())
+    monkeypatch.setattr("core.tpex.fetch_tpex_insti",
+                        lambda c: {"net": -4031611, "sold_streak": 1,
+                                   "stopped": False, "date": "2026-08-12",
+                                   "trust_net": 0, "dealer_net": 0,
+                                   "total_net": -4031611})
+    out = data.fetch_foreign_flow("5347")
+    assert out["net"] == -4_031_611 and out["stopped"] is False
+
+
+def test_foreign_flow_falls_through_to_t86_for_listed_stocks(monkeypatch):
+    """上市股不在上櫃名單 → fetch_tpex_insti 回 None → 照走 T86，行為不變。"""
+    import core.data as data
+
+    class _R:
+        status_code = 200
+        text = "ok"
+
+        def json(self):
+            return {"stat": "OK",
+                    "fields": ["證券代號", "外陸資買賣超股數(不含外資自營商)"],
+                    "data": [["2330", "1,000"]]}
+
+    monkeypatch.setattr(data, "TWSE_DELAY", 0)
+    monkeypatch.setattr(data.requests, "get", lambda *a, **k: _R())
+    monkeypatch.setattr("core.tpex.fetch_tpex_insti", lambda c: None)
+    out = data.fetch_foreign_flow("2330")
+    assert out["net"] == 1000 and out["stopped"] is True
+
+
 def test_insti_picks_foreign_excluding_foreign_dealers():
     """外資有兩個版本，要取『不含外資自營商』——與 TWSE T86 的首選欄位同語意。"""
     v = _insti_row_values(REAL_INSTI)
