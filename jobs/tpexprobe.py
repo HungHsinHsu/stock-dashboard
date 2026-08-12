@@ -107,6 +107,38 @@ def run():
            "https://www.tpex.org.tw/web/stock/aftertrading/peratio_analysis/pera_result.php",
            {"l": "zh-tw", "d": roc_slash, "c": "", "o": "json"})
 
+    # ── 5) 第二輪：補第一輪的兩個缺口 ────────────────────────────
+    # (a) B1 的 fields 到底叫什麼名字——第一輪只印到 keys，沒印到欄名，
+    #     而「憑欄位順序硬解」正是這支探針要避免的事。
+    j = _probe("E1 B1 再抓一次（要看 fields 欄名）",
+               "https://www.tpex.org.tw/www/zh-tw/afterTrading/tradingStock",
+               {"code": code, "date": ymd_slash, "response": "json"})
+    try:
+        t = (j.get("tables") or [{}])[0]
+        print(f"  ▶ fields = {t.get('fields')}")
+        rows = t.get("data") or []
+        print(f"  ▶ 共 {len(rows)} 列；最後 2 列 = {rows[-2:]}")
+    except Exception as e:
+        print(f"  ▶ 取 fields 失敗：{type(e).__name__} {e}")
+
+    # (b) A1 全市場收盤行情：第一輪 ChunkedEncodingError（4MB 讀一半斷）。
+    #     母體排名需要成交金額，只有這支有。先確認是偶發還是必然，並試 stream 讀法。
+    for attempt in range(3):
+        try:
+            r = requests.get(
+                "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
+                headers=HEADERS, timeout=60, stream=True)
+            body = b"".join(r.iter_content(65536))
+            j2 = json.loads(body.decode("utf-8"))
+            print(f"\n===== E2 A1 stream 重試 第{attempt + 1}次 → 成功 =====")
+            print(f"  {len(body)} bytes、{len(j2)} 筆")
+            print(f"  keys: {list(j2[0].keys())}")
+            print(f"  第一筆: {json.dumps(j2[0], ensure_ascii=False)[:400]}")
+            break
+        except Exception as e:
+            print(f"\n===== E2 A1 stream 重試 第{attempt + 1}次 → 失敗 "
+                  f"{type(e).__name__}: {str(e)[:160]}")
+
     print("\n[tpexprobe] 完成。挑回得動、欄位齊的那組寫進 core/tpex.py。")
 
 
