@@ -139,6 +139,30 @@ def run():
             print(f"\n===== E2 A1 stream 重試 第{attempt + 1}次 → 失敗 "
                   f"{type(e).__name__}: {str(e)[:160]}")
 
+    # ── 6) 法人名單到底涵蓋哪些股：5347 查得到嗎？ ─────────────────
+    # 為什麼要查：fetch_tpex_insti 找不到該股時會回 net=0 / stopped=True，
+    # 那會讓承接法第四關（外資停止倒貨）**默默地通過**。這個預設只有在
+    # 「名單真的涵蓋全部個股、不在名單＝當天法人沒動」時才成立。TWSE T86 是這樣，
+    # 但 TPEx 這支沒驗證過就照抄，等於拿一個未經檢查的假設去放行進場訊號。
+    print("\n===== F1 法人名單涵蓋度 =====")
+    j3 = _probe("F1a 三大法人 OpenAPI",
+                f"{'https://www.tpex.org.tw/openapi/v1'}/tpex_3insti_daily_trading")
+    if isinstance(j3, list):
+        codes = [str(r.get("SecuritiesCompanyCode") or "").strip()
+                 for r in j3 if isinstance(r, dict)]
+        four = [c for c in codes if c.isdigit() and len(c) == 4]
+        print(f"  ▶ 共 {len(codes)} 筆，其中 4 碼個股 {len(four)} 檔")
+        print(f"  ▶ 5347 在名單裡嗎：{'在' if code in codes else '**不在**'}")
+        print(f"  ▶ 前 10 個代號：{codes[:10]}")
+        print(f"  ▶ 4 碼個股前 10：{four[:10]}　最後 10：{four[-10:]}")
+        hit = [r for r in j3 if isinstance(r, dict)
+               and str(r.get("SecuritiesCompanyCode") or "").strip() == code]
+        if hit:
+            print(f"  ▶ 5347 那筆：{json.dumps(hit[0], ensure_ascii=False)[:700]}")
+        # 拿另一檔知名上櫃股交叉比對（環球晶 6488），避免「只有 5347 特殊」
+        for other in ("6488", "3374", "5483"):
+            print(f"  ▶ {other} 在名單裡嗎：{'在' if other in codes else '不在'}")
+
     print("\n[tpexprobe] 完成。挑回得動、欄位齊的那組寫進 core/tpex.py。")
 
 

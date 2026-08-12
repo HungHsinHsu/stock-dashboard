@@ -133,8 +133,11 @@ def _print_volume_profile(df, days=45, bands=8):
     for b_lo, b_hi, vol, n in prof:
         bar = "█" * max(1, round(vol / peak * 20)) if vol else ""
         here = " ←現價" if b_lo <= cur <= b_hi else ""
-        print(f"    {b_lo:7.1f}~{b_hi:7.1f}  {vol:10.0f} 張 ({vol / total * 100:4.1f}%) "
-              f"{n:2d}天 {bar}{here}")
+        # 單位是「張」不是「股」：Volume 欄位存的是股數（TWSE 原生給股，TPEx 的張已在
+        # core/tpex.py 換算成股），這裡除 1000 才是張。原本直接把股數標成「張」，
+        # 印出來的數字大了 1000 倍——看起來很合理（就是個大數字），所以一直沒被發現。
+        print(f"    {b_lo:7.1f}~{b_hi:7.1f}  {vol / 1000:9.0f} 張 "
+              f"({vol / total * 100:4.1f}%) {n:2d}天 {bar}{here}")
 
 
 def _print_recent_volume(df, n=12):
