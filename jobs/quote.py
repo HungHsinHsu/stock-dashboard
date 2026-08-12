@@ -191,6 +191,54 @@ def _print_ma20_roll(df, n=8):
         f"{d}={old:.1f}({'↑拉升' if up else '↓拖累'})" for d, old, up in rows))
 
 
+def fill_odds(df, limit, n=20):
+    """掛一張限價買單在 limit，最近 n 天有幾天真的碰得到？
+
+    承接法的掛單價來自「支撐 × 1.02」，而支撐常常低於現價——於是「掛在對的位置」
+    跟「掛得到」天生互相拉扯。使用者會直覺想調高掛單價，但調高會同時放大停損距離
+    （停損價是固定的支撐，買越貴賠率越差），所以這件事不能憑感覺，要用數字談。
+
+    這裡只回答其中一半：**這個價位最近多常被摸到**。另一半（買貴了賠率剩多少）
+    要拿 limit 跟停損價自己算，兩邊合起來才是「該掛多少」。
+
+    限價買單成交條件用「當日最低 ≤ limit」近似：開盤集合競價若開盤價 ≤ limit 也會
+    成交，而開盤價 ≥ 當日最低，所以這個條件已經涵蓋開盤那一撮。
+
+    回 (命中天數, 統計天數, [(日期, 前收, 開盤, 最低, 是否命中, 最低相對前收%), ...])；
+    資料不足回 (0, 0, [])。
+    """
+    cols = set(getattr(df, "columns", []))
+    if not {"Low", "Close"} <= cols or limit is None:
+        return 0, 0, []
+    d = df.tail(n + 1)                     # 多取一根當第一天的「前收」
+    if len(d) < 2:
+        return 0, 0, []
+    closes = [float(x) for x in d["Close"]]
+    lows = [float(x) for x in d["Low"]]
+    opens = [float(x) for x in d["Open"]] if "Open" in cols else [None] * len(d)
+    dates = [x.date() for x in d.index]
+    rows = []
+    for i in range(1, len(d)):
+        prev = closes[i - 1]
+        rows.append((dates[i], prev, opens[i], lows[i], lows[i] <= limit,
+                     (lows[i] / prev - 1) * 100 if prev else None))
+    return sum(1 for r in rows if r[4]), len(rows), rows
+
+
+def _print_fill_odds(df, limit, n=20):
+    hits, total, rows = fill_odds(df, limit, n=n)
+    if not total:
+        return
+    print(f"  掛單命中  : 限價 {limit:.2f} 在最近 {total} 天有 {hits} 天碰得到"
+          f"（{hits / total * 100:.0f}%）；判準＝當日最低 ≤ 掛單價")
+    deltas = sorted(r[5] for r in rows if r[5] is not None)
+    if deltas:
+        mid = deltas[len(deltas) // 2]
+        print(f"             當日最低相對前收：中位數 {mid:+.2f}%、"
+              f"最深 {deltas[0]:+.2f}%、最淺 {deltas[-1]:+.2f}%")
+        print("             （用前收 × (1+x%) 就能把上面這排換算成任一掛單價的命中率）")
+
+
 def _print_window(code, df, since):
     r = _best_trade(df, since)
     if not r:
@@ -267,6 +315,16 @@ def run(codes=None):
         _print_recent_volume(df)
         _print_volume_profile(df, days=ntail)
         _print_ma20_roll(df)
+        # 掛單命中率：QUOTE_LIMIT 給定就用它，否則用支撐1×1.02（承接法的預設掛法），
+        # 讓「這個掛單價到底掛不掛得到」有數字可談，而不是各自憑感覺猜。
+        try:
+            limit = float(os.environ.get("QUOTE_LIMIT", "").strip() or 0) or None
+        except ValueError:
+            limit = None
+        if limit is None and ind.get("ma5"):
+            limit = float(ind["ma5"]) * 1.02
+        if limit:
+            _print_fill_odds(df, limit)
         v = valuation.get(str(c))
         notes = valuation_notes(v)
         print(f"  估值     : {'｜'.join(notes) if notes else '（無資料：當日尚未發布、或非上市股）'}")
