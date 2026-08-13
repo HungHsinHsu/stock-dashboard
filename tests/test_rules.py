@@ -212,3 +212,45 @@ def test_below_season_reason_is_entry_wording_not_exit_order():
     assert "不買進" in r["reason"]
     assert "162.8" in r["reason"]             # 標明季線價位
     assert "+9.8%" in r["reason"]             # 標明當日漲跌，否則看不出今天是漲停
+
+
+def test_below_season_but_season_above_ma20_says_not_yet_recovered_not_turning_bearish():
+    """季線高過月線＝60 日窗口含崩跌前舊高，理由不能講成「趨勢轉空」。
+
+    2026-08-13 同一天三檔全中：
+      00735      收 103.6　MA20  95.89　MA60 105.53
+      世界先進    收 163.0　MA20 154.80　MA60 169.95
+      廣達       收 325.0　MA20 312.73　MA60 346.68
+    三檔的季線都高過月線約 10%，但都是價 > MA5 > MA20 的多頭排列——是崩跌後
+    修復、還沒漲回 6 月舊高，不是趨勢轉空。上限仍是避開（門檻不放寬），
+    但要叫人去盯月線斜率，不是盯一條被舊高墊高的季線。
+    """
+    from core.rules import entry_setup
+    ind = {"close": 163.0, "prev_close": 159.5, "ma20": 154.80, "ma60": 169.95,
+           "dist_support1_pct": 4.29, "dist_support3_pct": -4.09, "vol_ratio": 0.72}
+    r = entry_setup(ind, code="5347")
+    assert r["ceiling"] == "避開"              # 門檻一格都沒放寬
+    assert "不是趨勢轉空" in r["reason"]        # 明說它不是轉空，別讓人誤讀
+    assert "還沒漲回前高" in r["reason"]
+    assert "高過月線" in r["reason"]
+    assert "ma20_slope5" in r["reason"]        # 指向沒被汙染的訊號
+    assert "154.8" in r["reason"]              # 標出月線價位，好對照
+    assert "不買進" in r["reason"]             # 與既有契約一致：避開＝別買
+
+
+def test_below_season_with_normal_ma_order_keeps_the_old_wording():
+    """正常排列（季線在月線下）時維持原本措辭，不要因為新分支改變既有行為。"""
+    from core.rules import entry_setup
+    ind = {"close": 90.0, "prev_close": 92.0, "ma20": 100.0, "ma60": 95.0,
+           "dist_support1_pct": -8.0, "dist_support3_pct": -5.3, "vol_ratio": 1.1}
+    r = entry_setup(ind, code="2330")
+    assert r["ceiling"] == "避開"
+    assert "等收盤站回季線再看" in r["reason"]
+    assert "高過月線" not in r["reason"]
+
+
+def test_missing_ma20_falls_back_to_the_plain_wording():
+    """缺 ma20 時不能炸，也不該走新分支。"""
+    from core.rules import entry_setup
+    r = entry_setup({"close": 90.0, "ma60": 95.0, "dist_support3_pct": -5.3}, code="2330")
+    assert r["ceiling"] == "避開" and "等收盤站回季線再看" in r["reason"]
