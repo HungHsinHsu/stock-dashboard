@@ -70,3 +70,39 @@ def test_handles_missing_and_short_input():
 def test_zero_price_does_not_divide_by_zero():
     df = _df([("2026-08-10", 0.0), ("2026-08-11", 80.0), ("2026-08-12", 81.0)])
     assert corporate_action_gaps(df) == []
+
+
+def test_etf_uses_a_higher_threshold_because_foreign_etfs_have_no_price_limit():
+    """國外成分證券 ETF／境外 ETF 沒有漲跌幅限制，±10% 會誤報成除權。
+
+    實例（真的誤報過）：00735 國泰臺韓科技持有韓股——
+      2026-02-11 收 64.95 → 02-23 收 73.5（+13.2%）：中間隔 12 天春節休市，
+        台股停、韓股美股照跑，開市補跳空。
+      2026-07-30 收 83.7 → 07-31 收 97.9（+17.0%）：那天加權指數自己漲 7.98%。
+    兩處都是真實交易，卻被當成價格重設而把整檔從選股清單排除。
+    """
+    real_00735 = _df([("2026-07-30", 83.7), ("2026-07-31", 97.9),
+                      ("2026-08-03", 95.5), ("2026-08-13", 103.6)])
+    assert corporate_action_gaps(real_00735, code="00735") == []   # ETF：不誤報
+    assert corporate_action_gaps(real_00735, code="2330")          # 個股：同樣資料會報
+
+
+def test_etf_split_is_still_caught():
+    """門檻放寬不能放到抓不到真的分割——1拆2 是 −50%、2合1 是 +100%，都要抓得到。"""
+    assert corporate_action_gaps(_df([("2026-08-10", 100.0),
+                                      ("2026-08-11", 50.0)]), code="0050")
+    assert corporate_action_gaps(_df([("2026-08-10", 50.0),
+                                      ("2026-08-11", 100.0)]), code="0050")
+
+
+def test_etf_threshold_leaves_headroom_over_korean_limit():
+    """韓股本身漲跌停 ±30%，加匯率也到不了 40%——留這段空間才不會再誤報。"""
+    assert corporate_action_gaps(_df([("2026-08-10", 100.0),
+                                      ("2026-08-11", 135.0)]), code="00735") == []
+
+
+def test_code_none_keeps_the_stock_threshold():
+    """沒給代號時維持個股行為，不要因為新參數而悄悄改變既有呼叫的結果。"""
+    df = _df([("2026-08-10", 100.0), ("2026-08-11", 117.0)])
+    assert corporate_action_gaps(df)                      # 預設 10% → 有報
+    assert corporate_action_gaps(df, code="00735") == []  # 指名 ETF → 不報

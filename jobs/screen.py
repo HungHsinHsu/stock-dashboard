@@ -271,7 +271,7 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
         # 系統照算出 MA60 586、位階 0.4%、「空頭排列」。
         # 這次剛好被判避開沒害到人，但**減資是往上跳**——那會算出假的高位階、
         # 甚至假的「站上均線」而放行進場。寧可漏掉一檔，不要放行一個算錯的訊號。
-        gaps = corporate_action_gaps(df)
+        gaps = corporate_action_gaps(df, code=c)
         if gaps:
             d0, p0, d1, p1, chg = gaps[-1]
             skipped.append(f"{c}（{d1} 價格重設 {p0:g}→{p1:g}，{chg:+.0f}%）")

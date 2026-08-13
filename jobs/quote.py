@@ -194,10 +194,24 @@ def _print_ma20_roll(df, n=8):
         f"{d}={old:.1f}({'↑拉升' if up else '↓拖累'})" for d, old, up in rows))
 
 
-LIMIT_PCT = 10.0    # 台股單日漲跌幅上限；超過＝價格被重設過，不是交易造成的
+LIMIT_PCT = 10.0        # 個股單日漲跌幅上限；超過＝價格被重設過，不是交易造成的
+# ETF 不能用 10%：**國外成分證券 ETF／境外 ETF 沒有漲跌幅限制**（證交所規定），
+# 所以它們單日跳 15~20% 是合法交易。實例（誤報過）：00735 國泰臺韓科技持有韓股，
+#   2026-02-11 收 64.95 → 02-23 收 73.5（+13.2%）：中間隔 12 天春節休市，
+#     台股停、韓股美股照跑，開市當然補跳空。
+#   2026-07-30 收 83.7 → 07-31 收 97.9（+17.0%）：那天加權指數本身就漲 7.98%。
+# 兩處都是真實交易，卻被當成除權而把整檔排除掉。改用一個「交易做不到、但分割一定
+# 超過」的門檻：1拆2 是 −50%、2合1 是 +100%，都抓得到；韓股本身上限 ±30%，
+# 加上匯率也到不了 40%。
+ETF_LIMIT_PCT = 40.0
 
 
-def corporate_action_gaps(df, limit_pct=LIMIT_PCT, n=120):
+def _limit_for(code):
+    from core.rules import is_etf
+    return ETF_LIMIT_PCT if is_etf(code) else LIMIT_PCT
+
+
+def corporate_action_gaps(df, limit_pct=LIMIT_PCT, n=120, code=None):
     """找出「相鄰兩根收盤價變化超過漲跌停」的位置——那在台股不可能來自交易。
 
     台股個股有 ±10% 漲跌幅限制，所以連續交易時相鄰收盤價的變化不可能超過 ±10%。
@@ -221,6 +235,8 @@ def corporate_action_gaps(df, limit_pct=LIMIT_PCT, n=120):
 
     回 [(前一日, 前收, 當日, 當日收盤, 變化%), ...]（由舊到新）；沒有回 []。
     """
+    if code is not None:
+        limit_pct = _limit_for(code)
     if "Close" not in getattr(df, "columns", []):
         return []
     closes = df["Close"].dropna().tail(n + 1)
@@ -239,11 +255,12 @@ def corporate_action_gaps(df, limit_pct=LIMIT_PCT, n=120):
     return out
 
 
-def _print_corporate_action(df, n=120):
-    gaps = corporate_action_gaps(df, n=n)
+def _print_corporate_action(df, n=120, code=None):
+    gaps = corporate_action_gaps(df, n=n, code=code)
     if not gaps:
         return 0
-    print(f"  ⚠️ 價格重設事件：近 {n} 根裡有 {len(gaps)} 處相鄰收盤變化超過 ±{LIMIT_PCT:.0f}%，"
+    lim = _limit_for(code) if code is not None else LIMIT_PCT
+    print(f"  ⚠️ 價格重設事件：近 {n} 根裡有 {len(gaps)} 處相鄰收盤變化超過 ±{lim:.0f}%，"
           "台股有漲跌停，交易做不出這種跳動 → 必為除權息／分割／減資。")
     for d0, p0, d1, p1, chg in gaps:
         ratio = p0 / p1 if p1 else None
@@ -401,7 +418,7 @@ def run(codes=None):
         # 先檢查價格有沒有被重設過。放最前面是刻意的：底下每一個數字都建立在
         # 「這條價格序列是連續的」這個假設上，假設不成立就要先讓人看到，
         # 而不是讓他讀完一整頁看起來很正常的分析之後才發現。
-        _print_corporate_action(df)
+        _print_corporate_action(df, code=c)
         _print_extremes(df)
         # 起算日沿用 admin_date 這個既有輸入欄，避免為一次性分析去改 workflow
         since = os.environ.get("ADMIN_DATE", "").strip()
