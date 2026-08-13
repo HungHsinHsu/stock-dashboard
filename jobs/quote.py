@@ -242,6 +242,48 @@ def _print_fill_odds(df, limit, n=20):
         print("             （用前收 × (1+x%) 就能把上面這排換算成任一掛單價的命中率）")
 
 
+def _print_market(months=12):
+    """大盤（加權指數）現在站在哪裡——決定『整體加減碼』時的共同背景。
+
+    個股的位階只回答「這一檔貴不貴」，回答不了「現在該不該持有這麼多股票」。
+    後者要看大盤自己的位階與均線結構，否則會出現「每一檔都說可以買，但整體
+    已經在高檔」的組合——十檔各自合理，加起來就是滿倉買在頭部。
+
+    順手印台指期與美股隔夜，因為台股開盤前的方向主要由這兩個決定。
+    """
+    from core.data import fetch_index, fetch_taifex_detail, fetch_us_overnight
+    print("===== 大盤 =====")
+    try:
+        df = fetch_index(months=months)
+    except Exception as e:
+        print(f"  加權指數抓取失敗：{type(e).__name__} {e}")
+        df = None
+    if df is not None and not getattr(df, "empty", True):
+        ind = compute_indicators(df, {})
+        print(f"  資料日   : {df.index[-1].date()}")
+        print(f"  收盤/前收: {ind.get('close')} / {ind.get('prev_close')}")
+        print(f"  月線 MA20: {ind.get('ma20')}　季線 MA60: {ind.get('ma60')}")
+        print(f"  排列={ind.get('ma_align')} 月線斜率(ma20_slope5)={ind.get('ma20_slope5')}")
+        pos = position_pct(df)
+        if pos is not None:
+            print(f"  位階     : {pos:.1f}%（近120日收盤區間）")
+        _print_extremes(df)
+        tail = df["Close"].tail(10)
+        print("  近10日收盤:", ", ".join(f"{d.date()}={v:,.0f}" for d, v in tail.items()))
+    else:
+        print("  加權指數：抓不到（TWSE 未回應）")
+    try:
+        tx = fetch_taifex_detail()
+        print(f"  台指期   : {tx}" if tx else "  台指期   : 抓不到")
+    except Exception as e:
+        print(f"  台指期抓取失敗：{type(e).__name__} {e}")
+    try:
+        us, us_date = fetch_us_overnight(with_date=True)
+        print(f"  美股隔夜 : {us}（最後交易日 {us_date}）")
+    except Exception as e:
+        print(f"  美股隔夜抓取失敗：{type(e).__name__} {e}")
+
+
 def _print_window(code, df, since):
     r = _best_trade(df, since)
     if not r:
@@ -264,6 +306,9 @@ def run(codes=None):
         months = max(1, int(os.environ.get("QUOTE_MONTHS", "").strip() or 5))
     except ValueError:
         months = 5
+    # 大盤背景：QUOTE_MARKET=0 可關掉（只想看個股時省幾秒）
+    if os.environ.get("QUOTE_MARKET", "1").strip() != "0":
+        _print_market(months=months)
     # 估值：每日「選一檔最優秀標的」時要同時看基本面，逐檔查太慢也容易被限流，
     # 一次抓全市場再查表。抓不到就留空——寧可標明沒有，也不要給看起來像基本面的猜測。
     try:
