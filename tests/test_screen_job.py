@@ -95,3 +95,22 @@ def test_run_keeps_stocks_with_a_clean_price_series(monkeypatch):
     r = screen.run(uni_fetch=lambda n: [("8888", "測試")],
                    fetch=lambda c: _df(), notify=False)
     assert r["fetched_n"] == 1
+
+
+def test_insti_warning_only_when_foreign_and_total_disagree():
+    """第四關只問外資。外資買、投信賣更多時，「外資已停止倒貨」是真的，
+    「法人在買」卻是假的——貿聯-KY 2026-08-12 就是這樣（外資+497張／投信−1,318張
+    ／三大法人−821張），清單只顯示外資那一面，讀起來像籌碼很好。"""
+    poya = {"foreign_net": 497443, "trust_net": -1318430, "total_net": -820962}
+    txt = screen._insti_txt(poya)
+    assert "法人不同調" in txt
+    assert "外資 +497張" in txt and "投信 -1,318張" in txt and "三大法人 -821張" in txt
+
+    # 同向就不印，否則每行都是數字、警示會失效
+    assert screen._insti_txt(
+        {"foreign_net": 1000, "trust_net": 500, "total_net": 1500}) == ""
+    assert screen._insti_txt(
+        {"foreign_net": -1000, "trust_net": -500, "total_net": -1500}) == ""
+    # 資料不齊不要亂猜
+    assert screen._insti_txt({"foreign_net": None, "total_net": 5}) == ""
+    assert screen._insti_txt({}) == ""

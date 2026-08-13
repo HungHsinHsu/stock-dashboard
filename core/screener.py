@@ -137,6 +137,13 @@ def scan(codes, fetch, foreign_lookup=None, min_rows=60, limit=10, pause=0.0,
         item["signal"] = _label(s2["ceiling"], etf)
         item["reason"] = s2["reason"]
         item["tech_ready"] = s2.get("tech_ready")   # 用真實外資重判後的技術到位旗標
+        # 第四關只問外資，但投信可能同時在倒貨——那時「外資已停止倒貨」是真的，
+        # 「法人在買」卻是假的。實例：貿聯-KY 3665 於 2026-08-12 外資買超 497,443、
+        # 投信賣超 1,318,430、三大法人合計 −820,962（淨賣），清單卻只顯示外資那一面。
+        # 這裡先把數字帶出來讓人看得到，不改判斷邏輯（改門檻是策略決定，要另外談）。
+        item["foreign_net"] = (fo or {}).get("net")
+        item["trust_net"] = (fo or {}).get("trust_net")
+        item["total_net"] = (fo or {}).get("total_net")
         item["_rank"] = _SIGNAL_BASE.get(s2["ceiling"], 100)
         kept.append(item)
     return _group_first(kept, limit, etf_limit)

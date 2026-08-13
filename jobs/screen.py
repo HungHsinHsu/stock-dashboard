@@ -91,6 +91,34 @@ def _day_chg_txt(x):
     return f" {(c - p) / p * 100:+.1f}%"
 
 
+def _lots(v):
+    """股數 → 張（1 張＝1000 股），帶正負號。None 回 None。"""
+    if not isinstance(v, (int, float)):
+        return None
+    return v / 1000.0
+
+
+def _insti_txt(x):
+    """三大法人一行。只在『外資與整體方向不一致』時才印——那正是第四關看不到的情況。
+
+    第四關只問外資有沒有停止賣超。但外資買、投信賣更多的時候，「外資已停止倒貨」
+    是真的，「法人在買」卻是假的。實例：貿聯-KY 3665 於 2026-08-12 外資買超 497 張、
+    投信賣超 1,318 張、三大法人合計 −821 張，清單卻只顯示外資那一面，讀起來像籌碼很好。
+
+    方向一致時不印，避免每一行都被塞滿數字而失去警示作用。
+    """
+    f, t, tot = (_lots(x.get(k)) for k in ("foreign_net", "trust_net", "total_net"))
+    if f is None or tot is None:
+        return ""
+    if (f >= 0) == (tot >= 0):        # 外資與三大法人同向 → 沒有矛盾，不用特別提
+        return ""
+    parts = [f"外資 {f:+,.0f}張"]
+    if t is not None:
+        parts.append(f"投信 {t:+,.0f}張")
+    parts.append(f"三大法人 {tot:+,.0f}張")
+    return f"\n　⚠️ 法人不同調：{'／'.join(parts)}（第四關只看外資）"
+
+
 def _line(x, names):
     nm = names.get(x["code"], x["code"])
     where = x.get("at_batch") or x["kind"]
@@ -105,6 +133,7 @@ def _line(x, names):
         hint = _order_hint(x)
         if hint:
             out += "\n" + hint
+        out += _insti_txt(x)      # 外資與三大法人不同向時才會有內容
     return out
 
 
@@ -187,6 +216,9 @@ def _top_pick(cands, names, valuation=None):
     lines.append("　💵 " + "｜".join(notes) if notes
                  else "　💵 （今日無估值資料，本益比/殖利率請自行確認）")
     lines.append(f"　理由：{x.get('reason')}")
+    insti = _insti_txt(x).strip()
+    if insti:
+        lines.append("　" + insti.lstrip("　"))
     if len(ok) > 1:
         alts = "、".join(f"{names.get(t[3]['code'], t[3]['code'])}(−{t[0]:.1f}%)"
                          for t in ok[1:4])
