@@ -194,6 +194,70 @@ def _print_ma20_roll(df, n=8):
         f"{d}={old:.1f}({'↑拉升' if up else '↓拖累'})" for d, old, up in rows))
 
 
+LIMIT_PCT = 10.0    # 台股單日漲跌幅上限；超過＝價格被重設過，不是交易造成的
+
+
+def corporate_action_gaps(df, limit_pct=LIMIT_PCT, n=120):
+    """找出「相鄰兩根收盤價變化超過漲跌停」的位置——那在台股不可能來自交易。
+
+    台股個股有 ±10% 漲跌幅限制，所以連續交易時相鄰收盤價的變化不可能超過 ±10%。
+    一旦超過，就一定是除權息、股票分割、減資這類**價格重設**事件。而 TWSE/TPEx 的
+    日線是**未還原**的原始價格——均線會同時吃到事件前後兩種價格，算出來的 MA、位階、
+    籌碼分布、排列全部沒有意義，卻長得跟正常結果一模一樣。
+
+    實例：寶雅 5904 於 2026-08-10 執行 1 拆 10（面額 10→1），7/29 收 720、8/10 收 79.2。
+    系統照算出 MA5 210.12、MA20 548.03、MA60 586.36、位階 0.4%、「空頭排列」——
+    每一個都是拿分割前後的價格混在一起算的。這種錯**不會報錯**，只會給出很有說服力的
+    錯誤結論（位階 0.4% 看起來像「跌到谷底、超便宜」）。
+
+    方向兩邊都要抓：減資會讓價格往上跳，可能把位階算成 100%、或假裝突破均線。
+
+    ⚠️ 這只抓得到「大的」重設。單純除息通常只讓價格掉幾個百分點，落在 ±10% 內、
+    抓不到——但那種情況對均線的扭曲也同樣只有幾個百分點，屬於可接受的誤差。
+    這個偵測器要防的是「分割/減資」那種把價格砍成 1/10 或翻倍的量級。
+
+    漲停價是 floor(前收 × 1.1 / tick) × tick，所以合法漲停一定 ≤ +10%；用一個
+    浮點數容差把「剛好 10%」排除掉，否則 110/100 會算成 10.000000000000009 而誤報。
+
+    回 [(前一日, 前收, 當日, 當日收盤, 變化%), ...]（由舊到新）；沒有回 []。
+    """
+    if "Close" not in getattr(df, "columns", []):
+        return []
+    closes = df["Close"].dropna().tail(n + 1)
+    if len(closes) < 2:
+        return []
+    out = []
+    vals = [float(x) for x in closes]
+    dates = [x.date() for x in closes.index]
+    for i in range(1, len(vals)):
+        prev = vals[i - 1]
+        if prev <= 0:
+            continue
+        chg = (vals[i] / prev - 1) * 100
+        if abs(chg) > limit_pct + 1e-6:
+            out.append((dates[i - 1], prev, dates[i], vals[i], chg))
+    return out
+
+
+def _print_corporate_action(df, n=120):
+    gaps = corporate_action_gaps(df, n=n)
+    if not gaps:
+        return 0
+    print(f"  ⚠️ 價格重設事件：近 {n} 根裡有 {len(gaps)} 處相鄰收盤變化超過 ±{LIMIT_PCT:.0f}%，"
+          "台股有漲跌停，交易做不出這種跳動 → 必為除權息／分割／減資。")
+    for d0, p0, d1, p1, chg in gaps:
+        ratio = p0 / p1 if p1 else None
+        hint = f"（前後比約 {ratio:.2f}）" if ratio else ""
+        print(f"     {d0} 收 {p0:g} → {d1} 收 {p1:g}　{chg:+.1f}%{hint}")
+    last = gaps[-1][2]
+    usable = int((df.index.date > last).sum()) + 1
+    print(f"     ⛔ 本專案的日線是**未還原**價，所以上面的 MA5/MA20/MA60、位階、"
+          f"排列、籌碼分布**全部無效**（跨越了事件）。")
+    print(f"     事件後只有 {usable} 根可用；MA20 要 20 根、MA60 與位階要 60~120 根，"
+          "在那之前技術面請以看盤軟體的還原線圖為準。")
+    return len(gaps)
+
+
 def fill_odds(df, limit, n=20):
     """掛一張限價買單在 limit，最近 n 天有幾天真的碰得到？
 
@@ -334,6 +398,10 @@ def run(codes=None):
             continue
         ind = compute_indicators(df, {})
         print(f"===== {c} =====")
+        # 先檢查價格有沒有被重設過。放最前面是刻意的：底下每一個數字都建立在
+        # 「這條價格序列是連續的」這個假設上，假設不成立就要先讓人看到，
+        # 而不是讓他讀完一整頁看起來很正常的分析之後才發現。
+        _print_corporate_action(df)
         _print_extremes(df)
         # 起算日沿用 admin_date 這個既有輸入欄，避免為一次性分析去改 workflow
         since = os.environ.get("ADMIN_DATE", "").strip()
