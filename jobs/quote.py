@@ -270,6 +270,9 @@ def _print_market(months=12):
         _print_extremes(df)
         tail = df["Close"].tail(10)
         print("  近10日收盤:", ", ".join(f"{d.date()}={v:,.0f}" for d, v in tail.items()))
+        # 月線換手：判斷「月線何時可能上穿季線」的唯一直接依據。少了它只能說
+        # 「方向確定、時間不知道」——而『可以加碼』這條線正是綁在這個交叉上。
+        _print_ma20_roll(df)
     else:
         print("  加權指數：抓不到（TWSE 未回應）")
     try:
