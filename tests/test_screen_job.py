@@ -58,3 +58,40 @@ def test_run_stores_foreign_snapshot_for_watchlist(monkeypatch):
     snap = stored.get("foreign:latest")
     assert snap and "2344" in snap["map"]
     assert snap["map"]["2344"]["stopped"] is False
+
+
+def test_run_skips_stocks_whose_price_was_reset(monkeypatch):
+    """除權息/分割/減資會把價格重設，而日線是未還原價 → 均線混到事件前後兩種價格。
+
+    寶雅 5904 於 2026-08-10 一拆十（7/29 收 720、8/10 收 79.2），系統照算出
+    MA60 586、位階 0.4%、「空頭排列」。那次剛好被判避開，但減資是往上跳——
+    會算出假的高位階甚至假的「站上均線」而放行進場。寧可漏一檔，不要放行算錯的訊號。
+    """
+    calls = []
+    monkeypatch.setattr(db, "set_state", lambda k, v: calls.append(k))
+    monkeypatch.setattr(db, "get_states_by_prefix", lambda p: {})
+    monkeypatch.setattr(screen, "fetch_foreign_flow", lambda c: {"stopped": True})
+    monkeypatch.setattr(screen, "fetch_valuation", lambda *a, **k: {})
+    monkeypatch.setattr("jobs.watch.run", lambda **k: None)
+
+    split = _df()
+    split.iloc[:30, split.columns.get_loc("Close")] *= 10   # 前 30 根是分割前的價格
+
+    r = screen.run(uni_fetch=lambda n: [("5904", "寶雅")],
+                   fetch=lambda c: split, notify=False)
+    assert r["cands"] == []          # 被排除，不進候選
+    assert r["fetched_n"] == 0       # 也不算「讀取成功」
+
+
+def test_run_keeps_stocks_with_a_clean_price_series(monkeypatch):
+    """沒有價格重設的正常股票不能被誤殺——漲停/跌停是合法交易。"""
+    calls = []
+    monkeypatch.setattr(db, "set_state", lambda k, v: calls.append(k))
+    monkeypatch.setattr(db, "get_states_by_prefix", lambda p: {})
+    monkeypatch.setattr(screen, "fetch_foreign_flow", lambda c: {"stopped": True})
+    monkeypatch.setattr(screen, "fetch_valuation", lambda *a, **k: {})
+    monkeypatch.setattr("jobs.watch.run", lambda **k: None)
+
+    r = screen.run(uni_fetch=lambda n: [("8888", "測試")],
+                   fetch=lambda c: _df(), notify=False)
+    assert r["fetched_n"] == 1

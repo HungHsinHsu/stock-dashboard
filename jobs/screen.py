@@ -4,6 +4,7 @@
 排程跑（非互動）→ 放慢節流(workers=1、pause 較長)，對 TWSE 友善。
 """
 from core.data import fetch_top_turnover, fetch_daily, fetch_foreign_flow
+from jobs.quote import corporate_action_gaps
 from core.screener import scan
 from core.rules import NEAR_PCT
 from core.fundamentals import fetch_valuation, valuation_notes
@@ -224,12 +225,26 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
     names = {c: nm for c, nm in uni}
     got = {"ok": 0}
 
+    skipped = []
+
     def _f(c):
         # 7 個月(~145 個交易日)：位階要滿 120 根才算得出來，5 個月(~100 根)不夠，
         # 會讓 _top_pick 的位階門檻整條失效（見 position_pct 的註解）。
         df = (fetch or (lambda x: fetch_daily(x, months=7, workers=2)))(c)
-        if df is not None and not getattr(df, "empty", True):
-            got["ok"] += 1
+        if df is None or getattr(df, "empty", True):
+            return df
+        # 除權息/分割/減資會把價格重設，而日線是**未還原**價 → 均線同時吃到事件前後
+        # 兩種價格，MA、位階、排列、籌碼全部失效，卻長得跟正常結果一模一樣。
+        # 實例：寶雅 5904 於 2026-08-10 一拆十（7/29 收 720、8/10 收 79.2），
+        # 系統照算出 MA60 586、位階 0.4%、「空頭排列」。
+        # 這次剛好被判避開沒害到人，但**減資是往上跳**——那會算出假的高位階、
+        # 甚至假的「站上均線」而放行進場。寧可漏掉一檔，不要放行一個算錯的訊號。
+        gaps = corporate_action_gaps(df)
+        if gaps:
+            d0, p0, d1, p1, chg = gaps[-1]
+            skipped.append(f"{c}（{d1} 價格重設 {p0:g}→{p1:g}，{chg:+.0f}%）")
+            return None
+        got["ok"] += 1
         return df
 
     cands = scan([c for c, _ in uni], fetch=_f, foreign_lookup=fetch_foreign_flow,
@@ -260,6 +275,9 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
     else:
         print("[screen] 清單抓不到(TWSE 沒回應)，保留上一份選股結果，不覆寫。")
     print(f"[screen] date={date} 清單={len(uni)} 讀取成功={got['ok']} 候選={len(cands)}")
+    if skipped:
+        print(f"[screen] 因價格重設(除權息/分割/減資)排除 {len(skipped)} 檔："
+              + "、".join(skipped))
     for x in cands:
         print(f"[screen] {names.get(x['code'], x['code'])} ({x['code']}) "
               f"[{x['signal']}] {x.get('trend', '')} | "
