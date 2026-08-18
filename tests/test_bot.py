@@ -390,3 +390,64 @@ def test_command_reply_has_link_but_qa_does_not(monkeypatch):
     monkeypatch.setattr(bot, "generate_text", lambda s, u: "一般性看法")
     qa = bot.handle("台積電最近如何")
     assert bot.DASHBOARD_URL not in qa
+
+
+import core.holdings as _hold
+
+
+def _wire_hold(monkeypatch, tmp_path):
+    """真實持股指令改走暫存檔，避免測試汙染 repo 的 holdings.json。"""
+    p = str(tmp_path / "hold.json")
+    monkeypatch.setattr(bot, "resolve_stocks", lambda q: [("2618", "長榮航")])
+    monkeypatch.setattr(bot, "load_holdings",
+                        lambda owner=None: _hold.load_holdings(path=p))
+    monkeypatch.setattr(
+        bot, "set_holding",
+        lambda code, s, c, name=None, owner=None:
+            _hold.set_holding(code, s, c, name=name, path=p))
+    monkeypatch.setattr(bot, "remove_holding",
+                        lambda code, owner=None: _hold.remove_holding(code, path=p))
+
+
+def test_bought_records_and_merges_weighted_average(monkeypatch, tmp_path):
+    _wire_hold(monkeypatch, tmp_path)
+    r1 = bot.handle("/買了 2618 250 41.5")
+    assert "250 股" in r1 and "41.50" in r1
+    r2 = bot.handle("/買了 2618 250 43.5")        # 加碼 → 加權平均 42.5
+    assert "500 股" in r2 and "42.50" in r2 and "加權合併" in r2
+
+
+def test_sold_partial_keeps_cost_then_full_clears(monkeypatch, tmp_path):
+    _wire_hold(monkeypatch, tmp_path)
+    bot.handle("/買了 2618 250 41.5")
+    r = bot.handle("/賣了 2618 100")
+    assert "剩 150 股" in r and "均價不變" in r
+    r2 = bot.handle("/賣了 2618")                  # 省略股數＝全部出清
+    assert "全部出清" in r2 and "150" in r2
+    assert "沒有記錄任何實際持股" in bot.handle("/庫存")
+
+
+def test_sold_more_than_held_clears_instead_of_negative(monkeypatch, tmp_path):
+    """賣超過持有股數不能變負的——視為出清。"""
+    _wire_hold(monkeypatch, tmp_path)
+    bot.handle("/買了 2618 250 41.5")
+    assert "全部出清" in bot.handle("/賣了 2618 999")
+
+
+def test_holdings_lists_shares_and_cost(monkeypatch, tmp_path):
+    _wire_hold(monkeypatch, tmp_path)
+    bot.handle("/買了 2618 250 41.5")
+    out = bot.handle("/庫存")
+    assert "長榮航" in out and "250 股" in out and "41.5" in out
+
+
+def test_bought_rejects_bad_numbers(monkeypatch, tmp_path):
+    _wire_hold(monkeypatch, tmp_path)
+    assert "用法" in bot.handle("/買了 2618")
+    assert "要是數字" in bot.handle("/買了 2618 abc 41.5")
+    assert "大於 0" in bot.handle("/買了 2618 0 41.5")
+
+
+def test_sold_unknown_holding_says_so(monkeypatch, tmp_path):
+    _wire_hold(monkeypatch, tmp_path)
+    assert "不在持股清單" in bot.handle("/賣了 2618 100")

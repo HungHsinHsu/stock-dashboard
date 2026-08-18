@@ -15,6 +15,7 @@ from core.watchlist import add_stock, remove_stock, effective_stocks
 from core.positions import (
     enter_batch, exit_position, held_positions, get_batches, MAX_BATCHES,
 )
+from core.holdings import load_holdings, set_holding, remove_holding
 from core.store import load_history, get_record
 from core.review import hit_rate
 from core.llm import generate_text
@@ -72,6 +73,11 @@ HELP = "\n".join([
     "/exit 2330　出場、清空部位",
     "/position　目前持有批數",
     "",
+    "—— 真實持股（08:30 每日操作建議讀這份名單）——",
+    "/買了 2618 250 41.5　記錄實際買進（同檔自動加權平均）",
+    "/賣了 2618 250　記錄實際賣出（省略股數＝全部出清）",
+    "/庫存　列出實際持股",
+    "",
     "/help　說明",
     "",
     "—— 直接問股票問題 ——",
@@ -96,6 +102,9 @@ BOT_COMMANDS = [
     ("enter", "記錄進一批部位"),
     ("exit", "出場、清空部位"),
     ("position", "目前持有批數"),
+    ("bought", "記錄實際買進：代號 股數 均價（餵 08:30 持股建議）"),
+    ("sold", "記錄實際賣出：代號 [股數]（省略＝全部出清）"),
+    ("holdings", "列出實際持股（股數＋均價）"),
     ("help", "指令說明"),
 ]
 
@@ -443,6 +452,7 @@ KNOWN_CMDS = {
     "enter", "進場", "buy", "in", "買進",
     "exit", "出場", "sell", "out", "賣出", "清空",
     "position", "部位", "pos", "持股",
+    "買了", "bought", "賣了", "sold", "庫存", "holdings",
     "predict", "預測", "forecast", "即時預測", "即時", "現在預測", "p", "pred", "f",
     "review", "復盤", "結果", "查", "查預測", "查詢", "紀錄", "記錄",
     "開盤", "產生預測", "推播", "跑預測", "morning", "run",
@@ -546,6 +556,63 @@ def _dispatch(text):
             return "📦 目前沒有任何部位。"
         return "📦 目前部位：\n" + "\n".join(
             f"・{c}：{b}/{MAX_BATCHES} 批" for c, b in held.items())
+    # 真實持股（股數＋均價）：08:30 的持股每日建議讀這份名單。
+    # 跟上面的批數(positions)是兩回事：批數管『承接到第幾批』，這裡管『實際帳』。
+    if cmd in ("買了", "bought"):
+        if len(args) < 3:
+            return "用法：/買了 代號 股數 均價，例如 /買了 2618 250 41.5"
+        code, disp = _resolve_one(args[0])
+        if code is None:
+            return disp
+        try:
+            n, price = float(args[1]), float(args[2])
+        except ValueError:
+            return "股數與均價要是數字，例如 /買了 2618 250 41.5"
+        if n <= 0 or price <= 0:
+            return "股數與均價都要大於 0。"
+        old = (load_holdings(_owner()) or {}).get(str(code)) or {}
+        old_sh = float(old.get("shares", 0) or 0)
+        old_cost = float(old.get("avg_cost", 0) or 0)
+        total = old_sh + n
+        avg = (old_sh * old_cost + n * price) / total
+        set_holding(code, total, round(avg, 4), name=disp, owner=_owner())
+        note = f"（原 {old_sh:g} 股 @ {old_cost:g}，已加權合併）" if old_sh else ""
+        return (f"✅ 已記錄買進 {disp} {n:g} 股 @ {price:g}{note}\n"
+                f"📦 現持 {total:g} 股，均價 {avg:.2f}\n"
+                f"明早 08:30 起納入持股每日建議。")
+    if cmd in ("賣了", "sold"):
+        if not args:
+            return "用法：/賣了 代號 股數（省略股數＝全部出清），例如 /賣了 2618 250"
+        code, disp = _resolve_one(args[0])
+        if code is None:
+            return disp
+        old = (load_holdings(_owner()) or {}).get(str(code))
+        if not old:
+            return f"{disp} 不在持股清單裡（用 /庫存 看目前名單）。"
+        old_sh = float(old.get("shares", 0) or 0)
+        n = None
+        if len(args) >= 2:
+            try:
+                n = float(args[1])
+            except ValueError:
+                return "股數要是數字，例如 /賣了 2618 250"
+        if n is None or n >= old_sh:
+            remove_holding(code, owner=_owner())
+            return (f"🗑 {disp} 已全部出清（原 {old_sh:g} 股）。\n"
+                    f"明早起不再推送這檔的持股建議。")
+        left = old_sh - n
+        set_holding(code, left, float(old.get("avg_cost", 0) or 0), owner=_owner())
+        return f"✅ 已記錄賣出 {disp} {n:g} 股，剩 {left:g} 股（均價不變）"
+    if cmd in ("庫存", "holdings"):
+        h = load_holdings(_owner()) or {}
+        if not h:
+            return "📦 目前沒有記錄任何實際持股。用 /買了 代號 股數 均價 新增。"
+        lines = ["📦 實際持股（08:30 每日建議讀這份名單）："]
+        for c, rec in h.items():
+            nm = rec.get("name") or c
+            lines.append(f"・{nm}：{float(rec.get('shares', 0) or 0):g} 股"
+                         f" @ {float(rec.get('avg_cost', 0) or 0):g}")
+        return "\n".join(lines)
     # 預測＝預判「下一交易日」（即時試算；不含今天的命中結果）
     if cmd in ("predict", "預測", "forecast", "即時預測", "即時",
                "現在預測", "p", "pred", "f"):
