@@ -114,3 +114,65 @@ def test_insti_warning_only_when_foreign_and_total_disagree():
     # 資料不齊不要亂猜
     assert screen._insti_txt({"foreign_net": None, "total_net": 5}) == ""
     assert screen._insti_txt({}) == ""
+
+
+def test_run_is_idempotent_per_day(monkeypatch):
+    """同一天第二次呼叫要直接退場：不重掃、不重推（8/19 雙推播事故的鎖）。"""
+    import jobs.screen as screen
+    from core import db as _db
+    calls = {"fetch": 0, "send": 0}
+    monkeypatch.setattr(_db, "db_enabled", lambda: False)
+    stored = {}
+    monkeypatch.setattr(_db, "get_state", lambda k, default=None: stored.get(k, default))
+    monkeypatch.setattr(_db, "set_state", lambda k, v: stored.__setitem__(k, v))
+    monkeypatch.setattr(screen.tg, "send", lambda *a, **k: calls.__setitem__("send", calls["send"] + 1))
+    monkeypatch.setattr(screen, "_store_foreign_snapshot", lambda *a, **k: None)
+    import jobs.watch as watch_mod            # run() 內部會順手跑追蹤掃描——測試不上網
+    monkeypatch.setattr(watch_mod, "run", lambda **k: None)
+
+    def uni(top):
+        calls["fetch"] += 1
+        return [("2330", "台積電")]
+
+    monkeypatch.setattr(screen, "scan", lambda *a, **k: [])
+    monkeypatch.setattr(screen, "fetch_valuation", lambda *_: {})
+    r1 = screen.run(notify=True, uni_fetch=uni, fetch=lambda c: None)
+    assert calls["fetch"] == 1 and r1["date"]
+    r2 = screen.run(notify=True, uni_fetch=uni, fetch=lambda c: None)
+    assert calls["fetch"] == 1, "第二次不該再掃"
+    assert r2 == r1, "第二次要回第一次的結果"
+    r3 = screen.run(notify=True, uni_fetch=uni, fetch=lambda c: None, force=True)
+    assert calls["fetch"] == 2, "force=True 才能重跑"
+
+
+def test_digest_flags_missing_otc():
+    """TPEx 缺席時，推播要標明只掃了上市——殘缺池不能偽裝成全市場。"""
+    import jobs.screen as screen
+    out = screen._digest("2026-08-19", [], {}, 150, otc_ok=False)
+    assert "上櫃" in out and "抓不到" in out
+    out_ok = screen._digest("2026-08-19", [], {}, 150, otc_ok=True)
+    assert "抓不到" not in out_ok
+
+
+def test_top_turnover_meta_reports_otc_status(monkeypatch):
+    """fetch_top_turnover 的 meta 要誠實回報上櫃有沒有併進來（空清單＝失敗）。"""
+    import core.data as data
+
+    class _R:
+        def json(self):
+            return [{"Code": "2330", "Name": "台積電", "TradeValue": "1000"}]
+
+    monkeypatch.setattr(data.requests, "get", lambda *a, **k: _R())
+    import core.tpex as tpex
+    monkeypatch.setattr(tpex, "fetch_tpex_top_turnover", lambda n: [])
+    meta = {}
+    data.fetch_top_turnover(5, meta=meta)
+    assert meta["otc_ok"] is False
+    monkeypatch.setattr(tpex, "fetch_tpex_top_turnover",
+                        lambda n: [("6588", "東典光電", 999.0)])
+    meta = {}
+    rows = data.fetch_top_turnover(5, meta=meta)
+    assert meta["otc_ok"] is True and ("6588", "東典光電") in rows
+    meta = {}
+    data.fetch_top_turnover(5, include_otc=False, meta=meta)
+    assert meta["otc_ok"] is None

@@ -487,7 +487,7 @@ def fetch_stock_list():
     return out
 
 
-def fetch_top_turnover(n=150, include_otc=True):
+def fetch_top_turnover(n=150, include_otc=True, meta=None):
     """當日成交金額前 n 檔（一般個股 4 碼 + ETF 00 開頭），回 [(code, name), ...]。
     用 STOCK_DAY_ALL 單次抓全市場，便宜；抓不到回 []。
 
@@ -495,6 +495,11 @@ def fetch_top_turnover(n=150, include_otc=True):
     「上市前 n ＋ 上櫃前 n 接起來」——那會變成 2n 檔、而且上櫃第 150 名的成交金額
     可能只有上市第 150 名的零頭，混進來就不是『前 n 大成交股』了。
     兩邊的金額單位都是元（TWSE TradeValue／TPEx TransactionAmount），可直接比。
+
+    meta：呼叫端給個 dict 的話，回填 {"otc_ok": bool}——上櫃有沒有真的併進來。
+    TPEx 被限流時池子會靜默縮成只剩上市，兩次掃描會選出不同首選（實例：
+    2026-08-19 一次選出上櫃的東典光電、另一次只剩上市股）；下游要能標示
+    「這份掃描缺了半個市場」，不能讓殘缺池偽裝成全市場。
     """
     try:
         data = requests.get(
@@ -514,12 +519,19 @@ def fetch_top_turnover(n=150, include_otc=True):
             continue                       # 排除權證等非個股/ETF
         rows.append((tv, code, name))
     if include_otc:
+        otc_rows = []
         try:
             from core.tpex import fetch_tpex_top_turnover   # 延遲匯入
             # 多要一些再一起排序：上櫃可能有數十檔擠進合併後的前 n
-            rows += [(amt, c, nm) for c, nm, amt in fetch_tpex_top_turnover(n)]
+            otc_rows = [(amt, c, nm) for c, nm, amt in fetch_tpex_top_turnover(n)]
+            rows += otc_rows
         except Exception as e:
             print(f"[tpex] 母體併入失敗，本次只用上市：{type(e).__name__} {e}")
+        # 真實的上櫃前150大不可能是空的——空清單＝抓失敗，跟例外同等看待。
+        if isinstance(meta, dict):
+            meta["otc_ok"] = bool(otc_rows)
+    elif isinstance(meta, dict):
+        meta["otc_ok"] = None          # 呼叫端本來就沒要上櫃，不算缺席
     rows.sort(reverse=True)
     return [(c, nm) for _, c, nm in rows[:n]]
 

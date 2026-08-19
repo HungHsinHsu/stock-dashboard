@@ -204,10 +204,11 @@ def _wire_sched(monkeypatch, calls):
 
 
 def test_scheduler_backs_up_evening_when_due(monkeypatch):
-    # 15:35（過了 15:20+緩衝）且 GitHub 還沒做 → 機器人補跑 evening
+    # 15:50（過了 15:20+25 分緩衝）且 GitHub 還沒做 → 機器人補跑 evening
+    # （15:35 的 screen 班此時還在自己的緩衝內，不會一起補）
     calls = []
     _wire_sched(monkeypatch, calls)
-    monkeypatch.setattr(bot, "_tw_now", lambda: _tw(15, 35))
+    monkeypatch.setattr(bot, "_tw_now", lambda: _tw(15, 50))
     bot._run_scheduled_jobs()
     assert "evening" in calls and "morning" not in calls   # 只補復盤，不在午後補開盤
 
@@ -225,7 +226,7 @@ def test_scheduler_skips_when_github_already_did_it(monkeypatch):
 
 
 def test_scheduler_waits_during_grace(monkeypatch):
-    # 15:25 還在 15:20+10 緩衝內（讓 GitHub 先跑）→ 先不動
+    # 15:25 還在 15:20+25 緩衝內（讓 GitHub 先跑；GitHub 常遲到 5~20 分）→ 先不動
     calls = []
     _wire_sched(monkeypatch, calls)
     monkeypatch.setattr(bot, "_tw_now", lambda: _tw(15, 25))

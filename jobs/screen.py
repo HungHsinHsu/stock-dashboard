@@ -228,14 +228,17 @@ def _top_pick(cands, names, valuation=None):
     return lines
 
 
-def _digest(date, cands, names, top, valuation=None):
+def _digest(date, cands, names, top, valuation=None, otc_ok=True):
     stocks = [x for x in cands if x.get("kind") != "ETF"]
     etfs = [x for x in cands if x.get("kind") == "ETF"]
     lines = [
         f"🔎 今日收盤後選股（回檔承接法・前 {top} 大成交股）— {date}",
         "📏 評選：訊號 進場>觀望>避開 ＞ 回檔到支撐 ＞ 收盤站穩 ＞ 量縮 ＞ 離均線近；禁區/槓桿不列。",
-        "",
     ]
+    if otc_ok is False:
+        # 缺了半個市場的掃描不能偽裝成全市場——「我沒掃到」≠「上櫃沒有標的」。
+        lines.append("⚠️ 本次上櫃(TPEx)資料抓不到，只掃了上市——上櫃標的可能被漏掉。")
+    lines.append("")
     lines += _top_pick(cands, names, valuation)     # 首選擺最前面：這是唯一要立刻動作的一行
     lines += ["", "📈 個股（主）："]
     lines += [_line(x, names) for x in stocks] or ["・（今日沒有合適個股）"]
@@ -250,10 +253,27 @@ def _digest(date, cands, names, top, valuation=None):
 
 
 def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnover,
-        limit=15, pause=0.05):
+        limit=15, pause=0.05, force=False):
     from core import db
+    import os
     date = str((today or now_tw()).date())
-    uni = uni_fetch(top) or []
+    # 冪等鎖：同一天只產出一次。GitHub 排程常遲到 5~20 分鐘，機器人備援 15:45 補跑後
+    # GitHub 那班又到，會推播兩次——兩次的資料池還可能不同（TPEx 限流時縮成只剩上市），
+    # 使用者同一天收到兩份互相矛盾的首選（實例：2026-08-19 東典光電 vs 不出手）。
+    # 誰先寫進 DB 誰算數，後到的直接退場。手動重跑用 force=True 或 SCREEN_FORCE=1。
+    if not force and os.environ.get("SCREEN_FORCE") != "1":
+        try:
+            prev = db.get_state(STATE_KEY) or {}
+        except Exception:
+            prev = {}
+        if prev.get("date") == date:
+            print(f"[screen] {date} 已產出過（冪等鎖），本次跳過不重跑、不重推。")
+            return prev
+    uni_meta = {}
+    try:
+        uni = uni_fetch(top, meta=uni_meta) or []
+    except TypeError:                      # 測試常塞 lambda(top)，沒有 meta 參數
+        uni = uni_fetch(top) or []
     names = {c: nm for c, nm in uni}
     got = {"ok": 0}
 
@@ -315,13 +335,15 @@ def run(today=None, top=150, notify=True, fetch=None, uni_fetch=fetch_top_turnov
               f"[{x['signal']}] {x.get('trend', '')} | "
               f"{x.get('at_batch') or x['kind']} | 量比{x.get('vol_ratio')}")
     if notify:
+        otc_ok = uni_meta.get("otc_ok", True)
         if cands:
-            tg.send(_digest(date, cands, names, top, valuation))
+            tg.send(_digest(date, cands, names, top, valuation, otc_ok=otc_ok))
         elif not uni:
             tg.send("🔎 收盤後選股：抓不到市場清單（TWSE 沒回應），稍後系統會再試。")
         else:
+            tail = ("\n⚠️ 本次上櫃(TPEx)資料抓不到，只掃了上市。" if otc_ok is False else "")
             tg.send(f"🔎 收盤後選股：清單 {len(uni)} 檔、成功讀取 {got['ok']} 檔，"
-                    "這次沒有合適候選。")
+                    "這次沒有合適候選。" + tail)
     return result
 
 

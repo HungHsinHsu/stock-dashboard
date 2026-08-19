@@ -792,7 +792,9 @@ def _notify_started():
 # 各班留 GRACE 分鐘讓 GitHub 先跑；GitHub 已做過(冪等檢查)就略過，避免重覆。
 _SCHED_SLOTS = [("morning", 7, 40), ("morning", 8, 10),
                 ("evening", 15, 20), ("screen", 15, 35), ("evening", 18, 0)]
-_SCHED_GRACE_MIN = 10
+# GitHub 排程遲到 5~20 分鐘是常態；緩衝太短會跟遲到的正班撞出「同一天兩份選股」
+# （screen.run 另有冪等鎖擋第二份，這裡把撞上的機率本身壓低）。
+_SCHED_GRACE_MIN = 25
 _sched_done = set()          # 記憶體備援（無 DB 時用）
 
 
