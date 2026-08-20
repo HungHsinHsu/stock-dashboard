@@ -74,10 +74,10 @@ def _order_hint(x):
         return None
     hi = sup * (1 + NEAR_PCT / 100)
     parts = [f"💰 明日掛單 ≤{hi:.2f}（{at.split('(')[0]} {sup:.2f} 的 +{NEAR_PCT:.0f}% 內）"]
-    stop = x.get("ma60")
-    if isinstance(stop, (int, float)) and hi > stop:
-        parts.append(f"🛑停損 {stop:.2f}（季線）")
-        parts.append(f"風險 −{(hi - stop) / hi * 100:.1f}%")
+    stop, stop_pct, tag = _stop_level(hi, x.get("ma60"))
+    if stop is not None:
+        parts.append(f"🛑停損 {stop:.2f}（{tag}）")
+        parts.append(f"風險 −{stop_pct:.1f}%")
     return "　" + "｜".join(parts)
 
 
@@ -159,6 +159,24 @@ def _stop_pct(limit_price, ma60):
     return (limit_price - ma60) / limit_price * 100
 
 
+# 停損距離下限：掛單價貼著季線時，「停損＝季線」會近到小於一天的正常呼吸，
+# 被雜訊掃出場跟看對看錯無關（實例：禾伸堂掛 712／季線 708，距離只有 0.6%，
+# 而它日振幅 3~5%）。距離不足時把停損從季線再往下讓到滿足下限——
+# 加的是保費（多虧一點才認錯），買的是「停損只死於結構、不死於呼吸」。
+MIN_STOP_PCT = 1.5
+
+
+def _stop_level(limit_price, ma60):
+    """建議停損價位。回 (停損價, 距離%, 標籤)；算不出回 (None, None, None)。
+    距離 ≥ MIN_STOP_PCT → 停損就是季線；不足 → 季線下方讓出波動緩衝。"""
+    pct = _stop_pct(limit_price, ma60)
+    if pct is None:
+        return None, None, None
+    if pct >= MIN_STOP_PCT:
+        return ma60, pct, "季線"
+    return limit_price * (1 - MIN_STOP_PCT / 100), MIN_STOP_PCT, "季線下讓波動緩衝"
+
+
 def _top_pick(cands, names, valuation=None):
     """從『進場』候選裡挑一檔今日首選，直接給開盤掛單價。回 list[str]。
 
@@ -181,7 +199,7 @@ def _top_pick(cands, names, valuation=None):
         lp, sup, sup_name = _limit_price(x)
         slope = x.get("ma20_slope5")
         pos = x.get("pos_pct")
-        stop_pct = _stop_pct(lp, x.get("ma60"))
+        stop_price, stop_pct, stop_tag = _stop_level(lp, x.get("ma60"))
         nm = names.get(x["code"], x["code"])
         if lp is None or stop_pct is None:
             rejected.append(f"{nm}（算不出掛單價/停損）")
@@ -196,7 +214,8 @@ def _top_pick(cands, names, valuation=None):
             rejected.append(f"{nm}（停損要 −{stop_pct:.1f}%，太遠）")
         else:
             ok.append((stop_pct, pos if isinstance(pos, (int, float)) else 50.0,
-                       x.get("vol_ratio") or 9.9, x, lp, sup, sup_name))
+                       x.get("vol_ratio") or 9.9, x, lp, sup, sup_name,
+                       stop_price, stop_tag))
     lines = ["", "──── ⭐ 今日首選（明日開盤前掛單）────"]
     if not ok:
         lines.append("・今天沒有同時通過『月線上揚＋位階不高＋停損夠近』的進場標的 → 不出手。")
@@ -204,12 +223,12 @@ def _top_pick(cands, names, valuation=None):
             lines.append("　被刷掉的：" + "、".join(rejected[:6]))
         return lines
     ok.sort(key=lambda t: (t[0], t[1], t[2]))
-    stop_pct, pos, vr, x, lp, sup, sup_name = ok[0]
+    stop_pct, pos, vr, x, lp, sup, sup_name, stop_price, stop_tag = ok[0]
     code = x["code"]
     nm = names.get(code, code)
     lines.append(f"🥇 {nm} ({code})　{x.get('trend', '')}")
     lines.append(f"　💰 掛單 ≤{lp:.2f}（{sup_name} {sup:.2f} 的 +{NEAR_PCT:.0f}% 內）")
-    lines.append(f"　🛑 停損 {x['ma60']:.2f}（季線）｜風險 −{stop_pct:.1f}%")
+    lines.append(f"　🛑 停損 {stop_price:.2f}（{stop_tag}）｜風險 −{stop_pct:.1f}%")
     meta = [f"位階 {pos:.0f}%", f"量比 {vr}", f"月線斜率 +{x['ma20_slope5']:.2f}"]
     lines.append("　📊 " + "｜".join(meta))
     notes = valuation_notes(valuation.get(code))

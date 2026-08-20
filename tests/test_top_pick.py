@@ -74,3 +74,25 @@ def test_top_pick_rejects_unknown_position():
     out = "\n".join(_top_pick([_c("9999", pos_pct=None)], {"9999": "測試股"}))
     assert "🥇" not in out
     assert "位階算不出來" in out
+
+
+def test_stop_level_uses_season_line_when_far_enough():
+    from jobs.screen import _stop_level
+    stop, pct, tag = _stop_level(102.0, 96.0)      # 距離 5.9% ≥ 下限
+    assert stop == 96.0 and tag == "季線"
+
+
+def test_stop_level_adds_buffer_when_hugging_the_line():
+    """掛單貼著季線時（禾伸堂案例：掛 712／季線 708 只有 0.6%），
+    停損要從季線往下讓到至少 MIN_STOP_PCT——停損只該死於結構，不該死於日常呼吸。"""
+    from jobs.screen import _stop_level, MIN_STOP_PCT
+    stop, pct, tag = _stop_level(712.0, 708.17)
+    assert pct == MIN_STOP_PCT
+    assert stop < 708.17                    # 讓到季線下方
+    assert abs(stop - 712.0 * (1 - MIN_STOP_PCT / 100)) < 1e-9
+    assert "緩衝" in tag
+
+
+def test_stop_level_none_when_below_line():
+    from jobs.screen import _stop_level
+    assert _stop_level(95.0, 96.0) == (None, None, None)
