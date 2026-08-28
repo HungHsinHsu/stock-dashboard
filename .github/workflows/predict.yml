@@ -34,6 +34,10 @@ on:
         description: "quote 用：列出最近幾根收盤（留空＝7；判底部/頭部型態要拉長）"
         required: false
         default: ""
+      hold_ops:
+        description: "holdadmin 用：同步持股帳本（sell:代號｜sell:代號:股數｜buy:代號:股數:均價｜set:代號:股數:均價，逗號分隔；留空＝只列出目前持股）"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -84,6 +88,8 @@ jobs:
           QUOTE_CODES: ${{ github.event.inputs.quote_codes }}
           QUOTE_MONTHS: ${{ github.event.inputs.quote_months }}
           QUOTE_TAIL: ${{ github.event.inputs.quote_tail }}
+          # jobs.holdadmin 專用（其他 job 忽略）：同步真實持股帳本
+          HOLD_OPS: ${{ github.event.inputs.hold_ops }}
         run: python -m jobs.${{ steps.which.outputs.job }}
       - name: Commit history（僅 JSON 模式；設了 DATABASE_URL 就走 DB、跳過）
         env:
