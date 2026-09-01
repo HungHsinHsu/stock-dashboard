@@ -10,9 +10,63 @@
 用法（workflow_dispatch，job=dbadmin）：
   admin_date=2026-07-10                      # 只列出那天有哪些紀錄
   admin_date=2026-07-10, admin_action=delete # 確認後刪除
+  admin_action=stats                         # 方向命中率統計（含盲猜基準，唯讀）
+  admin_action=screen                        # 傾印目前選股快照（唯讀）
 """
 import os
+from collections import defaultdict
+
 from core import db, store
+
+
+def hit_stats(records):
+    """方向命中率統計（唯讀）。回 dict：整體／大盤／個股各一組
+    {n, hits, rate, baseline_up}，外加各標的與各月份的分組。
+
+    baseline_up＝同一批日子裡「永遠盲猜漲」的命中率（＝實際收漲的天數比例；
+    盲猜跌＝1−它）。預測要贏過盲猜才有存在價值——「我自己猜都比較準」
+    這個質疑，要有這個對照組才能被驗證或推翻，光看命中率絕對值會誤判：
+    在連跌的月份 45% 可能贏盲猜，在連漲的月份 60% 可能輸盲猜。"""
+    rows = []
+    for r in records:
+        rev = r.get("review") or {}
+        if "results" not in rev or "direction" not in rev["results"]:
+            continue
+        rows.append({
+            "stock": str(r.get("stock") or "?"),
+            "month": str(r.get("date") or "")[:7],
+            "hit": bool(rev["results"]["direction"]),
+            "up": rev.get("direction_actual") == "漲",
+        })
+
+    def agg(subset):
+        n = len(subset)
+        if not n:
+            return {"n": 0, "hits": 0, "rate": None, "baseline_up": None}
+        hits = sum(1 for x in subset if x["hit"])
+        ups = sum(1 for x in subset if x["up"])
+        return {"n": n, "hits": hits,
+                "rate": round(hits / n, 2), "baseline_up": round(ups / n, 2)}
+
+    by_stock, by_month = defaultdict(list), defaultdict(list)
+    for x in rows:
+        by_stock[x["stock"]].append(x)
+        by_month[x["month"]].append(x)
+    return {
+        "overall": agg(rows),
+        "market": agg([x for x in rows if x["stock"] == "大盤"]),
+        "stocks": agg([x for x in rows if x["stock"] != "大盤"]),
+        "by_stock": {k: agg(v) for k, v in sorted(by_stock.items())},
+        "by_month": {k: agg(v) for k, v in sorted(by_month.items())},
+    }
+
+
+def _fmt(label, s):
+    if not s["n"]:
+        return f"  {label}: 無資料"
+    return (f"  {label}: 命中 {s['hits']}/{s['n']}＝{s['rate'] * 100:.0f}%"
+            f"｜盲猜漲基準 {s['baseline_up'] * 100:.0f}%"
+            f"（盲猜跌 {(1 - s['baseline_up']) * 100:.0f}%）")
 
 
 def run():
@@ -20,6 +74,21 @@ def run():
     action = os.environ.get("ADMIN_ACTION", "list").strip().lower()
     if not db.db_enabled():
         print("未設定 DATABASE_URL，無法連 DB。中止。")
+        return
+
+    if action == "stats":
+        # 方向命中率總覽：整體/大盤/個股＋各標的＋各月份，每組都附盲猜基準。
+        st = hit_stats(store.load_history())
+        print("===== 方向命中率統計 =====")
+        print(_fmt("整體", st["overall"]))
+        print(_fmt("大盤", st["market"]))
+        print(_fmt("個股", st["stocks"]))
+        print("----- 各標的 -----")
+        for code, s in st["by_stock"].items():
+            print(_fmt(code, s))
+        print("----- 各月份 -----")
+        for month, s in st["by_month"].items():
+            print(_fmt(month, s))
         return
 
     if action == "screen":
