@@ -94,6 +94,9 @@ VOL_EXPAND = 1.2   # 量比 > 此值算「帶量」
 # （短均線被拉上來貼價→「到支撐」、漲停惜售低量→「量縮」、+10%→「止穩」），故補這道『當日
 # 動態』守門，把噴出的那根排除在回檔承接之外。
 SURGE_PCT = 4.5
+# 季線被舊高墊高（ma60 > ma20）時，出場線改用「月線再往下讓此 % 緩衝」——
+# 跟選股停損的 MIN_STOP_PCT 同一個「別死於呼吸」哲學（見 exit_setup docstring）。
+POLLUTED_EXIT_BUFFER_PCT = 1.5
 
 SIGNAL_RANK = {"避開": 0, "觀望": 1, "進場": 2}
 
@@ -248,6 +251,13 @@ def exit_setup(ind, batches=None):
     收盤還沒追回季線的強勢反彈棒，會被判成「跌破季線→全數出場」——在最強的一天叫人認賠。
     這是 entry_setup 那條教訓（漲停被誤判成『回檔到支撐』）的鏡像：同樣是方向盲。
     故當日漲幅 ≥ SURGE_PCT 時不在該根執行出場/減碼，改續抱、等下一根收盤確認。
+
+    污染季線守門（2026-09-03 事故）：季線高過月線＝60 日窗口還塞著崩跌/噴出前的舊高，
+    那條線量的是「有沒有漲回前高」，不是「趨勢好不好」（entry_setup 的 8/13 教訓早已記錄，
+    但出場這側一直沿用季線）。結果大盤 −1.7% 隔天，持股頁對世界先進/廣達/台達電/禾伸堂
+    一排「跌破季線→出場」——四檔全是修復段、離各自真正的結構位還遠。修法：季線被墊高時
+    出場改看『月線再讓 POLLUTED_EXIT_BUFFER_PCT 緩衝』，跌破月線仍照舊減碼；
+    「在月線上、季線下」不再觸發任何出場動作。
     """
     close = ind.get("close")
     ma20 = ind.get("ma20")
@@ -257,7 +267,21 @@ def exit_setup(ind, batches=None):
         return {"action": None, "reason": "無現價資料，無法判定出場"}
     day_chg = ((close - prev) / prev * 100) if prev else None
     surged = day_chg is not None and day_chg >= SURGE_PCT
-    if ma60 is not None and close < ma60:
+    # 上升趨勢股的季線本該在月線之下；季線高過月線＝被舊高墊高、不能當出場線
+    polluted = ma60 is not None and ma20 is not None and ma60 > ma20
+    if polluted:
+        exit_line = ma20 * (1 - POLLUTED_EXIT_BUFFER_PCT / 100)
+        if close < exit_line:
+            if surged:
+                return {"action": "續抱",
+                        "reason": f"收盤雖破月線緩衝線({exit_line:.1f})，但當日大漲/漲停"
+                                  f"(+{day_chg:.1f}%)＝強勢反彈→這根不執行出場，等下一根收盤確認"}
+            return {"action": "出場",
+                    "reason": f"季線({ma60:.1f})被舊高墊高不可靠，出場改看月線緩衝：收盤已破"
+                              f"月線({ma20:.1f})−{POLLUTED_EXIT_BUFFER_PCT:g}%＝{exit_line:.1f}"
+                              "→ 結構轉壞，依紀律全數出場"}
+        # 未破月線緩衝線 → 交給下方的月線減碼判斷；「月線上、季線下」不觸發出場
+    if ma60 is not None and close < ma60 and not polluted:
         if surged:
             return {"action": "續抱",
                     "reason": f"收盤雖仍在季線(MA60{ma60:.1f})之下，但當日大漲/漲停"
@@ -272,13 +296,20 @@ def exit_setup(ind, batches=None):
                     "reason": f"收盤雖在月線(MA20{ma20:.1f})之下，但當日大漲/漲停"
                               f"(+{day_chg:.1f}%)＝強勢反彈、非短線轉弱→這根不減碼，"
                               "等下一根收盤再確認"}
+        stop_txt = (f"月線−{POLLUTED_EXIT_BUFFER_PCT:g}%（季線被舊高墊高不可靠）"
+                    if polluted else "季線(MA60)")
         if batches is not None and batches < 3:
             return {"action": "續抱",
                     "reason": "跌破月線(MA20)但建倉未滿三批：月線是加碼支撐(支撐2)、"
-                              "非減碼點；守住季線即可"}
+                              f"非減碼點；守住{stop_txt}即可"}
         return {"action": "減碼",
                 "reason": "收盤跌破月線(MA20)＝短線轉弱，先減碼約一半、"
-                          "剩餘移到季線(MA60)停損"}
+                          f"剩餘停損移到{stop_txt}"}
+    if polluted:
+        return {"action": "續抱",
+                "reason": f"站穩月線({ma20:.1f})之上；季線({ma60:.1f})雖在頭上但被舊高墊高"
+                          "＝『還沒漲回前高』非趨勢轉空→續抱"
+                          f"（跌破月線減碼、跌破月線−{POLLUTED_EXIT_BUFFER_PCT:g}% 出場）"}
     return {"action": "續抱",
             "reason": "站穩月線(MA20)之上、趨勢未壞→續抱"
                       "（跌破月線減碼、跌破季線全數出場）"}

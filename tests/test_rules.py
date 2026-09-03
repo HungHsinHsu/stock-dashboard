@@ -254,3 +254,37 @@ def test_missing_ma20_falls_back_to_the_plain_wording():
     from core.rules import entry_setup
     r = entry_setup({"close": 90.0, "ma60": 95.0, "dist_support3_pct": -5.3}, code="2330")
     assert r["ceiling"] == "避開" and "等收盤站回季線再看" in r["reason"]
+
+
+# ─────────── 污染季線守門（2026-09-03 事故：季線被舊高墊高不能當出場線）───────────
+def test_exit_polluted_ma60_above_ma20_holds_between_lines():
+    # 世界先進 9/2 型：收 151、月線 154 下緣附近、季線 167 被 6 月舊高墊高。
+    # 在月線緩衝線之上、季線之下 → 不再喊「跌破季線出場」。
+    s = exit_setup({"close": 155, "ma20": 154.3, "ma60": 167.3})
+    assert s["action"] == "續抱"
+    assert "舊高" in s["reason"]
+
+
+def test_exit_polluted_below_ma20_is_trim_not_exit():
+    # 污染季線下、剛破月線 → 減碼（不是出場），停損講月線緩衝、不講季線
+    s = exit_setup({"close": 152.5, "ma20": 154.3, "ma60": 167.3}, batches=3)
+    assert s["action"] == "減碼"
+    assert "季線(MA60)" not in s["reason"]
+
+
+def test_exit_polluted_below_buffer_is_exit():
+    # 跌破月線 −1.5% 緩衝線 → 結構真的壞了，照樣出場
+    s = exit_setup({"close": 151.5, "ma20": 154.3, "ma60": 167.3}, batches=3)
+    assert s["action"] == "出場"
+
+
+def test_exit_polluted_surge_day_still_holds():
+    # 污染季線＋破緩衝線但當日大漲 → 漲停守門優先，不在最強的一天叫人認賠
+    s = exit_setup({"close": 151.5, "prev_close": 143.0, "ma20": 154.3, "ma60": 167.3})
+    assert s["action"] == "續抱"
+
+
+def test_exit_normal_alignment_unchanged():
+    # 正常排列（月線在季線上）行為不變：跌破季線仍然出場
+    s = exit_setup({"close": 78, "ma20": 95, "ma60": 80})
+    assert s["action"] == "出場"
