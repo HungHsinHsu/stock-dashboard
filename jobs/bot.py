@@ -78,6 +78,11 @@ HELP = "\n".join([
     "/賣了 2618 250　記錄實際賣出（省略股數＝全部出清）",
     "/庫存　列出實際持股",
     "",
+    "—— 事件行事曆（餵早盤預測的時事層）——",
+    "/行事曆　未來 14 天的已知事件（FOMC、營收窗、手動）",
+    "/行事曆 9-16 台積電法說會　新增手動事件（法說會、政策時程）",
+    "/行事曆 刪 9-16　刪掉那天的手動事件",
+    "",
     "/help　說明",
     "",
     "—— 直接問股票問題 ——",
@@ -105,6 +110,7 @@ BOT_COMMANDS = [
     ("bought", "記錄實際買進：代號 股數 均價（餵 08:30 持股建議）"),
     ("sold", "記錄實際賣出：代號 [股數]（省略＝全部出清）"),
     ("holdings", "列出實際持股（股數＋均價）"),
+    ("calendar", "事件行事曆：列未來事件，或「日期 事件」新增"),
     ("help", "指令說明"),
 ]
 
@@ -457,6 +463,7 @@ KNOWN_CMDS = {
     "review", "復盤", "結果", "查", "查預測", "查詢", "紀錄", "記錄",
     "開盤", "產生預測", "推播", "跑預測", "morning", "run",
     "選股", "掃描", "選標的", "找標的", "scan", "screen",
+    "行事曆", "事件", "calendar", "cal",
 }
 
 
@@ -681,11 +688,44 @@ def _dispatch(text):
             return _watch_command()
         except Exception as e:
             return f"⚠️ 清單掃描失敗：{e}"
+    # 事件行事曆：列未來事件／新增手動事件（法說會、政策時程）／刪除
+    if cmd in ("行事曆", "事件", "calendar", "cal"):
+        return _calendar_command(args)
     # 以「/」開頭卻沒對到任何指令 → 打錯指令
     if text.strip().startswith("/"):
         return "不認得的指令。傳 /help 看用法。"
     # 其餘自由文字 → 當成股票問題，交給 Claude 回答
     return _answer_question(text)
+
+
+def _calendar_command(args):
+    """/行事曆＝未來 14 天事件；/行事曆 日期 文字＝新增；/行事曆 刪 日期＝刪除。
+    手動事件是時事層裡唯一要人餵的部分：法說會、立法院表決日這種抓不到 API
+    的排定事件靠這裡進系統，早盤預測當天會自動帶上。"""
+    from core import events as ev
+    if not args:
+        rows = ev.upcoming(days=14)
+        if not rows:
+            return "📅 未來 14 天沒有已知事件。\n新增：/行事曆 9/16 台積電法說會"
+        return "📅 未來 14 天事件：\n" + "\n".join(
+            f"・{d}　{t}" for d, t in rows)
+    if args[0] in ("刪", "刪除", "del", "remove", "rm"):
+        if len(args) < 2:
+            return "用法：/行事曆 刪 9/16"
+        d = ev.parse_date(args[1])
+        if not d:
+            return f"看不懂日期「{args[1]}」。用 9/16 或 2026-09-16。"
+        n = ev.remove_manual_events(d)
+        return f"🗑 已刪除 {d} 的 {n} 筆手動事件。" if n else f"{d} 沒有手動事件。"
+    d = ev.parse_date(args[0])
+    if not d:
+        return ("看不懂日期「" + args[0] + "」。\n"
+                "列表：/行事曆　新增：/行事曆 9/16 台積電法說會　刪除：/行事曆 刪 9/16")
+    if len(args) < 2:
+        return "事件內容呢？例：/行事曆 9/16 台積電法說會"
+    text = " ".join(args[1:])
+    ev.add_manual_event(d, text)
+    return f"✅ 已加入 {d}：{text}\n（當天早盤預測會自動帶上這則事件）"
 
 
 def process_web_message(text, owner="admin"):

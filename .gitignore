@@ -2,3 +2,4 @@ __pycache__/
 *.py[cod]
 .superpowers/
 .pytest_cache/
+calendar_manual.json

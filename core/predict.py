@@ -342,7 +342,7 @@ def _taifex_conflicts_us(taifex_night, us_overnight):
 def make_market_prediction(index_indicators, us_overnight, market_data,
                            taifex_night=None, llm=generate_json, lessons="",
                            taifex_asof=None, us_asof=None, tw_last=None,
-                           taifex_session=None):
+                           taifex_session=None, events=None):
     # 台指期與美股背離（方向相反、或幅度差太多）→ 台指期多半過時/抓錯場/雜訊，丟棄不用
     tf_conflict = _taifex_conflicts_us(taifex_night, us_overnight)
     if tf_conflict:
@@ -381,9 +381,16 @@ def make_market_prediction(index_indicators, us_overnight, market_data,
     )
     if digested:
         user += "\n\n⚠️ 資料新鮮度提醒（重要）：\n" + "\n".join(f"・{d}" for d in digested)
+    # 時事第一層：今日已排定事件（FOMC/營收窗/除權息/手動輸入的法說・政策時程）。
+    # 只影響「怎麼解讀方向與信心」（例：FOMC 前夕觀望、決議日以隔夜美股為準），
+    # 不推翻美股隔夜這個主要領先指標。
+    if events:
+        user += ("\n\n📅 今日已排定事件（已知時程，請納入方向與信心的判斷）：\n"
+                 + "\n".join(f"・{e}" for e in events))
     if lessons:
         user += f"\n\n{lessons}"
     out = llm(_MARKET_SYSTEM, user, MARKET_PRED_SCHEMA)
+    out["events"] = list(events or [])
     out["us_overnight"] = us_overnight
     out["us_date"] = us_asof
     out["us_digested"] = bool(us_asof and tw_last and us_asof < tw_last)
@@ -430,6 +437,9 @@ def format_market_prediction(date, pred, forecast=False):
         pct = mk.get("pct")
         pt = f" {pct:+.2f}%" if isinstance(pct, (int, float)) else ""
         lines.append(f"🌐 大盤昨收：{mk['direction']}{pt}")
+    evts = pred.get("events") or []
+    if evts:
+        lines += ["", "──── 📅 今日事件 ────"] + [f"・{e}" for e in evts]
     drivers = pred.get("drivers") or []
     if drivers:
         lines += ["", "──── 依據 ────"] + [f"・{humanize(d)}" for d in drivers]

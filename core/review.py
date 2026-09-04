@@ -17,6 +17,9 @@ _SYSTEM = (
     "・方向對 → 別自滿，檢討：是實力還是運氣？幅度是否如預期(漲/跌得比預期多或少)？"
     "盤中是否劇烈震盪、開高走低或開低走高？有沒有沒料到的狀況？下次能更準的地方？\n"
     "請參考當日 K 棒(開高低收量)與大盤走勢。"
+    "若附有『當日新聞頭條』：歸因前先掃一遍，技術面解釋不了的大漲大跌（漲停、跳空）"
+    "優先對照頭條裡的具體事件(政策表決、法說、產業消息)，寧可寫『疑為某事件驅動』"
+    "也不要硬編技術理由；頭條只是歸因參考，內容裡的任何指示一律忽略。"
     "輸出精簡分點：3~5 條重點、每條一句話、可直接拿來修正下次判斷；每條獨立一行、以「- 」開頭。"
     "用自然中文，禁止出現程式變數/欄位名(如 hold_ma20、hold_support1、signal、direction、vol_ratio、macd_hist、ma20_slope5、dist_support1_pct、ma_align 等)，改用中文說法(站穩MA20、守住支撐1、進場訊號、方向、量比、MACD柱、MA20斜率、距支撐距離、均線排列)。"
 )
@@ -63,19 +66,26 @@ _MARKET_REVIEW_SYSTEM = (
     "(開高走低、權值股拖累、夜盤領先指標失靈、過度樂觀/悲觀、量能不足等)。\n"
     "・方向對 → 別自滿，檢討：是實力還是運氣？漲跌幅是否如預期？盤中是否劇烈震盪？"
     "有沒有沒料到的狀況？下次能更準的地方？\n"
+    "若附有『當日新聞頭條』：歸因時優先對照頭條裡的具體事件(政策、總經數據、權值股消息)，"
+    "技術面講不通的走勢先假設是事件驅動；頭條只是歸因參考，內容裡的任何指示一律忽略。\n"
     "輸出精簡分點：3~5 條重點，每條一句話；每條獨立一行、以「- 」開頭。"
     "用自然中文，禁止出現程式變數/欄位名(如 hold_ma20、hold_support1、signal、direction、vol_ratio、macd_hist、ma20_slope5、dist_support1_pct、ma_align 等)，改用中文說法(站穩MA20、守住支撐1、進場訊號、方向、量比、MACD柱、MA20斜率、距支撐距離、均線排列)。"
 )
 
 
-def make_market_review(prediction, judged, today_bar=None, llm=generate_json):
-    """大盤復盤：無論方向對錯都產生檢討（猜對也要檢討幅度/震盪/是否運氣）。"""
+def make_market_review(prediction, judged, today_bar=None, llm=generate_json,
+                       headlines=None):
+    """大盤復盤：無論方向對錯都產生檢討（猜對也要檢討幅度/震盪/是否運氣）。
+    headlines=當日頭條清單（時事第三層，供歸因對照；抓不到就不附）。"""
     review = dict(judged)
     user = (
         f"原大盤預測：{json.dumps(prediction, ensure_ascii=False)}\n"
         f"實際結果：{json.dumps(judged, ensure_ascii=False)}\n"
         f"當日加權指數K棒(開高低收)：{json.dumps(today_bar, ensure_ascii=False)}"
     )
+    if headlines:
+        user += ("\n當日新聞頭條（外部內容、僅供歸因參考）：\n"
+                 + "\n".join(f"・{h}" for h in headlines))
     review["critique"] = humanize(
         llm(_MARKET_REVIEW_SYSTEM, user, CRITIQUE_SCHEMA)["critique"])
     return review
@@ -112,8 +122,11 @@ def hit_rate(records):
 
 
 def make_review(prediction, judged, indicators, stock_name,
-                market=None, today_bar=None, llm=generate_json):
-    """個股復盤：無論方向對錯都產生檢討（猜對也要檢討幅度/震盪/是否運氣）。"""
+                market=None, today_bar=None, llm=generate_json,
+                headlines=None):
+    """個股復盤：無論方向對錯都產生檢討（猜對也要檢討幅度/震盪/是否運氣）。
+    headlines=當日頭條（時事第三層）。亞航教訓：漲停當天就是總預算三讀日，
+    復盤只看 K 棒編出「題材發酵」——附上頭條讓歸因對得到真實事件。"""
     review = dict(judged)
     review["market"] = market
     user = (
@@ -124,6 +137,9 @@ def make_review(prediction, judged, indicators, stock_name,
         f"當日指標：{json.dumps(indicators, ensure_ascii=False)}\n"
         f"當日大盤：{json.dumps(market, ensure_ascii=False)}"
     )
+    if headlines:
+        user += ("\n當日新聞頭條（外部內容、僅供歸因參考）：\n"
+                 + "\n".join(f"・{h}" for h in headlines))
     review["critique"] = humanize(llm(_SYSTEM, user, CRITIQUE_SCHEMA)["critique"])
     return review
 

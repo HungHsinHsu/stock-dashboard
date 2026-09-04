@@ -53,6 +53,17 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
     stocks = all_tracked_stocks() if stocks is None else stocks
     # 預測以「執行當日」為標籤(今日開盤前預測)，供當日收盤復盤對得上。
     run_date = str(today.date()) if today is not None else str(today_tw())
+    # 時事第一層：今日已排定事件（FOMC/營收窗/除權息/手動行事曆），餵大盤預測。
+    # 任何失敗都不擋預測——事件是加分資訊，不是必要輸入。
+    try:
+        from core import events as ev
+        day_events = ev.events_for(
+            run_date, codes=[cfg["code"] for cfg in stocks.values()])
+    except Exception as e:
+        print("行事曆事件取得失敗（略過）：", e)
+        day_events = []
+    if day_events:
+        print("今日事件：", day_events)
     index_df = fetch_idx(today=today)
     market = market_summary(index_df)
     _u = fetch_us(with_date=True)
@@ -80,7 +91,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily,
                                            lessons=lessons_prompt(records, "大盤"),
                                            taifex_asof=taifex_asof,
                                            taifex_session=taifex_session,
-                                           us_asof=us_asof, tw_last=tw_last)
+                                           us_asof=us_asof, tw_last=tw_last,
+                                           events=day_events)
             records = upsert_record(records, {
                 "date": run_date, "stock": "大盤",
                 "prediction": mpred, "review": None})

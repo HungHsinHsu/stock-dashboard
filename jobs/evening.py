@@ -52,6 +52,10 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
     date = str(today.date()) if today is not None else str(today_tw())
     idx_df = fetch_idx(today=today)
     market = market_summary(idx_df)
+    # 時事第三層：當日頭條餵進復盤歸因（抓不到＝空清單，完全不影響流程）。
+    from core.headlines import fetch_headlines
+    headlines = fetch_headlines()
+    print(f"[evening] 當日頭條 {len(headlines)} 則")
     records = load_history(HISTORY_PATH)
     produced, waiting, stock_summ = [], [], []
     idx_last = str(idx_df.index[-1].date()) if not idx_df.empty else "EMPTY"
@@ -71,7 +75,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
         if data_ready and len(closes) >= 2:
             judged = judge_market(mrec["prediction"], closes.iloc[-1], closes.iloc[-2])
             jm = make_market_review(mrec["prediction"], judged,
-                                    today_bar=_today_bar(idx_df), llm=llm)
+                                    today_bar=_today_bar(idx_df), llm=llm,
+                                    headlines=headlines)
             mrec["review"] = jm
             records = upsert_record(records, mrec)
             produced.append(mrec)
@@ -105,7 +110,8 @@ def run(today=None, llm=generate_json, fetch=fetch_daily, fetch_idx=fetch_index,
             support1=s1,
         )
         review = make_review(rec["prediction"], judged, indicators, name,
-                             market=market, today_bar=_today_bar(df), llm=llm)
+                             market=market, today_bar=_today_bar(df), llm=llm,
+                             headlines=headlines)
         rec["review"] = review
         records = upsert_record(records, rec)
         if not review.get("success"):     # 教訓只收『預測錯』的
