@@ -58,7 +58,8 @@ def _fmt(row):
 # 代號、名稱、當月、上月、去年當月、月增%、年增%、累計、去年累計、累計增減%、備註）。
 # MOPS 2025 改版後舊站搬到 mopsov；兩個主機都試，哪個活用哪個。
 _MOPS_HOSTS = ("mops.twse.com.tw", "mopsov.twse.com.tw")
-_MOPS_URL = "https://{host}/nas/t21/{board}/t21sc03_{y}_{m}_0.html"
+# 尾碼 _0＝國內公司、_1＝KY(外國)公司，兩份都要看（貿聯-KY 只在 _1）。
+_MOPS_URL = "https://{host}/nas/t21/{board}/t21sc03_{y}_{m}_{kind}.html"
 _MOPS_AJAX = "https://{host}/mops/web/ajax_t05st10_ifrs"
 _MOPS_LABELS = ("當月", "上月", "去年當月", "月增%", "年增%", "累計", "去年累計", "累計增減%")
 
@@ -76,31 +77,34 @@ def _strip(html):
 
 def mops_rows(board, y, m, codes, fetcher=None):
     """回 {code: [cells...]}；抓不到回 {} 並印原因。board=sii(上市)/otc(上櫃)。"""
-    html = None
-    for host in (_MOPS_HOSTS if fetcher is None else ("test",)):
-        url = _MOPS_URL.format(host=host, board=board, y=y, m=m)
-        try:
-            if fetcher is None:
-                r = requests.get(url, headers={"user-agent": HEADERS["user-agent"]}, timeout=30)
-                if r.status_code != 200:
-                    print(f"[MOPS {host} {board} {y}/{m}] HTTP {r.status_code}")
-                    continue
-                html = r.content.decode("big5", errors="replace")
-            else:
-                html = fetcher(url)
-            break
-        except Exception as e:
-            print(f"[MOPS {host} {board} {y}/{m}] 抓取失敗：{type(e).__name__}: {e}")
-    if html is None:
-        return {}
-    out = {}
-    for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html, flags=re.S | re.I):
-        cells = [_strip(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", tr, flags=re.S | re.I)]
-        if cells and cells[0] in codes:
-            out[cells[0]] = cells
+    out, pages = {}, 0
+    for kind in ("0", "1"):
+        html = None
+        for host in (_MOPS_HOSTS if fetcher is None else ("test",)):
+            url = _MOPS_URL.format(host=host, board=board, y=y, m=m, kind=kind)
+            try:
+                if fetcher is None:
+                    r = requests.get(url, headers={"user-agent": HEADERS["user-agent"]},
+                                     timeout=30)
+                    if r.status_code != 200:
+                        print(f"[MOPS {host} {board} {y}/{m}_{kind}] HTTP {r.status_code}")
+                        continue
+                    html = r.content.decode("big5", errors="replace")
+                else:
+                    html = fetcher(url)
+                break
+            except Exception as e:
+                print(f"[MOPS {host} {board} {y}/{m}_{kind}] 抓取失敗：{type(e).__name__}: {e}")
+        if html is None:
+            continue
+        pages += 1
+        for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html, flags=re.S | re.I):
+            cells = [_strip(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", tr,
+                                                   flags=re.S | re.I)]
+            if cells and cells[0] in codes:
+                out[cells[0]] = cells
     if not out:
-        print(f"[MOPS {board} {y}/{m}] 頁面 {len(html)} 字，未找到指定代號"
-              f"（{'頁面可能尚未有資料' if '公司代號' in html else '格式不符或被擋'}）")
+        print(f"[MOPS {board} {y}/{m}] 讀到 {pages} 頁，未找到指定代號")
     return out
 
 
