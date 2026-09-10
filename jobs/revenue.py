@@ -9,7 +9,10 @@
 欄位名照 MOPS 原樣（含全形括號），抓不到指定欄位就整列原樣印出，不猜。
 """
 import os
+import re
 import requests
+
+from core.tz import today_tw
 
 HEADERS = {"accept": "application/json", "user-agent": "Mozilla/5.0"}
 SOURCES = [
@@ -50,6 +53,62 @@ def _fmt(row):
             f"｜月增 {mom}%｜年增 {yoy}%｜累計年增 {cum_yoy}%")
 
 
+# MOPS 月營收彙總頁：公司一申報就會出現在當月頁面，比 openapi 的月彙總早很多。
+# 頁面是 big5 的巢狀 table，沒裝 lxml/bs4，用正則拆 <tr>/<td> 就夠（欄位順序固定：
+# 代號、名稱、當月、上月、去年當月、月增%、年增%、累計、去年累計、累計增減%、備註）。
+_MOPS_URL = "https://mops.twse.com.tw/nas/t21/{board}/t21sc03_{y}_{m}_0.html"
+_MOPS_LABELS = ("當月", "上月", "去年當月", "月增%", "年增%", "累計", "去年累計", "累計增減%")
+
+
+def _target_ym(today=None):
+    """上一個月（民國年, 月）：9 月查 8 月營收。"""
+    d = today or today_tw()
+    y, m = (d.year, d.month - 1) if d.month > 1 else (d.year - 1, 12)
+    return y - 1911, m
+
+
+def _strip(html):
+    return re.sub(r"<[^>]+>", "", html).replace("&nbsp;", " ").strip()
+
+
+def mops_rows(board, y, m, codes, fetcher=None):
+    """回 {code: [cells...]}；抓不到回 {} 並印原因。board=sii(上市)/otc(上櫃)。"""
+    url = _MOPS_URL.format(board=board, y=y, m=m)
+    try:
+        if fetcher is None:
+            r = requests.get(url, headers={"user-agent": HEADERS["user-agent"]}, timeout=30)
+            if r.status_code != 200:
+                print(f"[MOPS {board} {y}/{m}] HTTP {r.status_code}")
+                return {}
+            html = r.content.decode("big5", errors="replace")
+        else:
+            html = fetcher(url)
+    except Exception as e:
+        print(f"[MOPS {board} {y}/{m}] 抓取失敗：{type(e).__name__}: {e}")
+        return {}
+    out = {}
+    for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html, flags=re.S | re.I):
+        cells = [_strip(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", tr, flags=re.S | re.I)]
+        if cells and cells[0] in codes:
+            out[cells[0]] = cells
+    if not out:
+        print(f"[MOPS {board} {y}/{m}] 頁面 {len(html)} 字，未找到指定代號"
+              f"（{'頁面可能尚未有資料' if '公司代號' in html else '格式不符或被擋'}）")
+    return out
+
+
+def _fmt_mops(cells):
+    name, vals = cells[1], cells[2:10]
+    parts = []
+    for label, v in zip(_MOPS_LABELS, vals):
+        n = _num(v)
+        if label.endswith("%") or n is None:
+            parts.append(f"{label} {v}")
+        else:
+            parts.append(f"{label} {n / 1e5:,.2f} 億")
+    return f"    {name}｜" + "｜".join(parts)
+
+
 def run():
     raw = os.environ.get("QUOTE_CODES", "").strip()
     if raw:
@@ -80,6 +139,19 @@ def run():
     missing = codes - found
     if missing:
         print(f"未找到：{sorted(missing)}（可能尚未公布、或代號不在這兩份資料）")
+
+    # openapi 只有月彙總（常落後一個月）；目標月份直接讀 MOPS 當月頁補上最新一筆。
+    y, m = _target_ym()
+    print(f"\n===== MOPS 民國 {y} 年 {m} 月營收（公司申報即出現）=====")
+    got = set()
+    for board in ("sii", "otc"):
+        rows = mops_rows(board, y, m, codes)
+        for code in sorted(rows):
+            got.add(code)
+            print(f"  {code}（{'上市' if board == 'sii' else '上櫃'}）")
+            print(_fmt_mops(rows[code]))
+    if codes - got:
+        print(f"MOPS {y}/{m} 尚無：{sorted(codes - got)}（還沒申報，或頁面未更新）")
 
 
 if __name__ == "__main__":
