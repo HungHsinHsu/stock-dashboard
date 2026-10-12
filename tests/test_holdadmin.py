@@ -40,3 +40,16 @@ def test_apply_ops_mirrors_bot_semantics(tmp_path):
     apply_ops(parse_ops("set:2383:2:5800"), path=path)
     rec = load_holdings(path=path)["2383"]
     assert rec["shares"] == 2 and rec["avg_cost"] == 5800
+
+
+def test_full_sell_also_clears_batch_record(tmp_path):
+    from core.positions import enter_batch, get_batches
+    path = str(tmp_path / "holdings.json")
+    pos = str(tmp_path / "positions.json")
+    apply_ops(parse_ops("set:3037:10:950,set:2383:6:5708"), path=path)
+    enter_batch("3037", path=pos)
+    enter_batch("2383", path=pos)
+    lines = apply_ops(parse_ops("sell:3037,sell:2383:2"), path=path)
+    assert get_batches("3037", path=pos) == 0        # 出清 → 批數清空
+    assert get_batches("2383", path=pos) == 1        # 部分賣出 → 批數不動
+    assert "分批部位一併清空" in lines[0]

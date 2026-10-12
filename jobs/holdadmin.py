@@ -12,8 +12,11 @@
                           對應指令——它逐筆記帳不需要，這裡是「以對帳結果為準」）
 
 寧可整批失敗也不要半批入帳：先全部解析、有錯就整批拒絕，再逐筆套用。
+出清時一併清掉該股的分批部位紀錄（pos:<owner>），否則已賣掉的股票還會掛著批數。
 """
 import os
+
+from core.positions import POSITIONS_PATH, exit_position, held_positions
 
 from core.holdings import (
     DEFAULT_OWNER, load_holdings, remove_holding, set_holding,
@@ -45,8 +48,10 @@ def apply_ops(ops, owner=DEFAULT_OWNER, path=None):
     """逐筆套用並回傳人類可讀的結果行。語意對齊 jobs/bot.py 的 /買了 /賣了：
     買進加權平均合併、部分賣出不動均價、賣超過持有＝出清。"""
     kw = {"owner": owner}
+    pos_path = POSITIONS_PATH
     if path:
         kw["path"] = path
+        pos_path = os.path.join(os.path.dirname(path), POSITIONS_PATH)
     lines = []
     for op, code, shares, price in ops:
         held = (load_holdings(**kw) or {}).get(str(code)) or {}
@@ -57,7 +62,9 @@ def apply_ops(ops, owner=DEFAULT_OWNER, path=None):
                 lines.append(f"⚠️ {code} 不在持股清單裡，略過")
             elif shares is None or shares >= old_sh:
                 remove_holding(code, **kw)
-                lines.append(f"🗑 {code} 出清（原 {old_sh:g} 股 @ {old_cost:g}）")
+                had_pos = exit_position(code, owner, pos_path)
+                tail = "，分批部位一併清空" if had_pos else ""
+                lines.append(f"🗑 {code} 出清（原 {old_sh:g} 股 @ {old_cost:g}）{tail}")
             else:
                 set_holding(code, old_sh - shares, old_cost, **kw)
                 lines.append(f"✅ {code} 賣出 {shares:g} 股，剩 {old_sh - shares:g} 股（均價不變）")
@@ -80,6 +87,7 @@ def run():
     print("===== 目前持股（套用前）=====")
     for code, rec in sorted(holdings.items()):
         print(f"  {code}: {rec.get('shares'):g} 股 @ {rec.get('avg_cost')} ({rec.get('name', '')})")
+    print(f"分批部位：{held_positions() or '無'}")
     if not raw:
         print("HOLD_OPS 未設定——只列出目前持股，未做任何變更。")
         return
@@ -90,6 +98,7 @@ def run():
     print("===== 套用後持股 =====")
     for code, rec in sorted(load_holdings().items()):
         print(f"  {code}: {rec.get('shares'):g} 股 @ {rec.get('avg_cost')} ({rec.get('name', '')})")
+    print(f"分批部位：{held_positions() or '無'}")
 
 
 if __name__ == "__main__":
