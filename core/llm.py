@@ -3,7 +3,7 @@ import json
 import re
 import time
 
-MODEL = "claude-opus-4-8"
+MODEL = "claude-opus-5-5"
 
 
 class LLMError(Exception):
