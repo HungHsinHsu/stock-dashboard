@@ -64,5 +64,5 @@ Repo → Actions → stock-predict → Run workflow → 選 morning，
 有就跳過不覆蓋（見測試 `test_morning_does_not_overwrite_existing_prediction`）。
 
 ## 想改省訂閱用量？
-`core/llm.py` 的 `MODEL` 目前是 `claude-opus-4-8`。改成 `claude-sonnet-4-6`
+`core/llm.py` 的 `MODEL` 目前是 `claude-opus-5-5`。改成 `claude-sonnet-5-5`
 可較省訂閱額度、速度也較快，台股技術分析多半夠用。

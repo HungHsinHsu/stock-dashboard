@@ -11,7 +11,7 @@ SCHEMA = {
 
 
 def test_model_is_opus():
-    assert MODEL == "claude-opus-4-8"
+    assert MODEL == "claude-opus-5-5"
 
 
 def test_generate_json_parses():
